@@ -38,12 +38,11 @@ jobs:
             dotnet nuget add source "https://nuget.pkg.github.com/alifcapital/index.json" \
               --name github \
               --username alifcapital \
-              --password ${{ secrets.GITHUB_PAT }} \
-              --store-password-in-clear-text
+              --password ${{ secrets.ACCESS_TOKEN_GITHUB }}
           fi
 
       - name: Pack the NuGet package
         run: dotnet pack ${{ inputs.project_file_path }} --configuration Release --no-build --output .
 
       - name: Push the package to GitHub Packages
-        run: dotnet nuget push *.nupkg --source "https://nuget.pkg.github.com/alifcapital/index.json" --api-key ${{ secrets.GITHUB_TOKEN }}
+        run: dotnet nuget push *.nupkg --source "https://nuget.pkg.github.com/alifcapital/index.json" --api-key ${{ secrets.ACCESS_TOKEN_GITHUB }}
