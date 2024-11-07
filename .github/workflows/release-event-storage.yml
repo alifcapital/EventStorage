@@ -19,11 +19,11 @@ jobs:
     with:
       project_file_path: "src/EventStorage.csproj"
       should_add_version_tag: ${{ github.ref == 'refs/heads/main' }}
+    secrets: inherit
   
   Release:
     needs: Versioning
     uses: ./.github/workflows/build-and-push-nuget-package.yml
-    secrets: inherit
     with:
       project_file_path: 'src/EventStorage.csproj'
       package_name: 'AlifCapital.EventStorage'
