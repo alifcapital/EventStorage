@@ -32,6 +32,10 @@ jobs:
       - name: Build the project
         run: dotnet build ${{ inputs.project_file_path }} --configuration Release --no-restore
 
+      - name: Debug GitHub Secret
+        run:
+          echo "Length of the secret: ${#secrets.RABBIT_GITHUB_PACKAGES}"
+
       - name: Add NuGet source if it doesn't exist
         run: |
           dotnet nuget add source "https://nuget.pkg.github.com/alifcapital/index.json" --name github --username alifcapital --password ${{ secrets.RABBIT_GITHUB_PACKAGES }}
