@@ -45,7 +45,7 @@ jobs:
           done
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore "tests/EventStorage.Tests.csproj"
 
       - name: Build the project
         run: dotnet build --configuration Release --no-restore
