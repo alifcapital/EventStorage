@@ -37,10 +37,11 @@ jobs:
 
       - name: Add NuGet source if it doesn't exist
         run: |
-          dotnet nuget add source "https://nuget.pkg.github.com/alifcapital/index.json" --name github --username alifcapital --password ${{ inputs.pat }}
+          dotnet nuget add source "https://nuget.pkg.github.com/alifcapital/index.json" --name github --username alifcapital --password "${{ secrets.RABBIT_GITHUB_PACKAGES }}"
+
 
       - name: Pack the NuGet package
         run: dotnet pack ${{ inputs.project_file_path }} --configuration Release --no-build --output .
 
       - name: Push the package to GitHub Packages
-        run: dotnet nuget push *.nupkg --source "https://nuget.pkg.github.com/alifcapital/index.json" --api-key ${{ inputs.pat }}
+        run: dotnet nuget push *.nupkg --source "https://nuget.pkg.github.com/alifcapital/index.json" --api-key "${{ secrets.RABBIT_GITHUB_PACKAGES }}"
