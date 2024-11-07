@@ -26,4 +26,5 @@ jobs:
     with:
       project_file_path: 'src/EventStorage.csproj'
       package_name: 'AlifCapital.EventStorage'
+      pat: ${{ secrets.RABBIT_GITHUB_PACKAGES }}
       version: ${{ needs.Versioning.outputs.version }}
