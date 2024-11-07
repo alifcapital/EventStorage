@@ -36,7 +36,7 @@ jobs:
         env:
           PAT: ${{ secrets.RABBIT_GITHUB_PACKAGES }}
         run: |
-          dotnet nuget add source "https://nuget.pkg.github.com/alifcapital/index.json" --name github --username alifcapital --password "$PAT"
+          dotnet nuget add source "https://nuget.pkg.github.com/alifcapital/index.json" --name github --username alifcapital --password $PAT
 
 
       - name: Pack the NuGet package
@@ -45,4 +45,4 @@ jobs:
       - name: Push the package to GitHub Packages
         env:
           PAT: ${{ secrets.RABBIT_GITHUB_PACKAGES }}
-        run: dotnet nuget push *.nupkg --source "https://nuget.pkg.github.com/alifcapital/index.json" --api-key "$PAT"
+        run: dotnet nuget push *.nupkg --source "https://nuget.pkg.github.com/alifcapital/index.json" --api-key $PAT
