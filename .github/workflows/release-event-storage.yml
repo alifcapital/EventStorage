@@ -19,7 +19,6 @@ jobs:
     with:
       project_file_path: "src/EventStorage.csproj"
       should_add_version_tag: ${{ github.ref == 'refs/heads/main' }}
-    secrets: inherit
   
   Release:
     needs: Versioning
@@ -29,4 +28,3 @@ jobs:
       package_name: 'AlifCapital.EventStorage'
       version: ${{ needs.Versioning.outputs.version }}
       pat: ${{ secrets.RABBIT_GITHUB_PACKAGES }}
-    secrets: inherit
