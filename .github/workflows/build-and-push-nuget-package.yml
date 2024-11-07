@@ -12,9 +12,6 @@ on:
       project_file_path:
         required: true
         type: string
-      pat:
-        required: true
-        type: string
 
 jobs:
   BuildAndPushPackage:
