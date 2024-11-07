@@ -13,7 +13,7 @@
         <Company>Alif Capital</Company>
         <NeutralLanguage>en</NeutralLanguage>
         <AssemblyName>AlifCapital.EventStorage</AssemblyName>
-        <Version>1.0.6</Version>
+        <Version>1.0.7</Version>
     </PropertyGroup>
 
     <ItemGroup>
