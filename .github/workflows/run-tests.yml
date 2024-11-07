@@ -48,7 +48,7 @@ jobs:
         run: dotnet restore "tests/EventStorage.Tests.csproj"
 
       - name: Build the project
-        run: dotnet build --configuration Release --no-restore
+        run: dotnet build --configuration Release --no-restore "tests/EventStorage.Tests.csproj"
 
       - name: Run tests
         env:

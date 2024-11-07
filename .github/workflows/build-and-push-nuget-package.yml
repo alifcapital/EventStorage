@@ -26,7 +26,7 @@ jobs:
           
       # Step 4: Build the project
       - name: Build the project
-        run: dotnet build --configuration Release --no-restore
+        run: dotnet build --configuration Release --no-restore "src/EventStorage.csproj"
       
       # Step 5: Run Tests
       - name: Run tests
