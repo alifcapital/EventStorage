@@ -13,12 +13,6 @@ on:
         required: true
         type: string
 
-    secrets:
-      dockerhub_username:
-        required: true
-      dockerhub_token:
-        required: true
-
 jobs:
   BuildAndPushPackage:
     runs-on: ubuntu-latest
