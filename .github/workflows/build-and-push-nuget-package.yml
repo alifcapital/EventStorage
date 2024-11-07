@@ -34,12 +34,13 @@ jobs:
 
       - name: Add NuGet source if it doesn't exist
         run: |
-          if (-not (dotnet nuget list source | Select-String -Pattern "github")) {
-            dotnet nuget add source "https://nuget.pkg.github.com/alifcapital/index.json" `
-              --name github
-              --username alifcapital
-              --password ${{ secrets.ACCESS_TOKEN_GITHUB }}
-              }
+          if ! dotnet nuget list source | grep -q "github"; then
+            dotnet nuget add source "https://nuget.pkg.github.com/alifcapital/index.json" \
+              --name github \
+              --username alifcapital \
+              --password ${{ secrets.GITHUB_PAT }} \
+              --store-password-in-clear-text
+          fi
 
       - name: Pack the NuGet package
         run: dotnet pack ${{ inputs.project_file_path }} --configuration Release --no-build --output .
