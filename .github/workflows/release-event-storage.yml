@@ -1,0 +1,29 @@
+name: Release Event storage
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - EventStorage/**
+      - .github/workflows/release-event-storage.yml
+      - .github/workflows/service-versioning.yml
+      - .github/workflows/build-and-push-nuget-package.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write  # Grant the workflow permission to push to the repository
+
+jobs:
+  Versioning:
+    uses: ./.github/workflows/service-versioning.yml
+    with:
+      project_file_path: "EventStorage/src/EventStorage.csproj"
+      should_add_version_tag: ${{ github.ref == 'refs/heads/main' }}
+  
+  Release:
+    needs: Versioning
+    uses: ./.github/workflows/build-and-push-nuget-package.yml
+    with:
+      project_file_path: 'EventStorage/src/EventStorage.csproj'
+      package_name: 'AlifCapital.EventStorage'
+      version: ${{ needs.Versioning.outputs.version }}

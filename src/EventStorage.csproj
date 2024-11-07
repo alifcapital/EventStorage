@@ -5,12 +5,12 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Title>EventStorage</Title>
         <Authors>MirolimMajidov</Authors>
-        <Description>Inbox outbox patter implementation.</Description>
+        <Description>Inbox and outbox patterns implementation.</Description>
         <PackageProjectUrl>https://github.com/alifcapital/EventStorage</PackageProjectUrl>
         <RepositoryUrl>https://github.com/alifcapital/EventStorage</RepositoryUrl>
         <RepositoryType>private</RepositoryType>
         <PackageTags>EventStorage, inbox, outbox</PackageTags>
-        <Company>Alif Bank</Company>
+        <Company>Alif Capital</Company>
         <NeutralLanguage>en</NeutralLanguage>
         <AssemblyName>AlifCapital.EventStorage</AssemblyName>
         <Version>1.0.0</Version>

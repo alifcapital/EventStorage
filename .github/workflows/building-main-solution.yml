@@ -1,0 +1,32 @@
+name: Build the event messaging solution
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore "src/EventStorage.csproj"
+
+      - name: Build the EventStorage in Debug mode
+        if: github.event_name == 'pull_request'
+        run: dotnet build "src/EventStorage.csproj" --configuration Debug --no-restore
+
+      - name: Build the EventStorage in Release mode
+        if: github.event_name != 'pull_request'
+        run: dotnet build "src/EventStorage.csproj" --configuration Release --no-restore

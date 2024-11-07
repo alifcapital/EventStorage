@@ -1,47 +1,45 @@
-name: Build and publish NuGet package
+name: Build abd publish NuGet package
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
-  
-jobs:
-  build:
-    runs-on: ubuntu-latest
+  workflow_call:
+    inputs:
+      package_name:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      project_file_path:
+        required: true
+        type: string
 
+    secrets:
+      dockerhub_username:
+        required: true
+      dockerhub_token:
+        required: true
+
+jobs:
+  BuildAndPushPackage:
+    runs-on: ubuntu-latest
+    
     steps:
-      # Step 1: Checkout the repository
-      - name: Checkout code
-        uses: actions/checkout@v2
-      
-      # Step 2: Set up .NET
-      - name: Setup .NET Core
-        uses: actions/setup-dotnet@v3
+      - name: Check out the repository
+        uses: actions/checkout@v3
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v1
         with:
           dotnet-version: 8.0.x
-          
-      # Step 3: Restore dependencies
-      - name: Restore dependencies
-        run: dotnet restore "src/EventStorage.csproj"
-          
-      # Step 4: Build the project
-      - name: Build the project
-        run: dotnet build --configuration Release --no-restore "src/EventStorage.csproj"
-      
-      # Step 5: Run Tests
-      - name: Run tests
-        run: dotnet test --no-restore --verbosity normal ./tests
-        
-      # Step 6: Get version from git tags
-      - name: Get version from git tags
-        id: get_version
-        run: echo "##[set-output name=version]$(git describe --tags --abbrev=0 || echo '1.0.0')"
 
-      # Step 7: Pack the NuGet package with the version from the Git tag
-      - name: Pack NuGet package
-        run: dotnet pack --configuration Release --no-restore --output ./bin/Release /p:PackageVersion=${{ steps.get_version.outputs.version }}
-      
-      # Step 8: Publish to GitHub Packages
-      - name: Publish to GitHub packages
-        run: dotnet nuget push ./bin/Release/*.nupkg --api-key ${{ secrets.GITHUB_TOKEN }} --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
-        if: success()  # Only publish if tests pass
+      - name: Restore dependencies
+        run: dotnet restore ${{ inputs.project_file_path }}
+
+      - name: Build the project
+        run: dotnet build ${{ inputs.project_file_path }} --configuration Release --no-restore
+
+      - name: Pack the NuGet package
+        run: dotnet pack ${{ inputs.project_file_path }} --configuration Release --no-build --output .
+
+      - name: Push the package to GitHub Packages
+        run: dotnet nuget push *.nupkg --source "https://nuget.pkg.github.com/alifcapital/index.json" --api-key ${{ secrets.GITHUB_TOKEN }}

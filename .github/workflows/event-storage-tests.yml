@@ -1,0 +1,18 @@
+name: Event storage's tests
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  Testing:
+    uses: ./.github/workflows/service-tests.yml
+    with:
+      postgres_image: ${{ vars.POSTGRES_IMAGE }}
+      postgres_user: ${{ vars.POSTGRES_USER }}
+      postgres_password: ${{ vars.POSTGRES_PASSWORD }}
+      database_name: ${{ vars.POSTGRES_DB }}
+      should_run_unit_and_functionality_tests: true
+      should_run_integration_tests: false
+      unit_and_functionality_tests_project_path: 'Tests/EventStorage.Tests.csproj'

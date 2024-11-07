@@ -1,0 +1,86 @@
+name: Increase version number of the service
+
+on:
+  workflow_call:
+    inputs:
+      project_file_path:
+        required: true
+        type: string
+      should_add_version_tag:
+        required: false
+        type: boolean
+        default: true
+      branch_name:
+        required: false
+        type: string
+        default: 'main'
+    
+    outputs:
+      version:
+        description: "The new version of the project"
+        value: ${{ jobs.IncreaseVersion.outputs.new_version }}
+
+jobs:
+  IncreaseVersion:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Increase version number and push changes
+        id: update_version
+        run: |
+          # Extract current version from the .csproj file
+          VERSION=$(grep '<Version>' ${{ inputs.project_file_path }} | sed -e 's/<[^>]*>//g' || echo "1.0.0")
+
+          # Split the version into major, minor, and patch components
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          # Increment the patch version and check if it hits 100
+          PATCH=$((PATCH+1))
+          if [ "$PATCH" -ge 100 ]; then
+            PATCH=0
+            MINOR=$((MINOR+1))
+          fi
+
+          # Create the new version
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          NEW_VERSION=$(echo "$NEW_VERSION" | xargs)  # Remove leading/trailing spaces
+          
+          echo "New version: $NEW_VERSION"
+
+          # Ensure the .csproj file has a <Version> tag and update it
+          if grep -q '<Version>' ${{ inputs.project_file_path }}; then
+            sed -i "s/<Version>.*<\/Version>/<Version>$NEW_VERSION<\/Version>/" ${{ inputs.project_file_path }}
+          else
+            sed -i "s|</Project>|<PropertyGroup><Version>$NEW_VERSION</Version></PropertyGroup></Project>|" ${{ inputs.project_file_path }}
+          fi
+
+          # Set the new version as an environment variable
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+          # Set up git user
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          # Commit and push the updated .csproj file back to the same branch
+          git checkout ${{ inputs.branch_name }} || git checkout -b "$BRANCH_NAME"
+          git add ${{ inputs.project_file_path }}
+          git commit -m "Update version to $NEW_VERSION"
+          for i in {1..5}; do
+            git pull origin ${{ inputs.branch_name }} --rebase && break
+            echo "Retry $i: Rebase failed, trying again..."
+            sleep 5
+          done
+          git push --set-upstream origin ${{ inputs.branch_name }} || true
+
+      - name: Create a Git tag for the new version
+        if: ${{ inputs.should_add_version_tag }}
+        id: create_tag
+        run: |
+          git tag "v${{ env.NEW_VERSION }}"
+          git push origin "v${{ env.NEW_VERSION }}"
+
+    outputs:
+      new_version: ${{ env.NEW_VERSION }}
