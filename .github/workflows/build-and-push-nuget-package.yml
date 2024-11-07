@@ -38,7 +38,8 @@ jobs:
             dotnet nuget add source "https://nuget.pkg.github.com/alifcapital/index.json" \
               --name github \
               --username alifcapital \
-              --password ${{ secrets.ACCESS_TOKEN_GITHUB }}
+              --password ${{ secrets.ACCESS_TOKEN_GITHUB }} \ 
+              --store-password-in-clear-text
           fi
 
       - name: Pack the NuGet package
