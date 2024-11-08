@@ -1,0 +1,67 @@
+name: Run tests of the service
+
+on:
+  workflow_call:
+    inputs:
+      postgres_image:
+        required: false
+        type: string
+        default: postgres:16
+      postgres_user:
+        required: false
+        type: string
+        default: postgres
+      postgres_password:
+        required: false
+        type: string
+        default: postgres
+      database_name:
+        required: false
+        type: string
+        default: event_storage_db_test
+      unit_and_functionality_tests_project_path:
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  Tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: ${{ inputs.postgres_image }}
+        env:
+          POSTGRES_USER: ${{ inputs.postgres_user }}
+          POSTGRES_PASSWORD: ${{ inputs.postgres_password }}
+          POSTGRES_DB: ${{ inputs.database_name }}
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Configure sysctl limits
+        run: |
+          sudo swapoff -a
+          sudo sysctl -w vm.swappiness=1
+          sudo sysctl -w fs.file-max=262144
+          sudo sysctl -w vm.max_map_count=262144
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ inputs.unit_and_functionality_tests_project_path }}
+
+      - name: Run unit and functionality tests
+        env:
+          DATABASE_CONNECTION_STRING: "Host=localhost;Port=5432;Username=${{ inputs.postgres_user }};Password=${{ inputs.postgres_password }};Database=${{ inputs.database_name }};"
+        run: dotnet test ${{ inputs.unit_and_functionality_tests_project_path }} --logger "console;verbosity=detailed" --blame

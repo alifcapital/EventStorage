@@ -1,4 +1,4 @@
-name: Build abd publish NuGet package
+name: Push NuGet package
 
 on:
   workflow_call:
@@ -14,7 +14,7 @@ on:
         type: string
 
 jobs:
-  BuildAndPushPackage:
+  PushNugetPackage:
     runs-on: ubuntu-latest
     
     steps:

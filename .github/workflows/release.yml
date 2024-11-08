@@ -1,4 +1,4 @@
-name: Release Event storage
+name: Release
 
 on:
   push:
@@ -24,6 +24,6 @@ jobs:
     uses: ./.github/workflows/build-and-push-nuget-package.yml
     with:
       project_file_path: 'src/EventStorage.csproj'
-      package_name: ${{ vars.PACKAGENAME }}
+      package_name: ${{ vars.PACKAGE_NAME }}
       version: ${{ needs.Versioning.outputs.version }}
     secrets: inherit
