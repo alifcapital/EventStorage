@@ -12,6 +12,9 @@ on:
       project_file_path:
         required: true
         type: string
+      pat:
+        required: true
+        type: string
 
 jobs:
   BuildAndPushPackage:
@@ -33,16 +36,11 @@ jobs:
         run: dotnet build ${{ inputs.project_file_path }} --configuration Release --no-restore
 
       - name: Add NuGet source if it doesn't exist
-        env:
-          PAT: ${{ secrets.RABBIT_GITHUB_PACKAGES }}
         run: |
-          dotnet nuget add source "https://nuget.pkg.github.com/alifcapital/index.json" --name github --username alifcapital --password $PAT
-
+          dotnet nuget add source "https://nuget.pkg.github.com/alifcapital/index.json" --name github --username alifcapital --password ${{ inputs.pat }}
 
       - name: Pack the NuGet package
         run: dotnet pack ${{ inputs.project_file_path }} --configuration Release --no-build --output .
 
       - name: Push the package to GitHub Packages
-        env:
-          PAT: ${{ secrets.RABBIT_GITHUB_PACKAGES }}
-        run: dotnet nuget push *.nupkg --source "https://nuget.pkg.github.com/alifcapital/index.json" --api-key $PAT
+        run: dotnet nuget push *.nupkg --source "https://nuget.pkg.github.com/alifcapital/index.json" --api-key ${{ inputs.pat }}
