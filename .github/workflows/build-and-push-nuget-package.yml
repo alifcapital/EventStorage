@@ -33,7 +33,7 @@ jobs:
         run: dotnet build ${{ inputs.project_file_path }} --configuration Release --no-restore
 
       - name: Pack the NuGet package
-        run: dotnet pack ${{ inputs.project_file_path }} --configuration Release -p:PackageId= "${{ inputs.package_name }}" -p:Version="${{ inputs.version }}"
+        run: dotnet pack --configuration Release -p:PackageId= "${{ inputs.package_name }}" -p:Version="${{ inputs.version }}"
 
       - name: Push the package to GitHub Packages
         run: dotnet nuget push *.nupkg --source "https://nuget.pkg.github.com/alifcapital/index.json" --api-key ${{ secrets.EVENT_STORAGE_SECRET }}
