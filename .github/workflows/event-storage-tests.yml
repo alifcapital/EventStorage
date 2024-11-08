@@ -3,7 +3,6 @@ name: Event storage's tests
 on:
   pull_request:
     branches: [ main ]
-  workflow_dispatch:
 
 jobs:
   Testing:

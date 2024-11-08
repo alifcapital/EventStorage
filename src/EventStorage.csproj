@@ -12,6 +12,7 @@
         <PackageTags>EventStorage, inbox, outbox</PackageTags>
         <Company>Alif Capital</Company>
         <NeutralLanguage>en</NeutralLanguage>
+        <PackageId>AlifCapital.EventStorage</PackageId>
         <AssemblyName>AlifCapital.EventStorage</AssemblyName>
         <Version>1.0.12</Version>
     </PropertyGroup>

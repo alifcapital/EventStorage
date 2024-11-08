@@ -8,7 +8,6 @@ on:
       - .github/workflows/release-event-storage.yml
       - .github/workflows/service-versioning.yml
       - .github/workflows/build-and-push-nuget-package.yml
-  workflow_dispatch:
 
 permissions:
   contents: write  # Grant the workflow permission to push to the repository
@@ -25,6 +24,6 @@ jobs:
     uses: ./.github/workflows/build-and-push-nuget-package.yml
     with:
       project_file_path: 'src/EventStorage.csproj'
-      package_name: 'AlifCapital.EventStorage'
+      package_name: ${{ vars.PACKAGENAME }}
       version: ${{ needs.Versioning.outputs.version }}
-      pat: ${{ secrets.RABBIT_GITHUB_PACKAGES }}
+    secrets: inherit
