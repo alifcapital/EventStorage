@@ -29,9 +29,6 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore ${{ inputs.project_file_path }}
 
-      - name: Build the project
-        run: dotnet build ${{ inputs.project_file_path }} --configuration Release --no-restore
-
       - name: Pack the NuGet package
         run: dotnet pack ${{ inputs.project_file_path }} --configuration Release --output ./nupkgs -p:PackageId="${{ inputs.package_name }}" -p:Version="${{ inputs.version }}"
 
