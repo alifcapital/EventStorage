@@ -18,20 +18,8 @@ on:
       database_name:
         required: false
         type: string
-        default: TestDB
-      should_run_unit_and_functionality_tests:
-        required: false
-        type: boolean
-        default: true
-      should_run_integration_tests:
-        required: false
-        type: boolean
-        default: true
+        default: event_storage_db_test
       unit_and_functionality_tests_project_path:
-        required: false
-        type: string
-        default: ""
-      integration_tests_project_path:
         required: false
         type: string
         default: ""
@@ -71,17 +59,9 @@ jobs:
           sudo sysctl -w vm.max_map_count=262144
 
       - name: Restore dependencies
-        run: dotnet restore "src/EventStorage.csproj"
+        run: dotnet restore ${{ inputs.unit_and_functionality_tests_project_path }}
 
       - name: Run unit and functionality tests
-        if: ${{ inputs.should_run_unit_and_functionality_tests == true }}
         env:
-          TEST_ENVIRONMENT: "CICD"
           DATABASE_CONNECTION_STRING: "Host=localhost;Port=5432;Username=${{ inputs.postgres_user }};Password=${{ inputs.postgres_password }};Database=${{ inputs.database_name }};"
         run: dotnet test ${{ inputs.unit_and_functionality_tests_project_path }} --logger "console;verbosity=detailed" --blame
-
-      - name: Run integration tests
-        if: ${{ inputs.should_run_integration_tests == true }}
-        env:
-          TEST_ENVIRONMENT: "CICD"
-        run: dotnet test ${{ inputs.integration_tests_project_path }} --logger "console;verbosity=detailed" --blame
