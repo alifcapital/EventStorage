@@ -14,7 +14,7 @@
         <NeutralLanguage>en</NeutralLanguage>
         <PackageId>AlifCapital.EventStorage</PackageId>
         <AssemblyName>AlifCapital.EventStorage</AssemblyName>
-        <Version>1.0.16</Version>
+        <Version>1.0.17</Version>
     </PropertyGroup>
 
     <ItemGroup>
