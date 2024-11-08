@@ -19,7 +19,7 @@ jobs:
       project_file_path: "src/EventStorage.csproj"
       should_add_version_tag: ${{ github.ref == 'refs/heads/main' }}
   
-  Release:
+  ReleaseEventStorage:
     needs: Versioning
     uses: ./.github/workflows/push-nuget-package.yml
     with:
