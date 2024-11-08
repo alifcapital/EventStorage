@@ -5,9 +5,9 @@ on:
     branches: [ "main" ]
     paths:
       - EventStorage/**
-      - .github/workflows/release-event-storage.yml
+      - .github/workflows/release.yml
       - .github/workflows/service-versioning.yml
-      - .github/workflows/build-and-push-nuget-package.yml
+      - .github/workflows/push-nuget-package.yml
 
 permissions:
   contents: write  # Grant the workflow permission to push to the repository
@@ -21,7 +21,7 @@ jobs:
   
   Release:
     needs: Versioning
-    uses: ./.github/workflows/build-and-push-nuget-package.yml
+    uses: ./.github/workflows/push-nuget-package.yml
     with:
       project_file_path: 'src/EventStorage.csproj'
       package_name: ${{ vars.PACKAGE_NAME }}

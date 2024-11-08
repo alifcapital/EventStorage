@@ -6,6 +6,6 @@ on:
 
 jobs:
   Testing:
-    uses: ./.github/workflows/service-tests.yml
+    uses: ./.github/workflows/run-tests.yml
     with:
       unit_and_functionality_tests_project_path: 'tests/EventStorage.Tests.csproj'
