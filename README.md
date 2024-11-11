@@ -1,40 +1,17 @@
 ## EventStorage
 
-### 1. EventBus.RabbitMQ
-EventBus.RabbitMQ is a messaging library designed to simplify the implementation of communication using RabbitMQ. It enables seamless publishing and receiving of events between microservices or other types of applications. The library is easy to set up and is compatible with .NET8 or recent frameworks. Additionally, it supports working with multiple virtual hosts in RabbitMQ.
-
-With this library, you can easily implement the [Inbox and outbox patterns](https://en.wikipedia.org/wiki/Inbox_and_outbox_pattern) in your application. It allows you to persist all incoming and outgoing event messages in the database. Currently, it supports storing event data only in a PostgreSQL database.
-
-### NuGet package
-[![Version](https://img.shields.io/nuget/v/Mirolim.EventBus.RabbitMQ?label=Version:Mirolim.EventBus.RabbitMQ)](https://www.nuget.org/packages/Mirolim.EventBus.RabbitMQ)
-[![Downloads](https://img.shields.io/nuget/dt/Mirolim.EventBus.RabbitMQ?label=Downloads:Mirolim.EventBus.RabbitMQ)](https://www.nuget.org/packages/Mirolim.EventBus.RabbitMQ)
-
-#### [See the EventBus.RabbitMQ documentation for more information](https://github.com/MirolimMajidov/EventMessaging?tab=readme-ov-file#getting-started-the-eventbusrabbitmq)
-
-### 2. EventStorage
 EventStorage is a library designed to simplify the implementation of the [Inbox and outbox patterns](https://en.wikipedia.org/wiki/Inbox_and_outbox_pattern) for handling multiple types of events in your application. It allows you to persist all incoming and outgoing event messages in the database. Currently, it supports storing event data only in a PostgreSQL database.
 
 ### NuGet package
-[![Version](https://img.shields.io/nuget/v/Mirolim.EventStorage?label=Version:Mirolim.EventStorage)](https://www.nuget.org/packages/Mirolim.EventStorage)
-[![Downloads](https://img.shields.io/nuget/dt/Mirolim.EventStorage?label=Downloads:Mirolim.EventStorage)](https://www.nuget.org/packages/Mirolim.EventStorage)
-
-#### [See the EventStorage documentation for more information](https://github.com/MirolimMajidov/EventMessaging?tab=readme-ov-file#getting-started-the-eventstorage)
-
-## Getting started the EventStorage
-
-EventStorage is a library designed to simplify the implementation of the [Inbox and outbox patterns](https://en.wikipedia.org/wiki/Inbox_and_outbox_pattern) for handling multiple types of events in your application. It allows you to persist all incoming and outgoing event messages in the database. Currently, it supports storing event data only in a PostgreSQL database.
-
-### NuGet package
-[![Version](https://img.shields.io/nuget/v/Mirolim.EventStorage?label=Version:Mirolim.EventStorage)](https://www.nuget.org/packages/Mirolim.EventStorage)
-[![Downloads](https://img.shields.io/nuget/dt/Mirolim.EventStorage?label=Downloads:Mirolim.EventStorage)](https://www.nuget.org/packages/Mirolim.EventStorage)
-
+[![Version](https://img.shields.io/github/v/release/alifcapital/EventStorage?label=Version:AlifCapital.EventStorage)](https://github.com/alifcapital/EventStorage/packages)
+[![Downloads](https://img.shields.io/github/downloads/alifcapital/EventStorage/total?label=Downloads:AlifCapital.EventStorage)](https://github.com/alifcapital/EventStorage/packages)
 
 ### Setting up the library
 
-Make sure you have installed and run [PostgreSQL](https://www.postgresql.org/download/) in your machine. After that, you need to install Mirolim.EventStorage NuGet package.
+Make sure you have installed and run [PostgreSQL](https://www.postgresql.org/download/) in your machine. After that, you need to install AlifCapital.EventStorage NuGet package.
 
 ```powershell
-Install-Package Mirolim.EventStorage
+dotnet add package AlifCapital.EventStorage
 ```
 
 Register the nuget package's necessary services to the services of DI in the Program.cs and pass the assemblies to find and load the events, publishers and receivers automatically:
@@ -240,7 +217,7 @@ userCreated.AdditionalData.Add("password", "123");
 var succussfullySent = _eventSenderManager.Send(userCreated, EventProviderType.MessageBroker, eventPath);
 ```
 
-While publishing event, now you are able to read and use the added property from the your event:
+While publishing event, now you are able to read and use the added property from your event:
 
 ```
 public class CreatedUserMessageBrokerEventPublisher : IMessageBrokerEventPublisher<UserCreated>
