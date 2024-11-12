@@ -58,7 +58,7 @@ jobs:
           
       - name: Set up Git user
         run: |
-          git config user.name "akbar-alif"
+          git config user.name "akbar"
           git config user.email "47214198+akbar-alif@users.noreply.github.com"
         shell: bash
 
