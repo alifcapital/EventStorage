@@ -62,8 +62,8 @@ jobs:
           
       - name: Set up Git user
         run: |
-          git config user.name "akbar-alif"
-          git config user.email "a.shoimov@alif.tj"
+          git config user.name "Murodbek01"
+          git config user.email "murodbek.zoirov@alif.tj"
         shell: bash
 
       - name: Commit and push changes
