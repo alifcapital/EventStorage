@@ -65,7 +65,7 @@ jobs:
       - name: Set up Git user
         run: |
           git config user.name "github-actions"
-          git config user.email "github-actions@mail.com"
+          git config user.email "github-actions@gmail.com"
         shell: bash
 
       - name: Commit and push changes
