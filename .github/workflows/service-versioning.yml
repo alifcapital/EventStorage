@@ -56,6 +56,10 @@ jobs:
             sed -i "s|</Project>|<PropertyGroup><Version>$NEW_VERSION</Version></PropertyGroup></Project>|" ${{ inputs.project_file_path }}
           fi
           
+          # Set the new version as an environment variable
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+          
       - name: Set up Git user
         run: |
           git config user.name "akbar-alif"
