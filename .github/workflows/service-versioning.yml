@@ -27,7 +27,7 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v3
         with:
-          ssh-key: ${{secrets.DEPLOY_KEY}}
+          token: ${{ secrets.ACTION_SECRET }}
 
       - name: Increase version number and push changes
         id: update_version
