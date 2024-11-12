@@ -2,18 +2,58 @@
 
 EventStorage is a library designed to simplify the implementation of the [Inbox and outbox patterns](https://en.wikipedia.org/wiki/Inbox_and_outbox_pattern) for handling multiple types of events in your application. It allows you to persist all incoming and outgoing event messages in the database. Currently, it supports storing event data only in a PostgreSQL database.
 
-### NuGet package
-[![Version](https://img.shields.io/github/v/release/alifcapital/EventStorage?label=Version:AlifCapital.EventStorage)](https://github.com/alifcapital/EventStorage/packages)
-[![Downloads](https://img.shields.io/github/downloads/alifcapital/EventStorage/total?label=Downloads:AlifCapital.EventStorage)](https://github.com/alifcapital/EventStorage/packages)
-
 ### Setting up the library
 
-Make sure you have installed and run [PostgreSQL](https://www.postgresql.org/download/) in your machine. After that, you need to install AlifCapital.EventStorage NuGet package.
+Make sure you have installed and run [PostgreSQL](https://www.postgresql.org/download/) in your machine.
 
-```powershell
-dotnet add package AlifCapital.EventStorage
+To use this package from GitHub Packages in your projects, you need to authenticate using a **Personal Access Token (PAT)**.
+
+#### Step 1: Create a Personal Access Token (PAT)
+
+You will need a **Personal Access Token (PAT)** to authenticate and access the package. Follow GitHub's official guide to generate a PAT with the required scopes: [Creating a personal access token (classic)](https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token).
+
+Make sure your PAT includes the following scope:
+- `read:packages`
+
+#### Step 2: Configure NuGet for GitHub Packages
+
+1. Add or update the `NuGet.config` file in your project root with the following content:
+
+   ```xml
+   <?xml version="1.0" encoding="utf-8"?>
+   <configuration>
+     <packageSources>
+       <add key="github" value="https://nuget.pkg.github.com/alifcapital/index.json" />
+     </packageSources>
+     <packageSourceCredentials>
+       <github>
+         <add key="Username" value="GITHUB_USERNAME" />
+         <add key="ClearTextPassword" value="YOUR_PERSONAL_ACCESS_TOKEN" />
+       </github>
+     </packageSourceCredentials>
+   </configuration>
+   ```
+2. Replace:
+* GITHUB_USERNAME with your GitHub username or any non-empty string if you are using the Personal Access Token (PAT).
+* YOUR_PERSONAL_ACCESS_TOKEN with your Personal Access Token.
+
+#### Step 3: Add the Package to Your Project
+Once your `NuGet.config` is set up, install the package by:
+
+**Via CLI:**
+
+```bash
+dotnet add package AlifCapital.EventStorage --version <VERSION>
 ```
 
+Or add it to your .csproj file:
+
+```xml
+<PackageReference Include="AlifCapital.EventStorage" Version="<VERSION>" />
+```
+Make sure to replace <VERSION> with the correct version of the package you want to install.
+
+### How to use the library
 Register the nuget package's necessary services to the services of DI in the Program.cs and pass the assemblies to find and load the events, publishers and receivers automatically:
 
 ```
