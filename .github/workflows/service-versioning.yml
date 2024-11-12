@@ -58,8 +58,8 @@ jobs:
           
       - name: Set up Git user
         run: |
-          git config user.name "${{ secrets.USER_NAME_TO_INCREASE_VERSION }}"
-          git config user.email "${{ secrets.USER_EMAIL_TO_INCREASE_VERSION }}"
+          git config user.name "akbar-alif"
+          git config user.email "akbarjhon.94@gmail.com"
         shell: bash
 
       - name: Commit and push changes
