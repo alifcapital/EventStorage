@@ -18,6 +18,7 @@ jobs:
     with:
       project_file_path: "src/EventStorage.csproj"
       should_add_version_tag: ${{ github.ref == 'refs/heads/main' }}
+    secrets: inherit
   
   Release:
     needs: Versioning

@@ -55,26 +55,47 @@ jobs:
           else
             sed -i "s|</Project>|<PropertyGroup><Version>$NEW_VERSION</Version></PropertyGroup></Project>|" ${{ inputs.project_file_path }}
           fi
+          
+      - name: Set up Git user
+        run: |
+          git config user.name "${{ secrets.USER_NAME_TO_INCREASE_VERSION }}"
+          git config user.email "${{ secrets.USER_EMAIL_TO_INCREASE_VERSION }}"
+        shell: bash
 
-          # Set the new version as an environment variable
-          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
-          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-          # Set up git user
-          git config user.name ${{ secrets.USER_NAME_TO_INCREASE_VERSION }}
-          git config user.email ${{ secrets.USER_EMAIL_TO_INCREASE_VERSION }}
-
-          # Commit and push the updated .csproj file back to the same branch
-          git checkout ${{ inputs.branch_name }} || git checkout -b "$BRANCH_NAME"
-          git add ${{ inputs.project_file_path }}
+      - name: Commit and push changes
+        run: |
+          git add .
           git commit -m "Update version to $NEW_VERSION"
-          for i in {1..5}; do
-            git pull origin ${{ inputs.branch_name }} --rebase && break
-            echo "Retry $i: Rebase failed, trying again..."
+          
+          RETRIES=5
+          while [ $RETRIES -gt 0 ]; do
+            git fetch origin ${{ inputs.branch_name }}
+          
+            if git merge origin/${{ inputs.branch_name }}; then
+              echo "Merge successful. Attempting to push..."
+          
+              # Push the changes
+              if git push origin ${{ inputs.branch_name }}; then
+                echo "Push succeeded!"
+                break
+              else
+                echo "Push failed, retrying..."
+              fi
+            else
+              echo "Merge failed, retrying..."
+              git merge --abort
+            fi
+          
+            RETRIES=$((RETRIES-1))
             sleep 5
           done
-          git push --set-upstream origin ${{ inputs.branch_name }} || true
-
+          
+          if [ $RETRIES -eq 0 ]; then
+            echo "Push failed after retries."
+            exit 1
+          fi
+        shell: bash
+          
       - name: Create a Git tag for the new version
         if: ${{ inputs.should_add_version_tag }}
         id: create_tag
