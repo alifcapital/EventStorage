@@ -15,27 +15,48 @@ You will need a **Personal Access Token (PAT)** to authenticate and access the p
 Make sure your PAT includes the following scope:
 - `read:packages`
 
-#### Step 2: Configure NuGet for GitHub Packages
+You need a GitHub [**Personal Access Token (PAT)**](https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token) to authenticate and pull packages from GitHub Packages. To create one:
 
-1. Add or update the `NuGet.config` file in your project root with the following content:
+1. Go to your GitHub account.
+2. Navigate to **Settings > Developer settings > Personal access tokens > Tokens (classic)**.
+3. Click on **Generate new token**.
+4. Select the following scope: `read:packages` (for reading packages)
+5. Generate the token and copy it. You'll need this token for authentication.
 
-   ```xml
-   <?xml version="1.0" encoding="utf-8"?>
-   <configuration>
-     <packageSources>
-       <add key="github" value="https://nuget.pkg.github.com/alifcapital/index.json" />
-     </packageSources>
-     <packageSourceCredentials>
-       <github>
-         <add key="Username" value="GITHUB_USERNAME" />
-         <add key="ClearTextPassword" value="YOUR_PERSONAL_ACCESS_TOKEN" />
-       </github>
-     </packageSourceCredentials>
-   </configuration>
-   ```
-2. Replace:
-* GITHUB_USERNAME with your GitHub username or any non-empty string if you are using the Personal Access Token (PAT).
-* YOUR_PERSONAL_ACCESS_TOKEN with your Personal Access Token.
+
+#### Step 2: Add GitHub Packages as a NuGet Source
+
+You can choose one of two methods to add GitHub Packages as a source: either by adding the source dynamically via the `dotnet` CLI or using `NuGet.config`.
+
+**Option 1:** Adding Source via `dotnet` CLI
+
+Add the GitHub Package source with the token dynamically using the environment variable:
+
+```bash
+dotnet nuget add source https://nuget.pkg.github.com/alifcapital/index.json --name github --username GITHUB_USERNAME --password YOUR_PERSONAL_ACCESS_TOKEN --store-password-in-clear-text
+```
+* Replace GITHUB_USERNAME with your GitHub username or any non-empty string if you are using the Personal Access Token (PAT).
+* Replace YOUR_PERSONAL_ACCESS_TOKEN with the generated PAT.
+
+**Option 2**: Using `NuGet.config`
+Add or update the `NuGet.config` file in your project root with the following content:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <add key="github" value="https://nuget.pkg.github.com/alifcapital/index.json" />
+  </packageSources>
+  <packageSourceCredentials>
+    <github>
+      <add key="Username" value="GITHUB_USERNAME" />
+      <add key="ClearTextPassword" value="YOUR_PERSONAL_ACCESS_TOKEN" />
+    </github>
+  </packageSourceCredentials>
+</configuration>
+```
+* Replace GITHUB_USERNAME with your GitHub username or any non-empty string if you are using the Personal Access Token (PAT).
+* Replace YOUR_PERSONAL_ACCESS_TOKEN with the generated PAT.
 
 #### Step 3: Add the Package to Your Project
 Once your `NuGet.config` is set up, install the package by:
