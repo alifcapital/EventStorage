@@ -1,0 +1,10 @@
+##############################################################
+#
+# List of approvers/reviewers for the current repository.
+#
+# Learn about CODEOWNERS file format: https://help.github.com/en/articles/about-code-owners
+#
+##############################################################
+#
+# Default code owners for the repository
+* @akbar-alif @Murodbek01 @MirolimMajidov
