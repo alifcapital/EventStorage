@@ -64,8 +64,8 @@ jobs:
           
       - name: Set up Git user
         run: |
-          git config user.name "akbar-alif"
-          git config user.email "akbarjhon.94@gmail.com"
+          git config user.name "github-actions"
+          git config user.email "github-actions@mail.com"
         shell: bash
 
       - name: Commit and push changes
