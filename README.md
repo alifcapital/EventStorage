@@ -54,7 +54,7 @@ Add or update the `NuGet.config` file in your project root with the following co
 * Replace YOUR_PERSONAL_ACCESS_TOKEN with the generated PAT.
 
 #### Step 3: Add the Package to Your Project
-Once your `NuGet.config` is set up, install the package by:
+Once you deal with the nuget source, install the package by:
 
 **Via CLI:**
 
