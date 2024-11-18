@@ -1,13 +1,7 @@
 name: Release
 
 on:
-  push:
-    branches: [ "main" ]
-    paths:
-      - EventStorage/**
-      - .github/workflows/release.yml
-      - .github/workflows/service-versioning.yml
-      - .github/workflows/push-nuget-package.yml
+  workflow_dispatch:  # Allows the workflow to be triggered manually
 
 permissions:
   contents: write  # Grant the workflow permission to push to the repository
