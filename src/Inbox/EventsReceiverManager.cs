@@ -79,7 +79,7 @@ internal class EventsReceiverManager : IEventsReceiverManager
                 try
                 {
                     stoppingToken.ThrowIfCancellationRequested();
-                    await ExecuteEventReceiver(eventToReceive, scope);
+                    await ExecuteEventReceiver(eventToReceive, _serviceProvider);
                 }
                 catch
                 {
@@ -89,7 +89,7 @@ internal class EventsReceiverManager : IEventsReceiverManager
                 {
                     _semaphore.Release();
                 }
-            }).ToList();
+            }).ToArray();
 
             await Task.WhenAll(tasks);
 
@@ -101,7 +101,7 @@ internal class EventsReceiverManager : IEventsReceiverManager
         }
     }
 
-    private async Task ExecuteEventReceiver(IInboxEvent @event, IServiceScope serviceScope)
+    private async Task ExecuteEventReceiver(IInboxEvent @event, IServiceProvider serviceProvider)
     {
         try
         {
@@ -123,6 +123,8 @@ internal class EventsReceiverManager : IEventsReceiverManager
                         ((IHasAdditionalData)eventToReceive).AdditionalData =
                             JsonSerializer.Deserialize<Dictionary<string, string>>(@event!.AdditionalData);
 
+                    //Create a new scope to execute the receiver service as a scoped service for each event
+                    using var serviceScope = serviceProvider.CreateScope();
                     var eventReceiver = serviceScope.ServiceProvider.GetRequiredService(info.eventReceiverType);
 
                     var receiveMethod = info.eventReceiverType.GetMethod(ReceiverMethodName);
