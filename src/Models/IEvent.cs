@@ -5,5 +5,5 @@ public interface IEvent
     /// <summary>
     /// The id of event
     /// </summary>
-    public Guid EventId { get; }
+    public Guid EventId { get; init; }
 }
