@@ -258,6 +258,7 @@ public static class EventStoreExtensions
         { typeof(ISmsEventReceiver<>), EventProviderType.Sms },
         { typeof(IWebHookEventReceiver<>), EventProviderType.WebHook },
         { typeof(IGrpcEventReceiver<>), EventProviderType.gRPC },
+        { typeof(IHttpEventReceiver<>), EventProviderType.Http },
         { typeof(IUnknownEventReceiver<>), EventProviderType.Unknown }
     };
 
