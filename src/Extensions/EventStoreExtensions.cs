@@ -179,6 +179,7 @@ public static class EventStoreExtensions
         { typeof(IEmailEventPublisher), EventProviderType.Email },
         { typeof(IWebHookEventPublisher), EventProviderType.WebHook },
         { typeof(IGrpcEventPublisher), EventProviderType.gRPC },
+        { typeof(IHttpEventPublisher), EventProviderType.Http },
         { typeof(IUnknownEventPublisher), EventProviderType.Unknown }
     };
 
@@ -189,6 +190,7 @@ public static class EventStoreExtensions
         { typeof(IEmailEventPublisher<>), EventProviderType.Email },
         { typeof(IWebHookEventPublisher<>), EventProviderType.WebHook },
         { typeof(IGrpcEventPublisher<>), EventProviderType.gRPC },
+        { typeof(IHttpEventPublisher<>), EventProviderType.Http },
         { typeof(IUnknownEventPublisher<>), EventProviderType.Unknown }
     };
 
