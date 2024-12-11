@@ -10,5 +10,6 @@ public enum EventProviderType
     Sms,
     Email,
     gRPC,
+    Http,
     Unknown
 }
