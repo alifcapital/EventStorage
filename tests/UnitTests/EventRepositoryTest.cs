@@ -90,6 +90,7 @@ namespace EventStorage.Tests.UnitTests
                 Payload = "TestPayload",
                 Headers = "TestHeaders",
                 AdditionalData = "TestAdditionalData",
+                NamingPolicyType = NamingPolicyTypeNames.PascalCase,
                 TryCount = 0,
                 TryAfterAt = DateTime.Now.AddMinutes(5)
             };

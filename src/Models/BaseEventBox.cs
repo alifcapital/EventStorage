@@ -13,7 +13,7 @@ internal abstract class BaseEventBox : IBaseEventBox
     public string AdditionalData { get; internal set; }
     public DateTime CreatedAt { get; } = DateTime.Now;
     public int TryCount { get; set; }
-    public string NamingPolicyType { get; init; }
+    public string NamingPolicyType { get; init; } = NamingPolicyTypeNames.PascalCase;
     public DateTime TryAfterAt { get; set; } = DateTime.Now;
     public DateTime? ProcessedAt { get; set; }
 

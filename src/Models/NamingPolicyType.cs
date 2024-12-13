@@ -15,7 +15,7 @@ public enum NamingPolicyType
 
 public struct NamingPolicyTypeNames
 {
-    private const string PascalCase = nameof(NamingPolicyType.PascalCase);
+    public const string PascalCase = nameof(NamingPolicyType.PascalCase);
     private const string CamelCase = nameof(NamingPolicyType.CamelCase);
     private const string SnakeCaseLower = nameof(NamingPolicyType.SnakeCaseLower);
     private const string SnakeCaseUpper = nameof(NamingPolicyType.SnakeCaseUpper);

@@ -24,7 +24,15 @@ class DataContext<TEvent> where TEvent : BaseEventBox, new()
 
     public TEvent GetById(Guid id)
     {
-        var sql = $"SELECT * FROM {_tableName} where id = @id";
+        
+        var sql = @$"SELECT id as ""{nameof(IBaseEventBox.Id)}"", provider as ""{nameof(IBaseEventBox.Provider)}"", 
+                        event_name as ""{nameof(IBaseEventBox.EventName)}"", event_path as ""{nameof(IBaseEventBox.EventPath)}"", 
+                        payload as ""{nameof(IBaseEventBox.Payload)}"", headers as ""{nameof(IBaseEventBox.Headers)}"", 
+                        naming_policy_type as ""{nameof(IBaseEventBox.NamingPolicyType)}"", 
+                        additional_data as ""{nameof(IBaseEventBox.AdditionalData)}"", created_at as ""{nameof(IBaseEventBox.CreatedAt)}"", 
+                        try_count as ""{nameof(IBaseEventBox.TryCount)}"", try_after_at as ""{nameof(IBaseEventBox.TryAfterAt)}"", 
+                        processed_at as ""{nameof(IBaseEventBox.ProcessedAt)}""
+                FROM {_tableName} where id = @id";
         var command = _dataSource.CreateCommand(sql);
 
         command.Parameters.Add(new NpgsqlParameter("@id", id));
@@ -41,10 +49,11 @@ class DataContext<TEvent> where TEvent : BaseEventBox, new()
                 EventPath = reader.GetString(3),
                 Payload = reader.GetString(4),
                 Headers = reader.GetString(5),
-                AdditionalData = reader.GetString(6),
-                TryCount = reader.GetInt32(8),
-                TryAfterAt = reader.GetDateTime(9),
-                ProcessedAt = reader.IsDBNull(10) ? null : reader.GetDateTime(10)
+                NamingPolicyType = reader.GetString(6),
+                AdditionalData = reader.GetString(7),
+                TryCount = reader.GetInt32(9),
+                TryAfterAt = reader.GetDateTime(10),
+                ProcessedAt = reader.IsDBNull(11) ? null : reader.GetDateTime(11)
             };
         }
         else
