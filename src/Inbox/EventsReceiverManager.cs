@@ -114,7 +114,8 @@ internal class EventsReceiverManager : IEventsReceiverManager
                     _logger.LogTrace("Executing the {EventType} inbox event with ID {EventId} to receive.",
                         @event.EventName, @event.Id);
 
-                    var eventToReceive = JsonSerializer.Deserialize(@event.Payload, info.eventType) as IReceiveEvent;
+                    var jsonSerializerSetting = @event.GetJsonSerializer();
+                    var eventToReceive = JsonSerializer.Deserialize(@event.Payload, info.eventType, jsonSerializerSetting) as IReceiveEvent;
                     if (info.hasHeaders && @event.Headers is not null)
                         ((IHasHeaders)eventToReceive).Headers =
                             JsonSerializer.Deserialize<Dictionary<string, string>>(@event.Headers);

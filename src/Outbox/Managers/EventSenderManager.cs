@@ -24,7 +24,8 @@ internal class EventSenderManager : IEventSenderManager
         _logger = logger;
     }
 
-    public bool Send<TSendEvent>(TSendEvent @event, EventProviderType eventProvider, string eventPath)
+    public bool Send<TSendEvent>(TSendEvent @event, EventProviderType eventProvider, string eventPath = null, 
+        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
         where TSendEvent : ISendEvent
     {
         var eventName = @event.GetType().Name;
@@ -34,8 +35,9 @@ internal class EventSenderManager : IEventSenderManager
             {
                 Id = @event.EventId,
                 Provider = eventProvider.ToString(),
-                EventName = @event.GetType().Name,
-                EventPath = eventPath,
+                EventName = eventName,
+                EventPath = eventPath?? eventName,
+                NamingPolicyType = namingPolicyType.ToString()
             };
 
             if (@event is IHasHeaders hasHeaders)
