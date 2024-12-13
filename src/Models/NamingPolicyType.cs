@@ -29,28 +29,32 @@ public struct NamingPolicyTypeNames
     {
         var jsonSerializerOptions = new JsonSerializerOptions
         {
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            PropertyNamingPolicy = GetEventNamingPolicy(namingPolicyType)
         };
 
+        return jsonSerializerOptions;
+    }
+    
+    /// <summary>
+    /// Create a JsonSerializerOptions to use on naming police for serializing and deserializing properties of Event 
+    /// </summary>
+    public static JsonNamingPolicy GetEventNamingPolicy(string namingPolicyType)
+    {
         switch (namingPolicyType)
         {
             case CamelCase:
-                jsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-                break;
+                return JsonNamingPolicy.CamelCase;
             case SnakeCaseLower:
-                jsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
-                break;
+                return JsonNamingPolicy.SnakeCaseLower;
             case SnakeCaseUpper:
-                jsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseUpper;
-                break;
+                return JsonNamingPolicy.SnakeCaseUpper;
             case KebabCaseLower:
-                jsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.KebabCaseLower;
-                break;
+                return JsonNamingPolicy.KebabCaseLower;
             case KebabCaseUpper:
-                jsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.KebabCaseUpper;
-                break;
+                return JsonNamingPolicy.KebabCaseUpper;
+            default:
+                return null;
         }
-
-        return jsonSerializerOptions;
     }
 }
