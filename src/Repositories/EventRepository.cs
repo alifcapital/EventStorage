@@ -32,6 +32,7 @@ internal abstract class EventRepository<TBaseEvent> : IEventRepository<TBaseEven
                     payload TEXT,
                     headers TEXT,
                     additional_data TEXT,
+                    naming_policy_type VARCHAR(15),
                     created_at TIMESTAMP(0) NOT NULL,
                     try_count integer DEFAULT 0 NOT NULL,
                     try_after_at TIMESTAMP(0) NOT NULL,
@@ -62,10 +63,10 @@ internal abstract class EventRepository<TBaseEvent> : IEventRepository<TBaseEven
                 string sql = $@"
                 INSERT INTO {_tableName} (
                     id, provider, event_name, event_path, payload, headers, 
-                    additional_data, created_at, try_count, try_after_at
+                    additional_data, naming_policy_type, created_at, try_count, try_after_at
                 ) VALUES (
                     @Id, @Provider, @EventName, @EventPath, @Payload, @Headers, 
-                    @AdditionalData, @CreatedAt, @TryCount, @TryAfterAt
+                    @AdditionalData, @NamingPolicyType, @CreatedAt, @TryCount, @TryAfterAt
                 )";
 
                 dbConnection.Execute(sql, @event);
@@ -93,10 +94,10 @@ internal abstract class EventRepository<TBaseEvent> : IEventRepository<TBaseEven
                 string sql = $@"
                 INSERT INTO {_tableName} (
                     id, provider, event_name, event_path, payload, headers, 
-                    additional_data, created_at, try_count, try_after_at
+                    additional_data, naming_policy_type, created_at, try_count, try_after_at
                 ) VALUES (
                     @Id, @Provider, @EventName, @EventPath, @Payload, @Headers, 
-                    @AdditionalData, @CreatedAt, @TryCount, @TryAfterAt
+                    @AdditionalData, @NamingPolicyType, @CreatedAt, @TryCount, @TryAfterAt
                 )";
 
                 dbConnection.Execute(sql, events);
@@ -119,6 +120,7 @@ internal abstract class EventRepository<TBaseEvent> : IEventRepository<TBaseEven
                 SELECT id as ""{nameof(IBaseEventBox.Id)}"", provider as ""{nameof(IBaseEventBox.Provider)}"", 
                         event_name as ""{nameof(IBaseEventBox.EventName)}"", event_path as ""{nameof(IBaseEventBox.EventPath)}"", 
                         payload as ""{nameof(IBaseEventBox.Payload)}"", headers as ""{nameof(IBaseEventBox.Headers)}"", 
+                        naming_policy_type as ""{nameof(IBaseEventBox.NamingPolicyType)}"", 
                         additional_data as ""{nameof(IBaseEventBox.AdditionalData)}"", created_at as ""{nameof(IBaseEventBox.CreatedAt)}"", 
                         try_count as ""{nameof(IBaseEventBox.TryCount)}"", try_after_at as ""{nameof(IBaseEventBox.TryAfterAt)}"", 
                         processed_at as ""{nameof(IBaseEventBox.ProcessedAt)}""

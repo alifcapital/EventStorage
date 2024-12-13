@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace EventStorage.Models;
 
 /// <summary>
@@ -49,6 +52,11 @@ public interface IBaseEventBox
     /// Gets the count of attempts to process the event.
     /// </summary>
     int TryCount { get; set; }
+    
+    /// <summary>
+    /// Name of the naming policy type for serializing and deserializing properties of Event. Default value is "PascalCase". It can be one of "PascalCase", "CamelCase", "SnakeCaseLower", "SnakeCaseUpper", "KebabCaseLower", or "KebabCaseUpper".
+    /// </summary>
+    string NamingPolicyType { get; }
 
     /// <summary>
     /// Gets the count of attempts to process the event.
@@ -69,4 +77,10 @@ public interface IBaseEventBox
     /// For marking the event is processed
     /// </summary>
     void Processed();
+
+    /// <summary>
+    /// Gets JsonSerializerOptions to use on naming police for serializing and deserializing properties of Event 
+    /// </summary>
+    /// <returns></returns>
+    JsonSerializerOptions GetJsonSerializer();
 }

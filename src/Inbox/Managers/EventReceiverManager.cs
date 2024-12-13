@@ -20,7 +20,7 @@ internal class EventReceiverManager : IEventReceiverManager
         _logger = logger;
     }
 
-    public bool Received<TReceiveEvent>(TReceiveEvent receivedEvent, string eventPath, EventProviderType eventProvider)
+    public bool Received<TReceiveEvent>(TReceiveEvent receivedEvent, string eventPath, EventProviderType eventProvider, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
         where TReceiveEvent : IReceiveEvent
     {
         var receivedEventType = receivedEvent.GetType().Name;
@@ -45,7 +45,7 @@ internal class EventReceiverManager : IEventReceiverManager
             var payload = SerializeData(receivedEvent);
 
             return Received(receivedEvent.EventId, receivedEventType, eventPath, eventProvider, payload, headers,
-                additionalData);
+                additionalData, namingPolicyType);
         }
         catch (Exception e) when (e is not EventStoreException)
         {
@@ -62,7 +62,7 @@ internal class EventReceiverManager : IEventReceiverManager
     }
 
     public bool Received<TReceiveEvent>(TReceiveEvent receivedEvent, string eventPath, EventProviderType eventProvider,
-        string headers, string additionalData = null)
+        string headers, string additionalData = null, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
         where TReceiveEvent : IReceiveEvent
     {
         var receivedEventType = receivedEvent.GetType().Name;
@@ -71,7 +71,7 @@ internal class EventReceiverManager : IEventReceiverManager
             var payload = SerializeData(receivedEvent);
 
             return Received(receivedEvent.EventId, receivedEventType, eventPath, eventProvider, payload, headers,
-                additionalData);
+                additionalData, namingPolicyType);
         }
         catch (Exception e) when (e is not EventStoreException)
         {
@@ -83,7 +83,7 @@ internal class EventReceiverManager : IEventReceiverManager
     }
 
     public bool Received(Guid eventId, string eventTypeName, string eventPath, EventProviderType eventProvider,
-        string payload, string headers, string additionalData = null)
+        string payload, string headers, string additionalData = null, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
     {
         try
         {
@@ -94,6 +94,7 @@ internal class EventReceiverManager : IEventReceiverManager
                 EventName = eventTypeName,
                 EventPath = eventPath,
                 Payload = payload,
+                NamingPolicyType = namingPolicyType.ToString(),
                 Headers = headers,
                 AdditionalData = additionalData
             };

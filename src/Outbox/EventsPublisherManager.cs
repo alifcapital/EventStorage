@@ -113,7 +113,8 @@ internal class EventsPublisherManager : IEventsPublisherManager
                 _logger.LogTrace("Executing the {EventType} outbox event with ID {EventId} to publish.",
                     @event.EventName, @event.Id);
 
-                var eventToPublish = JsonSerializer.Deserialize(@event.Payload, info.typeOfEvent) as ISendEvent;
+                var jsonSerializerSetting = @event.GetJsonSerializer();
+                var eventToPublish = JsonSerializer.Deserialize(@event.Payload, info.typeOfEvent, jsonSerializerSetting) as ISendEvent;
                 if (info.hasHeaders && @event.Headers is not null)
                     ((IHasHeaders)eventToPublish).Headers =
                         JsonSerializer.Deserialize<Dictionary<string, string>>(@event.Headers);

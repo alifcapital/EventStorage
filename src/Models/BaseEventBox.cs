@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace EventStorage.Models;
 
 internal abstract class BaseEventBox : IBaseEventBox
@@ -11,6 +13,7 @@ internal abstract class BaseEventBox : IBaseEventBox
     public string AdditionalData { get; internal set; }
     public DateTime CreatedAt { get; } = DateTime.Now;
     public int TryCount { get; set; }
+    public string NamingPolicyType { get; init; }
     public DateTime TryAfterAt { get; set; } = DateTime.Now;
     public DateTime? ProcessedAt { get; set; }
 
@@ -29,5 +32,20 @@ internal abstract class BaseEventBox : IBaseEventBox
     public void Processed()
     {
         ProcessedAt = DateTime.Now;
+    }
+
+    private JsonSerializerOptions _jsonSerializerOptions;
+
+    /// <summary>
+    /// Gets JsonSerializerOptions to use on naming police for serializing and deserializing properties of Event 
+    /// </summary>
+    public JsonSerializerOptions GetJsonSerializer()
+    {
+        if (_jsonSerializerOptions is not null)
+            return _jsonSerializerOptions;
+
+        _jsonSerializerOptions = NamingPolicyTypeNames.CreateJsonSerializer(NamingPolicyType);
+
+        return _jsonSerializerOptions;
     }
 }
