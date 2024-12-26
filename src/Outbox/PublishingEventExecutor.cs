@@ -10,13 +10,10 @@ using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Outbox;
 
-/// <summary>
-/// Manager of events publisher
-/// </summary>
-internal class EventsPublisherManager : IEventsPublisherManager
+internal class PublishingEventExecutor : IPublishingEventExecutor
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<EventsPublisherManager> _logger;
+    private readonly ILogger<PublishingEventExecutor> _logger;
     private readonly InboxOrOutboxStructure _settings;
 
     private readonly Dictionary<string, (Type typeOfEvent, Type typeOfPublisher, string provider, bool hasHeaders, bool
@@ -26,10 +23,10 @@ internal class EventsPublisherManager : IEventsPublisherManager
     private readonly SemaphoreSlim _singleExecutionLock = new(1, 1);
     private readonly SemaphoreSlim _semaphore;
 
-    public EventsPublisherManager(IServiceProvider serviceProvider)
+    public PublishingEventExecutor(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
-        _logger = serviceProvider.GetRequiredService<ILogger<EventsPublisherManager>>();
+        _logger = serviceProvider.GetRequiredService<ILogger<PublishingEventExecutor>>();
         _settings = serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Outbox;
         _publishers = new();
         _semaphore = new(_settings.MaxConcurrency);

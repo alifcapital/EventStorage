@@ -58,15 +58,15 @@ public static class EventStoreExtensions
             });
             
             RegisterAllEventsOfOutboxToDependencyInjection(services, assemblies);
-            services.AddSingleton<IEventsPublisherManager>(serviceProvider =>
+            services.AddSingleton<IPublishingEventExecutor>(serviceProvider =>
             {
-                var publisherManager = new EventsPublisherManager(serviceProvider);
-                RegisterAllEventsOfOutbox(publisherManager, assemblies);
+                var publishingEventExecutor = new PublishingEventExecutor(serviceProvider);
+                RegisterAllEventsOfOutbox(publishingEventExecutor, assemblies);
 
-                return publisherManager;
+                return publishingEventExecutor;
             });
 
-            services.AddHostedService<EventsPublisherService>();
+            services.AddHostedService<PublishingEventsExecutorService>();
             services.AddHostedService<CleanUpProcessedOutboxEventsService>();
         }
 
@@ -115,7 +115,7 @@ public static class EventStoreExtensions
 
     #region Publisher
 
-    private static void RegisterAllEventsOfOutbox(EventsPublisherManager publisherManager, Assembly[] assemblies)
+    private static void RegisterAllEventsOfOutbox(PublishingEventExecutor publishingEventExecutor, Assembly[] assemblies)
     {
         var (globalPublisherHandlers, publisherHandlers) = GetPublisherHandlerTypes(assemblies);
 
@@ -123,12 +123,12 @@ public static class EventStoreExtensions
         foreach ((Type sendType, bool hasHeaders, bool hasAdditionalData) in allSendTypes)
         {
             foreach (var (publisherType, provider) in globalPublisherHandlers)
-                publisherManager.AddPublisher(sendType, publisherType, provider, hasHeaders, hasAdditionalData,
+                publishingEventExecutor.AddPublisher(sendType, publisherType, provider, hasHeaders, hasAdditionalData,
                     isGlobalPublisher: true);
 
             if (publisherHandlers.TryGetValue(sendType.Name,
                     out (Type publisherType, EventProviderType provider) publisher))
-                publisherManager.AddPublisher(sendType, publisher.publisherType, publisher.provider, hasHeaders,
+                publishingEventExecutor.AddPublisher(sendType, publisher.publisherType, publisher.provider, hasHeaders,
                     hasAdditionalData, isGlobalPublisher: false);
         }
     }
