@@ -6,25 +6,18 @@ using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Inbox.BackgroundServices;
 
-internal class EventsReceiverService : BackgroundService
+internal class ReceivedEventsExecutorService(
+    IServiceProvider services,
+    IReceivedEventExecutor receivedEventExecutor,
+    InboxAndOutboxSettings settings,
+    ILogger<ReceivedEventsExecutorService> logger)
+    : BackgroundService
 {
-    private readonly IServiceProvider _services;
-    private readonly IEventsReceiverManager _eventsReceiverManager;
-    private readonly ILogger<EventsReceiverService> _logger;
-    private readonly TimeSpan _timeToDelay;
-
-    public EventsReceiverService(IServiceProvider services, IEventsReceiverManager eventsReceiverManager,
-        InboxAndOutboxSettings settings, ILogger<EventsReceiverService> logger)
-    {
-        _services = services;
-        _eventsReceiverManager = eventsReceiverManager;
-        _logger = logger;
-        _timeToDelay = TimeSpan.FromSeconds(settings.Inbox.SecondsToDelayProcessEvents);
-    }
+    private readonly TimeSpan _timeToDelay = TimeSpan.FromSeconds(settings.Inbox.SecondsToDelayProcessEvents);
 
     public override Task StartAsync(CancellationToken cancellationToken)
     {
-        using var scope = _services.CreateScope();
+        using var scope = services.CreateScope();
         var inboxRepository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
         inboxRepository.CreateTableIfNotExists();
 
@@ -37,11 +30,11 @@ internal class EventsReceiverService : BackgroundService
         {
             try
             {
-                await _eventsReceiverManager.ExecuteUnprocessedEvents(stoppingToken);
+                await receivedEventExecutor.ExecuteUnprocessedEvents(stoppingToken);
             }
             catch (Exception e)
             {
-                _logger.LogCritical(e, "Something is wrong while receiving/updating an inbox events. Happened at: {time}",
+                logger.LogCritical(e, "Something is wrong while receiving/updating an inbox events. Happened at: {time}",
                     DateTimeOffset.Now);
                 await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
             }

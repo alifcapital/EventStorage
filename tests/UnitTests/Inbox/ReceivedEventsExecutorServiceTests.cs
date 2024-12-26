@@ -8,19 +8,19 @@ using NSubstitute;
 
 namespace EventStorage.Tests.UnitTests.Inbox;
 
-public class EventsReceiverServiceTests
+public class ReceivedEventsExecutorServiceTests
 {
     private IServiceProvider _serviceProvider;
-    private IEventsReceiverManager _eventsReceiverManager;
-    private ILogger<EventsReceiverService> _logger;
+    private IReceivedEventExecutor _receivedEventExecutor;
+    private ILogger<ReceivedEventsExecutorService> _logger;
     private InboxAndOutboxSettings _settings;
 
     [SetUp]
     public void Setup()
     {
         _serviceProvider = Substitute.For<IServiceProvider>();
-        _eventsReceiverManager = Substitute.For<IEventsReceiverManager>();
-        _logger = Substitute.For<ILogger<EventsReceiverService>>();
+        _receivedEventExecutor = Substitute.For<IReceivedEventExecutor>();
+        _logger = Substitute.For<ILogger<ReceivedEventsExecutorService>>();
         _settings = new InboxAndOutboxSettings
         {
             Inbox = new InboxOrOutboxStructure
@@ -39,9 +39,9 @@ public class EventsReceiverServiceTests
         var inboxRepository = Substitute.For<IInboxRepository>();
         scope.ServiceProvider.GetService(typeof(IInboxRepository)).Returns(inboxRepository);
 
-        var eventsReceiverService = new EventsReceiverService(
+        var eventsReceiverService = new ReceivedEventsExecutorService(
             services: _serviceProvider,
-            eventsReceiverManager: _eventsReceiverManager,
+            receivedEventExecutor: _receivedEventExecutor,
             settings: _settings,
             logger: _logger
         );
@@ -54,7 +54,7 @@ public class EventsReceiverServiceTests
         inboxRepository.Received(1).CreateTableIfNotExists();
 
         //We cannot test this because it is an asynchronous method
-        await _eventsReceiverManager.ExecuteUnprocessedEvents(cancellationToken);
+        await _receivedEventExecutor.ExecuteUnprocessedEvents(cancellationToken);
     }
 
     [Test]
@@ -71,15 +71,15 @@ public class EventsReceiverServiceTests
         var stoppingToken = new CancellationTokenSource();
         stoppingToken.CancelAfter(100);
 
-        var eventsReceiverService = new EventsReceiverService(
+        var eventsReceiverService = new ReceivedEventsExecutorService(
             services: _serviceProvider,
-            eventsReceiverManager: _eventsReceiverManager,
+            receivedEventExecutor: _receivedEventExecutor,
             settings: _settings,
             logger: _logger
         );
 
         // Simulate exception in ExecuteUnprocessedEvents
-        _eventsReceiverManager
+        _receivedEventExecutor
             .When(x => x.ExecuteUnprocessedEvents(Arg.Any<CancellationToken>()))
             .Do(_ => throw new Exception("Test exception"));
 
@@ -110,13 +110,13 @@ public class EventsReceiverServiceTests
         var stoppingToken = new CancellationTokenSource();
         CancellationToken cancellationToken = stoppingToken.Token;
 
-        _eventsReceiverManager
+        _receivedEventExecutor
             .ExecuteUnprocessedEvents(cancellationToken)
             .Returns(async _ => await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken));
 
-        var eventsReceiverService = new EventsReceiverService(
+        var eventsReceiverService = new ReceivedEventsExecutorService(
             services: _serviceProvider,
-            eventsReceiverManager: _eventsReceiverManager,
+            receivedEventExecutor: _receivedEventExecutor,
             settings: _settings,
             logger: _logger
         );
@@ -126,7 +126,7 @@ public class EventsReceiverServiceTests
         await stoppingToken.CancelAsync();
         
         // Assert
-        await _eventsReceiverManager.Received().ExecuteUnprocessedEvents(
+        await _receivedEventExecutor.Received().ExecuteUnprocessedEvents(
             Arg.Is<CancellationToken>(ct => ct.IsCancellationRequested == true)
         );
     }

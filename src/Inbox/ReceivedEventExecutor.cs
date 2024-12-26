@@ -11,13 +11,10 @@ using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Inbox;
 
-/// <summary>
-/// Manager of events receiver
-/// </summary>
-internal class EventsReceiverManager : IEventsReceiverManager
+internal class ReceivedEventExecutor : IReceivedEventExecutor
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<EventsReceiverManager> _logger;
+    private readonly ILogger<ReceivedEventExecutor> _logger;
     private readonly InboxOrOutboxStructure _settings;
 
     private readonly Dictionary<string, (Type eventType, Type eventReceiverType, string providerType, bool hasHeaders,
@@ -30,13 +27,13 @@ internal class EventsReceiverManager : IEventsReceiverManager
     private readonly SemaphoreSlim _singleExecutionLock = new(1, 1);
     private readonly SemaphoreSlim _semaphore;
 
-    public EventsReceiverManager(IServiceProvider serviceProvider)
+    public ReceivedEventExecutor(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
-        _logger = serviceProvider.GetRequiredService<ILogger<EventsReceiverManager>>();
+        _logger = serviceProvider.GetRequiredService<ILogger<ReceivedEventExecutor>>();
         _settings = serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Inbox;
-        _receivers = new();
-        _semaphore = new(_settings.MaxConcurrency);
+        _receivers = new Dictionary<string, (Type eventType, Type eventReceiverType, string providerType, bool hasHeaders, bool hasAdditionalData)>();
+        _semaphore = new SemaphoreSlim(_settings.MaxConcurrency);
     }
 
     /// <summary>

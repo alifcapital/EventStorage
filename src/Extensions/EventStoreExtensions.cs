@@ -82,15 +82,15 @@ public static class EventStoreExtensions
             });
 
             RegisterAllEventsOfInboxToDependencyInjection(services, assemblies);
-            services.AddSingleton<IEventsReceiverManager>(serviceProvider =>
+            services.AddSingleton<IReceivedEventExecutor>(serviceProvider =>
             {
-                var receiverManager = new EventsReceiverManager(serviceProvider);
+                var receiverManager = new ReceivedEventExecutor(serviceProvider);
                 RegisterAllEventsOfInbox(receiverManager, assemblies);
 
                 return receiverManager;
             });
 
-            services.AddHostedService<EventsReceiverService>();
+            services.AddHostedService<ReceivedEventsExecutorService>();
             services.AddHostedService<CleanUpProcessedInboxEventsService>();
         }
 
@@ -238,12 +238,12 @@ public static class EventStoreExtensions
 
     #region Receiver
 
-    private static void RegisterAllEventsOfInbox(EventsReceiverManager receiverManager, Assembly[] assemblies)
+    private static void RegisterAllEventsOfInbox(ReceivedEventExecutor receivedEventExecutor, Assembly[] assemblies)
     {
         var inboxEventTypes = GetReceiverHandlerTypes(assemblies);
 
         foreach (var (eventType, receiverType, provider) in inboxEventTypes)
-            receiverManager.AddReceiver(eventType, receiverType, provider);
+            receivedEventExecutor.AddReceiver(eventType, receiverType, provider);
     }
 
     private static void RegisterAllEventsOfInboxToDependencyInjection(IServiceCollection services, Assembly[] assemblies)
