@@ -59,7 +59,7 @@ internal class ReceivedEventExecutorTests
 
         field.Should().NotBeNull();
         var receivers =
-            (Dictionary<string, (Type eventType, Type eventReceiverType, string providerType, bool hasHeaders, bool
+            (Dictionary<string, (Type eventType, Type eventReceiverType, EventProviderType providerType, bool hasHeaders, bool
                 hasAdditionalData)>)field.GetValue(_receivedEventExecutor);
 
         receivers.Should().ContainKey(typeOfReceiveEvent.Name);
