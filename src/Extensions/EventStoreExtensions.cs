@@ -2,6 +2,7 @@ using System.Reflection;
 using EventStorage.Configurations;
 using EventStorage.Inbox;
 using EventStorage.Inbox.BackgroundServices;
+using EventStorage.Inbox.EventArgs;
 using EventStorage.Inbox.Managers;
 using EventStorage.Inbox.Providers;
 using EventStorage.Inbox.Repositories;
@@ -25,11 +26,13 @@ public static class EventStoreExtensions
     /// </summary>
     /// <param name="services">BackgroundServices of DI</param>
     /// <param name="configuration">Configuration to get config</param>
-    /// <param name="options">Options to overwrite default settings of Inbox and Outbox. </param>
+    /// <param name="options">Options to overwrite default settings of Inbox and Outbox.</param>
     /// <param name="assemblies">Assemblies to find and load publisher and subscribers</param>
+    /// <param name="executingReceivedEvent">The event for subscribing to the executing received event</param>
     public static void AddEventStore(this IServiceCollection services, IConfiguration configuration,
         Assembly[] assemblies,
-        Action<InboxAndOutboxOptions> options = null)
+        Action<InboxAndOutboxOptions> options = null,
+        EventHandler<ReceivedEventArgs> executingReceivedEvent = null)
     {
         var settingsType = typeof(InboxAndOutboxSettings);
         var isAlreadyRegistered = services.Any(serviceDescriptor =>
