@@ -168,7 +168,7 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
     }
 
     /// <summary>
-    /// Invokes the ExecutingReceivedEvent event bo be able to execute the event before the handler.
+    /// Invokes the ExecutingReceivedEvent event to be able to execute the event before the handler.
     /// </summary>
     /// <param name="event">Executing an event</param>
     /// <param name="providerType">The provider type of event</param>
