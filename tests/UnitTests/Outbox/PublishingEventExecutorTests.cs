@@ -9,26 +9,31 @@ using NSubstitute;
 
 namespace EventStorage.Tests.UnitTests.Outbox;
 
-public class EventsPublisherManagerTests
+public class PublishingEventExecutorTests
 {
-    private EventsPublisherManager _eventsPublisherManager;
+    private PublishingEventExecutor _publishingEventExecutor;
     private IServiceProvider _serviceProvider;
+
+    #region SetUp
 
     [SetUp]
     public void SetUp()
     {
         _serviceProvider = Substitute.For<IServiceProvider>();
-        var logger = Substitute.For<ILogger<EventsPublisherManager>>();
-        _serviceProvider.GetService(typeof(ILogger<EventsPublisherManager>)).Returns(logger);
+        var logger = Substitute.For<ILogger<PublishingEventExecutor>>();
+        _serviceProvider.GetService(typeof(ILogger<PublishingEventExecutor>)).Returns(logger);
         _serviceProvider.GetService(typeof(InboxAndOutboxSettings)).Returns(new InboxAndOutboxSettings
         {
             Outbox = new InboxOrOutboxStructure
                 { MaxConcurrency = 1, TryCount = 3, TryAfterMinutes = 5, TryAfterMinutesIfEventNotFound = 10 }
         });
-        _eventsPublisherManager = new EventsPublisherManager(_serviceProvider);
+        _publishingEventExecutor = new PublishingEventExecutor(_serviceProvider);
     }
 
+    #endregion
+
     #region AddPublisher
+    
     [Test]
     public void AddPublisher_OneEvent_ShouldAddOnDictionary()
     {
@@ -38,7 +43,7 @@ public class EventsPublisherManagerTests
         var providerType = EventProviderType.MessageBroker;
 
         // Act
-        _eventsPublisherManager.AddPublisher(
+        _publishingEventExecutor.AddPublisher(
             typeOfEventSender: typeOfSentEvent,
             typeOfEventPublisher: typeOfEventPublisher,
             providerType: providerType,
@@ -48,13 +53,13 @@ public class EventsPublisherManagerTests
         );
         
         // Assert
-        var field = typeof(EventsPublisherManager).GetField("_publishers",
+        var field = typeof(PublishingEventExecutor).GetField("_publishers",
             BindingFlags.NonPublic | BindingFlags.Instance);
 
         field.Should().NotBeNull();
         var publishers =
             (Dictionary<string, (Type typeOfEvent, Type typeOfPublisher, string provider, bool hasHeaders, bool
-                hasAdditionalData, bool isGlobalPublisher)>)field.GetValue(_eventsPublisherManager);
+                hasAdditionalData, bool isGlobalPublisher)>)field.GetValue(_publishingEventExecutor);
 
         publishers.Should().ContainKey($"{typeOfSentEvent.Name}-{providerType.ToString()}");
     }
@@ -68,7 +73,7 @@ public class EventsPublisherManagerTests
         var providerType = EventProviderType.MessageBroker;
 
         // Act
-        _eventsPublisherManager.AddPublisher(
+        _publishingEventExecutor.AddPublisher(
             typeOfEventSender: typeOfSentEvent,
             typeOfEventPublisher: typeOfEventPublisher,
             providerType: providerType,
@@ -78,13 +83,13 @@ public class EventsPublisherManagerTests
         );
         
         // Assert
-        var field = typeof(EventsPublisherManager).GetField("_publishers",
+        var field = typeof(PublishingEventExecutor).GetField("_publishers",
             BindingFlags.NonPublic | BindingFlags.Instance);
 
         field.Should().NotBeNull();
         var publishers =
             (Dictionary<string, (Type typeOfEvent, Type typeOfPublisher, string provider, bool hasHeaders, bool
-                hasAdditionalData, bool isGlobalPublisher)>)field.GetValue(_eventsPublisherManager);
+                hasAdditionalData, bool isGlobalPublisher)>)field.GetValue(_publishingEventExecutor);
 
         publishers.First().Value.hasHeaders.Should().BeTrue();
     }

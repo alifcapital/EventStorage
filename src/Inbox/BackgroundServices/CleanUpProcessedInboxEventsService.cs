@@ -10,7 +10,7 @@ namespace EventStorage.Inbox.BackgroundServices;
 internal class CleanUpProcessedInboxEventsService : CleanUpProcessedEventsService<IInboxRepository, InboxEvent>
 {
     public CleanUpProcessedInboxEventsService(IServiceProvider services,
-        InboxAndOutboxSettings settings, ILogger<EventsPublisherService> logger) : base(services, settings.Inbox,
+        InboxAndOutboxSettings settings, ILogger<PublishingEventsExecutorService> logger) : base(services, settings.Inbox,
         logger)
     {
     }

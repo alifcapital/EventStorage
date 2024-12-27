@@ -8,25 +8,29 @@ using NSubstitute;
 
 namespace EventStorage.Tests.UnitTests.Outbox;
 
-public class EventsPublisherServiceTests
+public class PublishingEventsExecutorServiceTests
 {
     private IServiceProvider _serviceProvider;
-    private IEventsPublisherManager _eventsPublisherManager;
-    private ILogger<EventsPublisherService> _logger;
+    private IPublishingEventExecutor _publishingEventExecutor;
+    private ILogger<PublishingEventsExecutorService> _logger;
     private InboxAndOutboxSettings _settings;
+
+    #region SetUp
 
     [SetUp]
     public void SetUp()
     {
         _serviceProvider = Substitute.For<IServiceProvider>();
-        _eventsPublisherManager = Substitute.For<IEventsPublisherManager>();
-        _logger = Substitute.For<ILogger<EventsPublisherService>>();
+        _publishingEventExecutor = Substitute.For<IPublishingEventExecutor>();
+        _logger = Substitute.For<ILogger<PublishingEventsExecutorService>>();
         _settings = new InboxAndOutboxSettings
         {
             Outbox = new InboxOrOutboxStructure
                 { MaxConcurrency = 1, TryCount = 3, TryAfterMinutes = 5, TryAfterMinutesIfEventNotFound = 10 }
         };
     }
+
+    #endregion
 
     #region StartAsync
     
@@ -44,14 +48,14 @@ public class EventsPublisherServiceTests
         var stoppingToken = new CancellationTokenSource();
         stoppingToken.CancelAfter(100);
 
-        var eventsPublisherService = new EventsPublisherService(
-            eventsPublisherManager: _eventsPublisherManager,
+        var eventsPublisherService = new PublishingEventsExecutorService(
+            publishingEventExecutor: _publishingEventExecutor,
             settings: _settings,
             logger: _logger
         );
 
         // Simulate exception in ExecuteUnprocessedEvents
-        _eventsPublisherManager
+        _publishingEventExecutor
             .When(x => x.ExecuteUnprocessedEvents(Arg.Any<CancellationToken>()))
             .Do(_ => throw new Exception("Test exception"));
 
@@ -82,12 +86,12 @@ public class EventsPublisherServiceTests
         var stoppingToken = new CancellationTokenSource();
         CancellationToken cancellationToken = stoppingToken.Token;
 
-        _eventsPublisherManager
+        _publishingEventExecutor
             .ExecuteUnprocessedEvents(cancellationToken)
             .Returns(async _ => await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken));
 
-        var eventsPublisherService = new EventsPublisherService(
-            eventsPublisherManager: _eventsPublisherManager,
+        var eventsPublisherService = new PublishingEventsExecutorService(
+            publishingEventExecutor: _publishingEventExecutor,
             settings: _settings,
             logger: _logger
         );
@@ -97,7 +101,7 @@ public class EventsPublisherServiceTests
         await stoppingToken.CancelAsync();
         
         // Assert
-        await _eventsPublisherManager.Received().ExecuteUnprocessedEvents(
+        await _publishingEventExecutor.Received().ExecuteUnprocessedEvents(
             Arg.Is<CancellationToken>(ct => ct.IsCancellationRequested == true)
         );
     }

@@ -14,18 +14,20 @@ using IServiceScopeFactory = Microsoft.Extensions.DependencyInjection.IServiceSc
 
 namespace EventStorage.Tests.UnitTests.Inbox;
 
-internal class EventsReceiverManagerTests
+internal class ReceivedEventExecutorTests
 {
-    private EventsReceiverManager _eventReceiverManager;
+    private ReceivedEventExecutor _receivedEventExecutor;
     private IServiceProvider _serviceProvider;
     private IInboxRepository _inboxRepository;
+
+    #region SetUp
 
     [SetUp]
     public void Setup()
     {
-        var logger = NullLogger<EventsReceiverManager>.Instance;
+        var logger = NullLogger<ReceivedEventExecutor>.Instance;
         _serviceProvider = Substitute.For<IServiceProvider>();
-        _serviceProvider.GetService(typeof(ILogger<EventsReceiverManager>)).Returns(logger);
+        _serviceProvider.GetService(typeof(ILogger<ReceivedEventExecutor>)).Returns(logger);
 
         _inboxRepository = Substitute.For<IInboxRepository>();
         _serviceProvider.GetService(typeof(InboxAndOutboxSettings)).Returns(new InboxAndOutboxSettings
@@ -35,8 +37,10 @@ internal class EventsReceiverManagerTests
         });
         _serviceProvider.GetService(typeof(IInboxRepository)).Returns(_inboxRepository);
 
-        _eventReceiverManager = new EventsReceiverManager(_serviceProvider);
+        _receivedEventExecutor = new ReceivedEventExecutor(_serviceProvider);
     }
+
+    #endregion
 
     [Test]
     public void AddReceiver_OneEvent_ShouldAddToDictionary()
@@ -47,21 +51,22 @@ internal class EventsReceiverManagerTests
         var providerType = EventProviderType.Unknown;
 
         // Act
-        _eventReceiverManager.AddReceiver(typeOfReceiveEvent, typeOfEventReceiver, providerType);
+        _receivedEventExecutor.AddReceiver(typeOfReceiveEvent, typeOfEventReceiver, providerType);
 
         // Assert
-        var field = typeof(EventsReceiverManager).GetField("_receivers",
+        var field = typeof(ReceivedEventExecutor).GetField("_receivers",
             BindingFlags.NonPublic | BindingFlags.Instance);
 
         field.Should().NotBeNull();
         var receivers =
-            (Dictionary<string, (Type eventType, Type eventReceiverType, string providerType, bool hasHeaders, bool
-                hasAdditionalData)>)field.GetValue(_eventReceiverManager);
+            (Dictionary<string, (Type eventType, Type eventReceiverType, EventProviderType providerType, bool hasHeaders, bool
+                hasAdditionalData)>)field.GetValue(_receivedEventExecutor);
 
         receivers.Should().ContainKey(typeOfReceiveEvent.Name);
     }
 
     #region ExecuteUnprocessedEvents
+    
     [Test]
     public async Task ExecuteUnprocessedEvents_EventTryAfterIsBeforeNow_ShouldProcessed()
     {
@@ -89,10 +94,10 @@ internal class EventsReceiverManagerTests
             .Returns(new SimpleEntityWasCreatedHandler());
 
         // Act
-        _eventReceiverManager.AddReceiver(typeof(SimpleEntityWasCreated), typeof(SimpleEntityWasCreatedHandler),
+        _receivedEventExecutor.AddReceiver(typeof(SimpleEntityWasCreated), typeof(SimpleEntityWasCreatedHandler),
             EventProviderType.Unknown);
 
-        await _eventReceiverManager.ExecuteUnprocessedEvents(CancellationToken.None);
+        await _receivedEventExecutor.ExecuteUnprocessedEvents(CancellationToken.None);
 
         // Assert
         await _inboxRepository
@@ -129,7 +134,7 @@ internal class EventsReceiverManagerTests
             .Returns(new SimpleEntityWasCreatedHandler());
 
         // Act
-        await _eventReceiverManager.ExecuteUnprocessedEvents(CancellationToken.None);
+        await _receivedEventExecutor.ExecuteUnprocessedEvents(CancellationToken.None);
 
         // Assert
         await _inboxRepository
@@ -138,5 +143,6 @@ internal class EventsReceiverManagerTests
                 x.Count() == 1 && x.First().TryCount == 1 && x.First().ProcessedAt == null)
             );
     }
+    
     #endregion
 }

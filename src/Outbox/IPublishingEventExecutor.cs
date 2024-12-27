@@ -1,9 +1,9 @@
 namespace EventStorage.Outbox;
 
 /// <summary>
-/// Manager of event publisher
+/// Service to execute a publisher of events.
 /// </summary>
-internal interface IEventsPublisherManager
+internal interface IPublishingEventExecutor
 {
     /// <summary>
     /// For publishing unprocessed events

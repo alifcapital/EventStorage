@@ -1,4 +1,6 @@
 using EventStorage.Configurations;
+using EventStorage.Extensions;
+using EventStorage.Inbox.EventArgs;
 using EventStorage.Inbox.Repositories;
 using EventStorage.Outbox.Repositories;
 using EventStorage.Tests.Infrastructure;
@@ -13,12 +15,12 @@ public class TestInit
     /// <summary>
     /// The connection string of the database to connect the Postgres
     /// </summary>
-    internal static string DatabaseConnectionString { get; set; }
+    internal static string DatabaseConnectionString { get; private set; }
     
     /// <summary>
     /// Object to lock the creation of the database to avoid concurrency problems
     /// </summary>
-    private static readonly object LockCreateDatabase = new();
+    private static readonly Lock LockCreateDatabase = new();
     
     [OneTimeSetUp]
     public void RunBeforeAllTests()

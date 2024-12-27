@@ -1,9 +1,9 @@
 namespace EventStorage.Inbox;
 
 /// <summary>
-/// Manager of event receiver
+/// Service for executing an event handler of received events
 /// </summary>
-internal interface IEventsReceiverManager
+internal interface IReceivedEventExecutor
 {
     /// <summary>
     /// For executing unprocessed events
