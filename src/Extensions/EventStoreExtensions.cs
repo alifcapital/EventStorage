@@ -84,6 +84,9 @@ public static class EventStoreExtensions
                 return reporitory;
             });
 
+            if (executingReceivedEvent is not null)
+                ReceivedEventExecutor.ExecutingReceivedEvent += executingReceivedEvent;
+            
             RegisterAllEventsOfInboxToDependencyInjection(services, assemblies);
             services.AddSingleton<IReceivedEventExecutor>(serviceProvider =>
             {

@@ -21,7 +21,7 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
     /// <summary>
     /// The event to be executed before executing the handler of the received event.
     /// </summary>
-    public event EventHandler<ReceivedEventArgs> ExecutingReceivedEvent;
+    public static event EventHandler<ReceivedEventArgs> ExecutingReceivedEvent;
 
     private readonly Dictionary<string, (Type eventType, Type eventReceiverType, EventProviderType providerType, bool
         hasHeaders,

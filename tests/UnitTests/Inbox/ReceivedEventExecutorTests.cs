@@ -20,6 +20,8 @@ internal class ReceivedEventExecutorTests
     private IServiceProvider _serviceProvider;
     private IInboxRepository _inboxRepository;
 
+    #region SetUp
+
     [SetUp]
     public void Setup()
     {
@@ -37,6 +39,8 @@ internal class ReceivedEventExecutorTests
 
         _receivedEventExecutor = new ReceivedEventExecutor(_serviceProvider);
     }
+
+    #endregion
 
     [Test]
     public void AddReceiver_OneEvent_ShouldAddToDictionary()
@@ -62,6 +66,7 @@ internal class ReceivedEventExecutorTests
     }
 
     #region ExecuteUnprocessedEvents
+    
     [Test]
     public async Task ExecuteUnprocessedEvents_EventTryAfterIsBeforeNow_ShouldProcessed()
     {
@@ -138,5 +143,6 @@ internal class ReceivedEventExecutorTests
                 x.Count() == 1 && x.First().TryCount == 1 && x.First().ProcessedAt == null)
             );
     }
+    
     #endregion
 }
