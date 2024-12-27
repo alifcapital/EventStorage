@@ -28,11 +28,11 @@ public static class EventStoreExtensions
     /// <param name="configuration">Configuration to get config</param>
     /// <param name="options">Options to overwrite default settings of Inbox and Outbox.</param>
     /// <param name="assemblies">Assemblies to find and load publisher and subscribers</param>
-    /// <param name="executingReceivedEvent">The event for subscribing to the executing received event</param>
+    /// <param name="executingReceivedEvents">Events for subscribing to the executing received event of Inbox</param>
     public static void AddEventStore(this IServiceCollection services, IConfiguration configuration,
         Assembly[] assemblies,
         Action<InboxAndOutboxOptions> options = null,
-        EventHandler<ReceivedEventArgs> executingReceivedEvent = null)
+        params EventHandler<ReceivedEventArgs>[] executingReceivedEvents)
     {
         var settingsType = typeof(InboxAndOutboxSettings);
         var isAlreadyRegistered = services.Any(serviceDescriptor =>
@@ -59,7 +59,7 @@ public static class EventStoreExtensions
 
                 return reporitory;
             });
-            
+
             RegisterAllEventsOfOutboxToDependencyInjection(services, assemblies);
             services.AddSingleton<IPublishingEventExecutor>(serviceProvider =>
             {
@@ -84,9 +84,12 @@ public static class EventStoreExtensions
                 return reporitory;
             });
 
-            if (executingReceivedEvent is not null)
-                ReceivedEventExecutor.ExecutingReceivedEvent += executingReceivedEvent;
-            
+            if (executingReceivedEvents != null)
+            {
+                foreach (var executingReceivedEvent in executingReceivedEvents)
+                    ReceivedEventExecutor.ExecutingReceivedEvent += executingReceivedEvent;
+            }
+
             RegisterAllEventsOfInboxToDependencyInjection(services, assemblies);
             services.AddSingleton<IReceivedEventExecutor>(serviceProvider =>
             {
@@ -103,13 +106,13 @@ public static class EventStoreExtensions
         InboxAndOutboxSettings GetDefaultSettings()
         {
             var defaultSettings = configuration.GetSection("InboxAndOutbox").Get<InboxAndOutboxSettings>() ?? new();
-            
+
             defaultSettings.Inbox ??= new();
-            if(string.IsNullOrEmpty(defaultSettings.Inbox.TableName))
+            if (string.IsNullOrEmpty(defaultSettings.Inbox.TableName))
                 defaultSettings.Inbox.TableName = nameof(defaultSettings.Inbox);
 
             defaultSettings.Outbox ??= new();
-            if(string.IsNullOrEmpty(defaultSettings.Outbox.TableName))
+            if (string.IsNullOrEmpty(defaultSettings.Outbox.TableName))
                 defaultSettings.Outbox.TableName = nameof(defaultSettings.Outbox);
 
             var inboxAndOutboxOptions = new InboxAndOutboxOptions(defaultSettings);
@@ -121,7 +124,8 @@ public static class EventStoreExtensions
 
     #region Publisher
 
-    private static void RegisterAllEventsOfOutbox(PublishingEventExecutor publishingEventExecutor, Assembly[] assemblies)
+    private static void RegisterAllEventsOfOutbox(PublishingEventExecutor publishingEventExecutor,
+        Assembly[] assemblies)
     {
         var (globalPublisherHandlers, publisherHandlers) = GetPublisherHandlerTypes(assemblies);
 
@@ -139,7 +143,8 @@ public static class EventStoreExtensions
         }
     }
 
-    private static void RegisterAllEventsOfOutboxToDependencyInjection(IServiceCollection services, Assembly[] assemblies)
+    private static void RegisterAllEventsOfOutboxToDependencyInjection(IServiceCollection services,
+        Assembly[] assemblies)
     {
         var (globalPublisherHandlers, publisherHandlers) = GetPublisherHandlerTypes(assemblies);
         foreach (var (publisherType, _) in globalPublisherHandlers)
@@ -252,7 +257,8 @@ public static class EventStoreExtensions
             receivedEventExecutor.AddReceiver(eventType, receiverType, provider);
     }
 
-    private static void RegisterAllEventsOfInboxToDependencyInjection(IServiceCollection services, Assembly[] assemblies)
+    private static void RegisterAllEventsOfInboxToDependencyInjection(IServiceCollection services,
+        Assembly[] assemblies)
     {
         var inboxEventTypes = GetReceiverHandlerTypes(assemblies);
         foreach (var (_, receiverType, _) in inboxEventTypes)
