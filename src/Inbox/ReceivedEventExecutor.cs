@@ -136,7 +136,7 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
                     using var serviceScope = serviceProvider.CreateScope();
                     var eventReceiver = serviceScope.ServiceProvider.GetRequiredService(info.eventReceiverType);
 
-                    OnExecutingReceivedEvent(eventToReceive, info.providerType);
+                    OnExecutingReceivedEvent(eventToReceive, info.providerType, serviceScope.ServiceProvider);
 
                     var receiveMethod = info.eventReceiverType.GetMethod(ReceiverMethodName);
                     await (Task)receiveMethod.Invoke(eventReceiver,
@@ -172,17 +172,13 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
     /// </summary>
     /// <param name="event">Executing an event</param>
     /// <param name="providerType">The provider type of event</param>
-    private void OnExecutingReceivedEvent(IReceiveEvent @event, EventProviderType providerType)
+    /// <param name="serviceProvider">The IServiceProvider used to resolve dependencies from the scope.</param>
+    private void OnExecutingReceivedEvent(IReceiveEvent @event, EventProviderType providerType, IServiceProvider serviceProvider)
     {
         if (ExecutingReceivedEvent is null)
             return;
 
-        ReceivedEventArgs eventArgs = new ReceivedEventArgs
-        {
-            Event = @event,
-            ProviderType = providerType
-        };
-
+        var eventArgs = new ReceivedEventArgs(@event, providerType, serviceProvider);
         ExecutingReceivedEvent.Invoke(this, eventArgs);
     }
 }

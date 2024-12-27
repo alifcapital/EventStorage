@@ -13,10 +13,22 @@ public class ReceivedEventArgs : EventArgs
     /// <summary>
     /// Executing event.
     /// </summary>
-    public required IReceiveEvent Event { get; init; }
+    public IReceiveEvent Event { get; }
     
     /// <summary>
     /// Type of event provider.
     /// </summary>
-    public required EventProviderType ProviderType { get; init; }
+    public EventProviderType ProviderType { get; }
+    
+    /// <summary>
+    /// The <see cref="IServiceProvider"/> used to resolve dependencies from the scope.
+    /// </summary>
+    public IServiceProvider ServiceProvider { get; }
+    
+    public ReceivedEventArgs(IReceiveEvent @event, EventProviderType providerType, IServiceProvider serviceProvider)
+    {
+        Event = @event;
+        ProviderType = providerType;
+        ServiceProvider = serviceProvider;
+    }
 }
