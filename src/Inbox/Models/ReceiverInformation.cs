@@ -2,7 +2,7 @@
 
 namespace EventStorage.Inbox.Models;
 
-public record ReceiversInformation
+public record ReceiverInformation
 {
     /// <summary>
     /// The type of the received event.
@@ -10,9 +10,9 @@ public record ReceiversInformation
     public required Type EventType { get; init; }
     
     /// <summary>
-    /// The type of the event receivers.
+    /// The type of the event receiver.
     /// </summary>
-    public List<Type> EventReceiverTypes { get; init; } = [];
+    public required Type EventReceiverType { get; init; }
     
     /// <summary>
     /// The provider type of the received event.

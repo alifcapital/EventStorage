@@ -23,7 +23,7 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
     /// </summary>
     public static event EventHandler<ReceivedEventArgs> ExecutingReceivedEvent;
 
-    private readonly Dictionary<string, ReceiversInformation> _receivers;
+    private readonly Dictionary<string, List<ReceiverInformation>> _receivers;
 
     private const string ReceiverMethodName = nameof(IEventReceiver<IReceiveEvent>.Receive);
 
@@ -37,7 +37,7 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
         _serviceProvider = serviceProvider;
         _logger = serviceProvider.GetRequiredService<ILogger<ReceivedEventExecutor>>();
         _settings = serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Inbox;
-        _receivers = new Dictionary<string, ReceiversInformation>();
+        _receivers = new Dictionary<string, List<ReceiverInformation>>();
         _semaphore = new SemaphoreSlim(_settings.MaxConcurrency);
     }
 
@@ -52,21 +52,22 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
         var receiverKey = GetReceiverKey(typeOfReceiveEvent.Name, providerType.ToString());
         if (!_receivers.TryGetValue(receiverKey, out var receiversInformation))
         {
-            var hasHeaders = HasHeadersType.IsAssignableFrom(typeOfReceiveEvent);
-            var hasAdditionalData = HasAdditionalDataType.IsAssignableFrom(typeOfReceiveEvent);
-
-            receiversInformation = new ReceiversInformation
-            {
-                EventType = typeOfReceiveEvent,
-                ProviderType = providerType,
-                HasHeaders = hasHeaders,
-                HasAdditionalData = hasAdditionalData
-            };
-
+            receiversInformation = [];
             _receivers.Add(receiverKey, receiversInformation);
         }
+        
+        var hasHeaders = HasHeadersType.IsAssignableFrom(typeOfReceiveEvent);
+        var hasAdditionalData = HasAdditionalDataType.IsAssignableFrom(typeOfReceiveEvent);
 
-        receiversInformation.EventReceiverTypes.Add(typeOfEventReceiver);
+        var receiverInformation = new ReceiverInformation
+        {
+            EventType = typeOfReceiveEvent,
+            EventReceiverType = typeOfEventReceiver,
+            ProviderType = providerType,
+            HasHeaders = hasHeaders,
+            HasAdditionalData = hasAdditionalData
+        };
+        receiversInformation.Add(receiverInformation);
     }
 
     /// <summary>
@@ -125,14 +126,14 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
                 //Create a new scope to execute the receiver service as a scoped service for each event
                 using var serviceScope = serviceProvider.CreateScope();
 
-                var receivedEvent = LoadReceivedEvent(@event, receiversInformation);
-                OnExecutingReceivedEvent(receivedEvent, receiversInformation.ProviderType,
-                    serviceScope.ServiceProvider);
-
-                foreach (var eventReceiverType in receiversInformation.EventReceiverTypes)
+                foreach (var receiverInformation in receiversInformation)
                 {
-                    var eventReceiver = serviceScope.ServiceProvider.GetRequiredService(eventReceiverType);
-                    var receiveMethod = eventReceiverType.GetMethod(ReceiverMethodName);
+                    var receivedEvent = LoadReceivedEvent(@event, receiverInformation);
+                    OnExecutingReceivedEvent(receivedEvent, receiverInformation.ProviderType,
+                        serviceScope.ServiceProvider);
+                    
+                    var eventReceiver = serviceScope.ServiceProvider.GetRequiredService(receiverInformation.EventReceiverType);
+                    var receiveMethod = receiverInformation.EventReceiverType.GetMethod(ReceiverMethodName);
                     await (Task)receiveMethod.Invoke(eventReceiver,
                         [receivedEvent]);
                 }
@@ -189,19 +190,19 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
     /// Load the received event from the inbox event.
     /// </summary>
     /// <param name="event">The event of Inbox</param>
-    /// <param name="receiversInformation">The event receivers information</param>
+    /// <param name="receiverInformation">The event receivers information</param>
     /// <returns>Loaded instance of event</returns>
-    private static IReceiveEvent LoadReceivedEvent(IInboxEvent @event, ReceiversInformation receiversInformation)
+    private static IReceiveEvent LoadReceivedEvent(IInboxEvent @event, ReceiverInformation receiverInformation)
     {
         var jsonSerializerSetting = @event.GetJsonSerializer();
         var receivedEvent =
-            JsonSerializer.Deserialize(@event.Payload, receiversInformation.EventType, jsonSerializerSetting) as
+            JsonSerializer.Deserialize(@event.Payload, receiverInformation.EventType, jsonSerializerSetting) as
                 IReceiveEvent;
-        if (receiversInformation.HasHeaders && @event.Headers is not null)
+        if (receiverInformation.HasHeaders && @event.Headers is not null)
             ((IHasHeaders)receivedEvent).Headers =
                 JsonSerializer.Deserialize<Dictionary<string, string>>(@event.Headers);
 
-        if (receiversInformation.HasAdditionalData && @event.AdditionalData is not null)
+        if (receiverInformation.HasAdditionalData && @event.AdditionalData is not null)
             ((IHasAdditionalData)receivedEvent).AdditionalData =
                 JsonSerializer.Deserialize<Dictionary<string, string>>(@event!.AdditionalData);
         return receivedEvent;
