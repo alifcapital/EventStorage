@@ -217,7 +217,8 @@ public static class EventStoreExtensions
         {
             var allTypes = assemblies
                 .SelectMany(a => a.GetTypes())
-                .Where(t => t.IsClass && !t.IsAbstract).ToArray();
+                .Where(t => t.IsClass && !t.IsAbstract)
+                .ToArray();
 
             foreach (var publisherType in allTypes)
             {
@@ -292,7 +293,8 @@ public static class EventStoreExtensions
         {
             var allTypes = assemblies
                 .SelectMany(a => a.GetTypes())
-                .Where(t => t.IsClass && !t.IsAbstract);
+                .Where(t => t.IsClass && !t.IsAbstract)
+                .ToArray();
 
             foreach (var receiverType in allTypes)
             {

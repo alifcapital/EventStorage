@@ -45,22 +45,19 @@ internal class ReceivedEventExecutorTests
     [Test]
     public void AddReceiver_OneEvent_ShouldAddToDictionary()
     {
-        // Arrange
         var typeOfReceiveEvent = typeof(SimpleEntityWasCreated);
         var typeOfEventReceiver = typeof(SimpleEntityWasCreatedHandler);
         var providerType = EventProviderType.Unknown;
 
-        // Act
         _receivedEventExecutor.AddReceiver(typeOfReceiveEvent, typeOfEventReceiver, providerType);
 
-        // Assert
         var field = typeof(ReceivedEventExecutor).GetField("_receivers",
             BindingFlags.NonPublic | BindingFlags.Instance);
 
         field.Should().NotBeNull();
         var receivers =
             (Dictionary<string, (Type eventType, Type eventReceiverType, EventProviderType providerType, bool hasHeaders, bool
-                hasAdditionalData)>)field.GetValue(_receivedEventExecutor);
+                hasAdditionalData)>)field!.GetValue(_receivedEventExecutor);
 
         receivers.Should().ContainKey(typeOfReceiveEvent.Name);
     }
@@ -70,7 +67,6 @@ internal class ReceivedEventExecutorTests
     [Test]
     public async Task ExecuteUnprocessedEvents_EventTryAfterIsBeforeNow_ShouldProcessed()
     {
-        // Arrange
         var inboxEvent = new InboxEvent
         {
             Id = Guid.NewGuid(),
@@ -93,13 +89,11 @@ internal class ReceivedEventExecutorTests
         scope.ServiceProvider.GetService(typeof(SimpleEntityWasCreatedHandler))
             .Returns(new SimpleEntityWasCreatedHandler());
 
-        // Act
         _receivedEventExecutor.AddReceiver(typeof(SimpleEntityWasCreated), typeof(SimpleEntityWasCreatedHandler),
             EventProviderType.Unknown);
 
         await _receivedEventExecutor.ExecuteUnprocessedEvents(CancellationToken.None);
 
-        // Assert
         await _inboxRepository
             .Received(1)
             .UpdateEventsAsync(Arg.Is<IEnumerable<InboxEvent>>(x =>
@@ -110,7 +104,6 @@ internal class ReceivedEventExecutorTests
     [Test]
     public async Task ExecuteUnprocessedEvents_EventTryAfterIsAfterNow_ShouldNotProcessed()
     {
-        // Arrange
         var inboxEvent = new InboxEvent
         {
             Id = Guid.NewGuid(),
@@ -133,10 +126,8 @@ internal class ReceivedEventExecutorTests
         scope.ServiceProvider.GetService(typeof(SimpleEntityWasCreatedHandler))
             .Returns(new SimpleEntityWasCreatedHandler());
 
-        // Act
         await _receivedEventExecutor.ExecuteUnprocessedEvents(CancellationToken.None);
 
-        // Assert
         await _inboxRepository
             .Received(1)
             .UpdateEventsAsync(Arg.Is<IEnumerable<InboxEvent>>(x =>
