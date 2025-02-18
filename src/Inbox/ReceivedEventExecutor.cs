@@ -50,23 +50,23 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
     public void AddReceiver(Type typeOfReceiveEvent, Type typeOfEventReceiver, EventProviderType providerType)
     {
         var receiverKey = GetReceiverKey(typeOfReceiveEvent.Name, providerType.ToString());
-        if (!_receivers.ContainsKey(receiverKey))
+        if (!_receivers.TryGetValue(receiverKey, out var receiversInformation))
         {
             var hasHeaders = HasHeadersType.IsAssignableFrom(typeOfReceiveEvent);
             var hasAdditionalData = HasAdditionalDataType.IsAssignableFrom(typeOfReceiveEvent);
 
-            if (!_receivers.TryGetValue(receiverKey, out var receiversInformation))
+            receiversInformation = new ReceiversInformation
             {
-                receiversInformation = new ReceiversInformation
-                {
-                    EventType = typeOfReceiveEvent,
-                    ProviderType = providerType,
-                    HasHeaders = hasHeaders,
-                    HasAdditionalData = hasAdditionalData
-                };
-            }
-            receiversInformation.EventReceiverTypes.Add(typeOfEventReceiver);
+                EventType = typeOfReceiveEvent,
+                ProviderType = providerType,
+                HasHeaders = hasHeaders,
+                HasAdditionalData = hasAdditionalData
+            };
+
+            _receivers.Add(receiverKey, receiversInformation);
         }
+
+        receiversInformation.EventReceiverTypes.Add(typeOfEventReceiver);
     }
 
     /// <summary>
@@ -124,9 +124,10 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
 
                 //Create a new scope to execute the receiver service as a scoped service for each event
                 using var serviceScope = serviceProvider.CreateScope();
-                
+
                 var receivedEvent = LoadReceivedEvent(@event, receiversInformation);
-                OnExecutingReceivedEvent(receivedEvent, receiversInformation.ProviderType, serviceScope.ServiceProvider);
+                OnExecutingReceivedEvent(receivedEvent, receiversInformation.ProviderType,
+                    serviceScope.ServiceProvider);
 
                 foreach (var eventReceiverType in receiversInformation.EventReceiverTypes)
                 {
@@ -135,12 +136,12 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
                     await (Task)receiveMethod.Invoke(eventReceiver,
                         [receivedEvent]);
                 }
-                
+
                 @event.Processed();
 
                 return;
             }
-            
+
             _logger.LogError(
                 "No event receiver provider configured for the {EventTypeName} type name of inbox event with ID: {EventId}.",
                 @event.EventName, @event.Id);
@@ -179,7 +180,7 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
     /// <param name="eventName">The name of event type</param>
     /// <param name="providerName">The name of event provider type</param>
     /// <returns>Based on the event name and provider name, it returns a unique key for the receiver.</returns>
-    private static string GetReceiverKey(string eventName, string providerName)
+    internal static string GetReceiverKey(string eventName, string providerName)
     {
         return $"{eventName}_{providerName}";
     }

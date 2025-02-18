@@ -1,8 +1,8 @@
 using EventStorage.Inbox.Providers;
 
-namespace EventStorage.Tests.Domain;
+namespace EventStorage.Tests.Domain.Module2;
 
-public class SimpleEntityWasCreatedHandler : IUnknownEventReceiver<SimpleEntityWasCreated>
+public class UserCreatedHandler : IMessageBrokerEventReceiver<SimpleEntityWasCreated>
 {
     public Task Receive(SimpleEntityWasCreated @event)
     {
