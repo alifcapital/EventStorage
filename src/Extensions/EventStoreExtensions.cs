@@ -1,5 +1,6 @@
 using System.Reflection;
 using EventStorage.Configurations;
+using EventStorage.Exceptions;
 using EventStorage.Inbox;
 using EventStorage.Inbox.BackgroundServices;
 using EventStorage.Inbox.EventArgs;
@@ -36,8 +37,7 @@ public static class EventStoreExtensions
     {
         var settingsType = typeof(InboxAndOutboxSettings);
         var isAlreadyRegistered = services.Any(serviceDescriptor =>
-            serviceDescriptor.ServiceType == settingsType &&
-            serviceDescriptor.Lifetime == ServiceLifetime.Singleton);
+            serviceDescriptor.ServiceType == settingsType);
         //If it is already registered from another place, we need to just skip it to avoid of registering it twice.
         if (isAlreadyRegistered)
             return;
@@ -107,11 +107,11 @@ public static class EventStoreExtensions
         {
             var defaultSettings = configuration.GetSection("InboxAndOutbox").Get<InboxAndOutboxSettings>() ?? new();
 
-            defaultSettings.Inbox ??= new();
+            defaultSettings.Inbox ??= new InboxOrOutboxStructure();
             if (string.IsNullOrEmpty(defaultSettings.Inbox.TableName))
                 defaultSettings.Inbox.TableName = nameof(defaultSettings.Inbox);
 
-            defaultSettings.Outbox ??= new();
+            defaultSettings.Outbox ??= new InboxOrOutboxStructure();
             if (string.IsNullOrEmpty(defaultSettings.Outbox.TableName))
                 defaultSettings.Outbox.TableName = nameof(defaultSettings.Outbox);
 
@@ -132,12 +132,12 @@ public static class EventStoreExtensions
         var allSendTypes = GetSendTypes(assemblies);
         foreach ((Type sendType, bool hasHeaders, bool hasAdditionalData) in allSendTypes)
         {
-            foreach (var (publisherType, provider) in globalPublisherHandlers)
+            foreach (var (provider, publisherType) in globalPublisherHandlers)
                 publishingEventExecutor.AddPublisher(sendType, publisherType, provider, hasHeaders, hasAdditionalData,
                     isGlobalPublisher: true);
 
             if (publisherHandlers.TryGetValue(sendType.Name,
-                    out (Type publisherType, EventProviderType provider) publisher))
+                    out var publisher))
                 publishingEventExecutor.AddPublisher(sendType, publisher.publisherType, publisher.provider, hasHeaders,
                     hasAdditionalData, isGlobalPublisher: false);
         }
@@ -147,7 +147,7 @@ public static class EventStoreExtensions
         Assembly[] assemblies)
     {
         var (globalPublisherHandlers, publisherHandlers) = GetPublisherHandlerTypes(assemblies);
-        foreach (var (publisherType, _) in globalPublisherHandlers)
+        foreach (var (_, publisherType) in globalPublisherHandlers)
             services.AddTransient(publisherType);
 
         foreach (var publisher in publisherHandlers)
@@ -205,19 +205,19 @@ public static class EventStoreExtensions
         { typeof(IUnknownEventPublisher<>), EventProviderType.Unknown }
     };
 
-    private static (List<(Type publisherType, EventProviderType provider)> globalPublisherHandlers,
+    private static (Dictionary<EventProviderType, Type> globalPublisherHandlers,
         Dictionary<string, (Type publisherType, EventProviderType provider)> publisherHandlers)
         GetPublisherHandlerTypes(
             Assembly[] assemblies)
     {
-        var globalPublisherHandlerTypes = new List<(Type publisherType, EventProviderType provider)>();
+        var globalPublisherHandlerTypes = new Dictionary<EventProviderType, Type>();
         var publisherHandlerTypes = new Dictionary<string, (Type publisherType, EventProviderType provider)>();
 
         if (assemblies != null)
         {
             var allTypes = assemblies
                 .SelectMany(a => a.GetTypes())
-                .Where(t => t.IsClass && !t.IsAbstract);
+                .Where(t => t.IsClass && !t.IsAbstract).ToArray();
 
             foreach (var publisherType in allTypes)
             {
@@ -230,13 +230,20 @@ public static class EventStoreExtensions
                         if (EventProviderTypes.TryGetValue(genericType, out var provider))
                         {
                             var eventType = implementedInterface.GetGenericArguments().Single();
+                            if (publisherHandlerTypes.TryGetValue(eventType.Name, out var registeredType))
+                                throw new EventStoreException($"The {eventType.Name} event type already has a publisher named {registeredType.publisherType.Name}, but there is another type {publisherType.Name} that wants to register with the same event type. So it is not allowed to register more than one type with the same event type.");
+                            
                             publisherHandlerTypes.Add(eventType.Name, (publisherType, provider));
+
                             break;
                         }
                     }
                     else if (GlobalEventProviderTypes.TryGetValue(implementedInterface, out var provider))
                     {
-                        globalPublisherHandlerTypes.Add((publisherType, provider));
+                        if (globalPublisherHandlerTypes.TryGetValue(provider, out Type registeredType))
+                            throw new EventStoreException($"The {provider} event provider type already registered with the {registeredType} type, but there is another type {publisherType} that wants to register with the same provider. So it is not allowed to register more than one type with the same provider.");
+                        
+                        globalPublisherHandlerTypes.Add(provider, publisherType);
                     }
                 }
             }

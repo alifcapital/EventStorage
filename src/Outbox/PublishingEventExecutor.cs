@@ -113,11 +113,11 @@ internal class PublishingEventExecutor : IPublishingEventExecutor
                 var jsonSerializerSetting = @event.GetJsonSerializer();
                 var eventToPublish = JsonSerializer.Deserialize(@event.Payload, info.typeOfEvent, jsonSerializerSetting) as ISendEvent;
                 if (info.hasHeaders && @event.Headers is not null)
-                    ((IHasHeaders)eventToPublish).Headers =
+                    ((IHasHeaders)eventToPublish)!.Headers =
                         JsonSerializer.Deserialize<Dictionary<string, string>>(@event.Headers);
 
                 if (info.hasAdditionalData && @event.AdditionalData is not null)
-                    ((IHasAdditionalData)eventToPublish).AdditionalData =
+                    ((IHasAdditionalData)eventToPublish)!.AdditionalData =
                         JsonSerializer.Deserialize<Dictionary<string, string>>(@event!.AdditionalData);
 
                 var eventHandlerSubscriber = serviceScope.ServiceProvider.GetRequiredService(info.typeOfPublisher);
