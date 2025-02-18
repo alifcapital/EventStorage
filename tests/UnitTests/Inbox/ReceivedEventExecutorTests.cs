@@ -43,26 +43,42 @@ internal class ReceivedEventExecutorTests
     #endregion
 
     [Test]
-    public void AddReceiver_OneEvent_ShouldAddToDictionary()
+    public void AddReceiver_OneEventWithSingleReceiver_OneReceiverInformationShouldAddToDictionary()
     {
-        // Arrange
         var typeOfReceiveEvent = typeof(SimpleEntityWasCreated);
         var typeOfEventReceiver = typeof(SimpleEntityWasCreatedHandler);
         var providerType = EventProviderType.Unknown;
-
-        // Act
         _receivedEventExecutor.AddReceiver(typeOfReceiveEvent, typeOfEventReceiver, providerType);
 
-        // Assert
-        var field = typeof(ReceivedEventExecutor).GetField("_receivers",
-            BindingFlags.NonPublic | BindingFlags.Instance);
+        var receivers = GetReceiversInformation();
 
-        field.Should().NotBeNull();
-        var receivers =
-            (Dictionary<string, (Type eventType, Type eventReceiverType, EventProviderType providerType, bool hasHeaders, bool
-                hasAdditionalData)>)field.GetValue(_receivedEventExecutor);
+        var receiverKey = ReceivedEventExecutor.GetReceiverKey(typeOfReceiveEvent.Name, providerType.ToString());
+        Assert.That(receivers.ContainsKey(receiverKey), Is.True);
+        
+        var receiversInformation = receivers[receiverKey];
+        Assert.That(receiversInformation.EventReceiverTypes.Count, Is.EqualTo(1));
+        Assert.That(receiversInformation.EventReceiverTypes.Contains(typeOfEventReceiver), Is.True);
+    }
 
-        receivers.Should().ContainKey(typeOfReceiveEvent.Name);
+    [Test]
+    public void AddReceiver_OneEventWithTwoReceivers_TwoReceiversInformationShouldAddToDictionary()
+    {
+        var typeOfReceiveEvent = typeof(UserCreated);
+        var typeOfEventReceiver1 = typeof(Domain.Module1.UserCreatedHandler);
+        var typeOfEventReceiver2 = typeof(Domain.Module2.UserCreatedHandler);
+        var providerType = EventProviderType.MessageBroker;
+        _receivedEventExecutor.AddReceiver(typeOfReceiveEvent, typeOfEventReceiver1, providerType);
+        _receivedEventExecutor.AddReceiver(typeOfReceiveEvent, typeOfEventReceiver2, providerType);
+
+        var receivers = GetReceiversInformation();
+
+        var receiverKey = ReceivedEventExecutor.GetReceiverKey(typeOfReceiveEvent.Name, providerType.ToString());
+        Assert.That(receivers.ContainsKey(receiverKey), Is.True);
+        
+        var receiversInformation = receivers[receiverKey];
+        Assert.That(receiversInformation.EventReceiverTypes.Count, Is.EqualTo(2));
+        Assert.That(receiversInformation.EventReceiverTypes.Contains(typeOfEventReceiver1), Is.True);
+        Assert.That(receiversInformation.EventReceiverTypes.Contains(typeOfEventReceiver2), Is.True);
     }
 
     #region ExecuteUnprocessedEvents
@@ -70,7 +86,6 @@ internal class ReceivedEventExecutorTests
     [Test]
     public async Task ExecuteUnprocessedEvents_EventTryAfterIsBeforeNow_ShouldProcessed()
     {
-        // Arrange
         var inboxEvent = new InboxEvent
         {
             Id = Guid.NewGuid(),
@@ -93,13 +108,11 @@ internal class ReceivedEventExecutorTests
         scope.ServiceProvider.GetService(typeof(SimpleEntityWasCreatedHandler))
             .Returns(new SimpleEntityWasCreatedHandler());
 
-        // Act
         _receivedEventExecutor.AddReceiver(typeof(SimpleEntityWasCreated), typeof(SimpleEntityWasCreatedHandler),
             EventProviderType.Unknown);
 
         await _receivedEventExecutor.ExecuteUnprocessedEvents(CancellationToken.None);
 
-        // Assert
         await _inboxRepository
             .Received(1)
             .UpdateEventsAsync(Arg.Is<IEnumerable<InboxEvent>>(x =>
@@ -110,7 +123,6 @@ internal class ReceivedEventExecutorTests
     [Test]
     public async Task ExecuteUnprocessedEvents_EventTryAfterIsAfterNow_ShouldNotProcessed()
     {
-        // Arrange
         var inboxEvent = new InboxEvent
         {
             Id = Guid.NewGuid(),
@@ -133,10 +145,8 @@ internal class ReceivedEventExecutorTests
         scope.ServiceProvider.GetService(typeof(SimpleEntityWasCreatedHandler))
             .Returns(new SimpleEntityWasCreatedHandler());
 
-        // Act
         await _receivedEventExecutor.ExecuteUnprocessedEvents(CancellationToken.None);
 
-        // Assert
         await _inboxRepository
             .Received(1)
             .UpdateEventsAsync(Arg.Is<IEnumerable<InboxEvent>>(x =>
@@ -144,5 +154,23 @@ internal class ReceivedEventExecutorTests
             );
     }
     
+    #endregion
+
+    #region Helper methods
+
+    /// <summary>
+    /// Get the receivers information from the ReceivedEventExecutor
+    /// </summary>
+    private Dictionary<string, ReceiversInformation> GetReceiversInformation()
+    {
+        const string receiversFieldName = "_receivers";
+        var field = typeof(ReceivedEventExecutor).GetField(receiversFieldName,
+            BindingFlags.NonPublic | BindingFlags.Instance);
+        field.Should().NotBeNull();
+        
+        var receivers = (Dictionary<string, ReceiversInformation>)field!.GetValue(_receivedEventExecutor);
+        return receivers;
+    }
+
     #endregion
 }
