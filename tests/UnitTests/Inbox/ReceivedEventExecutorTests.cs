@@ -5,6 +5,7 @@ using EventStorage.Inbox.Models;
 using EventStorage.Inbox.Repositories;
 using EventStorage.Models;
 using EventStorage.Tests.Domain;
+using EventStorage.Tests.Domain.Module1;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -54,35 +55,38 @@ internal class ReceivedEventExecutorTests
 
         var receiverKey = ReceivedEventExecutor.GetReceiverKey(typeOfReceiveEvent.Name, providerType.ToString());
         Assert.That(receivers.ContainsKey(receiverKey), Is.True);
-        
+
         var receiversInformation = receivers[receiverKey];
-        Assert.That(receiversInformation.EventReceiverTypes.Count, Is.EqualTo(1));
-        Assert.That(receiversInformation.EventReceiverTypes.Contains(typeOfEventReceiver), Is.True);
+        Assert.That(receiversInformation.Count, Is.EqualTo(1));
+        Assert.That(
+            receiversInformation.Any(r =>
+                r.EventType == typeOfReceiveEvent && r.EventReceiverType == typeOfEventReceiver), Is.True);
     }
 
     [Test]
     public void AddReceiver_OneEventWithTwoReceivers_TwoReceiversInformationShouldAddToDictionary()
     {
-        var typeOfReceiveEvent = typeof(UserCreated);
+        var typeOfReceiveEvent1 = typeof(UserCreated);
+        var typeOfReceiveEvent2 = typeof(UserCreated);
         var typeOfEventReceiver1 = typeof(Domain.Module1.UserCreatedHandler);
         var typeOfEventReceiver2 = typeof(Domain.Module2.UserCreatedHandler);
         var providerType = EventProviderType.MessageBroker;
-        _receivedEventExecutor.AddReceiver(typeOfReceiveEvent, typeOfEventReceiver1, providerType);
-        _receivedEventExecutor.AddReceiver(typeOfReceiveEvent, typeOfEventReceiver2, providerType);
+        _receivedEventExecutor.AddReceiver(typeOfReceiveEvent1, typeOfEventReceiver1, providerType);
+        _receivedEventExecutor.AddReceiver(typeOfReceiveEvent2, typeOfEventReceiver2, providerType);
 
         var receivers = GetReceiversInformation();
 
-        var receiverKey = ReceivedEventExecutor.GetReceiverKey(typeOfReceiveEvent.Name, providerType.ToString());
+        var receiverKey = ReceivedEventExecutor.GetReceiverKey(typeOfReceiveEvent1.Name, providerType.ToString());
         Assert.That(receivers.ContainsKey(receiverKey), Is.True);
-        
+
         var receiversInformation = receivers[receiverKey];
-        Assert.That(receiversInformation.EventReceiverTypes.Count, Is.EqualTo(2));
-        Assert.That(receiversInformation.EventReceiverTypes.Contains(typeOfEventReceiver1), Is.True);
-        Assert.That(receiversInformation.EventReceiverTypes.Contains(typeOfEventReceiver2), Is.True);
+        Assert.That(receiversInformation.Count, Is.EqualTo(2));
+        Assert.That(receiversInformation.Any(r => r.EventType == typeOfReceiveEvent1 && r.EventReceiverType == typeOfEventReceiver1), Is.True);
+        Assert.That(receiversInformation.Any(r => r.EventType == typeOfReceiveEvent2 && r.EventReceiverType == typeOfEventReceiver2), Is.True);
     }
 
     #region ExecuteUnprocessedEvents
-    
+
     [Test]
     public async Task ExecuteUnprocessedEvents_EventTryAfterIsBeforeNow_ShouldProcessed()
     {
@@ -153,7 +157,7 @@ internal class ReceivedEventExecutorTests
                 x.Count() == 1 && x.First().TryCount == 1 && x.First().ProcessedAt == null)
             );
     }
-    
+
     #endregion
 
     #region Helper methods
@@ -161,14 +165,14 @@ internal class ReceivedEventExecutorTests
     /// <summary>
     /// Get the receivers information from the ReceivedEventExecutor
     /// </summary>
-    private Dictionary<string, ReceiversInformation> GetReceiversInformation()
+    private Dictionary<string, List<ReceiverInformation>> GetReceiversInformation()
     {
         const string receiversFieldName = "_receivers";
         var field = typeof(ReceivedEventExecutor).GetField(receiversFieldName,
             BindingFlags.NonPublic | BindingFlags.Instance);
         field.Should().NotBeNull();
-        
-        var receivers = (Dictionary<string, ReceiversInformation>)field!.GetValue(_receivedEventExecutor);
+
+        var receivers = (Dictionary<string, List<ReceiverInformation>>)field!.GetValue(_receivedEventExecutor);
         return receivers;
     }
 

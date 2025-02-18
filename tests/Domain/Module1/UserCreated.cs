@@ -1,6 +1,6 @@
 using EventStorage.Inbox.Models;
 
-namespace EventStorage.Tests.Domain;
+namespace EventStorage.Tests.Domain.Module1;
 
 public record UserCreated : IReceiveEvent
 {
