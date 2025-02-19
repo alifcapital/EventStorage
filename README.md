@@ -398,3 +398,10 @@ The `InboxAndOutbox` is the main section for setting of the Outbox and Inbox fun
 `ConnectionString` - The connection string for the PostgreSQL database used to store or read received/sent events.<br/>
 
 All options of the Inbox and Outbox are optional, if we don't pass the value of them, it will use the default value of the option.
+
+### Can we create multiple event publishers for the same event type?
+No, we can't. If we try to create multiple event publishers for the same event type, it will throw an exception. The library is designed to work with a single event publisher for each event type.
+
+### Can we create multiple event receivers for the same event type?
+Yes, we can. The library is designed to work with multiple event receivers for the same event type, even if there are multiple event types with the same name, we support them. So, when event received, all event receivers of event will be executed.
+
