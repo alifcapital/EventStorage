@@ -4,8 +4,8 @@ namespace EventStorage.Tests.Domain;
 
 public class SimpleSendEventCreatedHandler : IMessageBrokerEventPublisher<SimpleSendEventCreated>
 {
-    public Task Publish(SimpleSendEventCreated @event, string eventPath)
+    public async Task PublishAsync(SimpleSendEventCreated @event, string eventPath)
     {
-        return Task.CompletedTask;
+        await Task.CompletedTask;
     }
 }

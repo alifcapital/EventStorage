@@ -13,5 +13,5 @@ public interface IEventReceiver<TReceiveEvent>
     /// </summary>
     /// <param name="event">Received an event</param>
     /// <returns>It may throw an exception if fails</returns>
-    Task Receive(TReceiveEvent @event);
+    Task HandleAsync(TReceiveEvent @event);
 }

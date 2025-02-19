@@ -25,7 +25,7 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
 
     private readonly Dictionary<string, List<ReceiverInformation>> _receivers;
 
-    private const string ReceiverMethodName = nameof(IEventReceiver<IReceiveEvent>.Receive);
+    private const string ReceiverMethodName = nameof(IEventReceiver<IReceiveEvent>.HandleAsync);
 
     private static readonly Type HasHeadersType = typeof(IHasHeaders);
     private static readonly Type HasAdditionalDataType = typeof(IHasAdditionalData);
