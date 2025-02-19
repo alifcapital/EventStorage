@@ -19,7 +19,7 @@ internal class PublishingEventExecutor : IPublishingEventExecutor
     private readonly Dictionary<string, (Type typeOfEvent, Type typeOfPublisher, string provider, bool hasHeaders, bool
         hasAdditionalData, bool isGlobalPublisher)> _publishers;
 
-    private const string PublisherMethodName = nameof(IEventPublisher.Publish);
+    private const string PublisherMethodName = nameof(IEventPublisher.PublishAsync);
     private readonly SemaphoreSlim _singleExecutionLock = new(1, 1);
     private readonly SemaphoreSlim _semaphore;
 

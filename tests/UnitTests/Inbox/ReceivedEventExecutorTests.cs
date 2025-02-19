@@ -168,7 +168,7 @@ internal class ReceivedEventExecutorTests
     private Dictionary<string, List<ReceiverInformation>> GetReceiversInformation()
     {
         const string receiversFieldName = "_receivers";
-        var field = typeof(ReceivedEventExecutor).GetField(receiversFieldName,
+        var field = _receivedEventExecutor.GetType().GetField(receiversFieldName,
             BindingFlags.NonPublic | BindingFlags.Instance);
         field.Should().NotBeNull();
 

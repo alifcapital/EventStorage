@@ -4,8 +4,8 @@ namespace EventStorage.Tests.Domain;
 
 public class SimpleEntityWasCreatedHandler : IUnknownEventReceiver<SimpleEntityWasCreated>
 {
-    public Task Receive(SimpleEntityWasCreated @event)
+    public async Task HandleAsync(SimpleEntityWasCreated @event)
     {
-        return Task.CompletedTask;
+        await Task.CompletedTask;
     }
 }

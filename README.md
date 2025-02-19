@@ -118,10 +118,10 @@ public class DeletedUserPublisher : IWebHookEventPublisher<UserDeleted>
     //     _webHookProvider = webHookProvider;
     // }
 
-    public async Task Publish(UserDeleted @event, string eventPath)
+    public async Task PublishAsync(UserDeleted @event, string eventPath)
     {
         //Add your logic
-        return Task.CompletedTask;
+        await Task.CompletedTask;
     }
 }
 ```
@@ -156,7 +156,7 @@ public class UserController : ControllerBase
 }
 ```
 
-When we use the `Send` method of the `IEventSenderManager` to send an event, the event is first stored in the database. Based on our configuration (_by default, after one second_), the event will then be automatically execute the `Publish` method of created the `DeletedUserPublisher` event publisher.
+When we use the `Send` method of the `IEventSenderManager` to send an event, the event is first stored in the database. Based on our configuration (_by default, after one second_), the event will then be automatically execute the `PublishAsync` method of created the `DeletedUserPublisher` event publisher.
 
 If an event fails for any reason, the server will automatically retry publishing it, with delays based on the configuration you set in the [Outbox section](#options-of-inbox-and-outbox-sections).
 
@@ -189,10 +189,10 @@ public class MessageBrokerEventPublisher : IMessageBrokerEventPublisher
     //     _eventPublisher = eventPublisher;
     // }
     
-    public async Task Publish(ISendEvent @event, string eventPath)
+    public async Task PublishAsync(ISendEvent @event, string eventPath)
     {
         // _eventPublisher.Publish((IPublishEvent)@event);
-        return Task.CompletedTask;
+        await Task.CompletedTask;
     }
 }
 ```
@@ -209,12 +209,12 @@ public class CreatedUserMessageBrokerEventPublisher : IMessageBrokerEventPublish
     //     _eventPublisher = eventPublisher;
     // }
     
-    public async Task Publish(UserCreated @event, string eventPath)
+    public async Task PublishAsync(UserCreated @event, string eventPath)
     {
         // _eventPublisher.Publish(@event);
         //Add you logic to publish an event to the RabbitMQ
         
-        return Task.CompletedTask;
+        await Task.CompletedTask;
     }
 }
 ```
@@ -280,14 +280,14 @@ public class CreatedUserMessageBrokerEventPublisher : IMessageBrokerEventPublish
 {
     //Your logic
     
-    public async Task Publish(UserCreated @event, string eventPath)
+    public async Task PublishAsync(UserCreated @event, string eventPath)
     {
         var login = @event.AdditionalData["login"];
         var password = @event.AdditionalData["password"];
         //Your logic
         _eventPublisher.Publish(@event);
         
-        return Task.CompletedTask;
+        await Task.CompletedTask;
     }
 }
 ```
@@ -321,18 +321,18 @@ public class UserCreatedReceiver : IRabbitMqEventReceiver<UserCreated>
         _logger = logger;
     }
 
-    public async Task Receive(UserCreated @event)
+    public async Task HandleAsync(UserCreated @event)
     {
         _logger.LogInformation("EventId ({EventId}): {UserName} user is created with the {UserId} id", @event.EventId,
             @event.UserName, @event.UserId);
         //Add your logic in here
         
-        return Task.CompletedTask;
+        await Task.CompletedTask;
     }
 }
 ```
 
-Now the `UserCreatedReceiver` receiver is ready to receive the event. To make it work, from your logic which you receive the event from the RabbitMQ, you need to inject the `IEventReceiverManager` interface and puss the received event to the `Received` method.
+Now the `UserCreatedReceiver` receiver is ready to receive the event. To make it work, from your logic which you receive the event from the RabbitMQ, you need to inject the `IEventReceiverManager` interface and puss the received event to the `HandleAsync` method.
 
 ```
 UserCreated receivedEvent = new UserCreated
