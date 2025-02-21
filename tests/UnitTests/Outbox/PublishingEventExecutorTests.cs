@@ -1,7 +1,9 @@
 using System.Reflection;
 using EventStorage.Configurations;
+using EventStorage.Inbox.Models;
 using EventStorage.Models;
 using EventStorage.Outbox;
+using EventStorage.Outbox.Models;
 using EventStorage.Tests.Domain;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
@@ -35,14 +37,12 @@ public class PublishingEventExecutorTests
     #region AddPublisher
     
     [Test]
-    public void AddPublisher_OneEvent_ShouldAddOnDictionary()
+    public void AddPublisher_AddingOneEventTypeWithPublisherInfo_PublisherInfoShouldBeEqualToAddedInfo()
     {
-        // Arrange
         var typeOfSentEvent = typeof(SimpleSendEventCreated);
         var typeOfEventPublisher = typeof(SimpleSendEventCreatedHandler);
         var providerType = EventProviderType.MessageBroker;
 
-        // Act
         _publishingEventExecutor.AddPublisher(
             typeOfEventSender: typeOfSentEvent,
             typeOfEventPublisher: typeOfEventPublisher,
@@ -52,46 +52,60 @@ public class PublishingEventExecutorTests
             isGlobalPublisher: true
         );
         
-        // Assert
-        var field = typeof(PublishingEventExecutor).GetField("_publishers",
-            BindingFlags.NonPublic | BindingFlags.Instance);
+        var publishers = GetPublishersInformation();
 
-        field.Should().NotBeNull();
-        var publishers =
-            (Dictionary<string, (Type typeOfEvent, Type typeOfPublisher, string provider, bool hasHeaders, bool
-                hasAdditionalData, bool isGlobalPublisher)>)field.GetValue(_publishingEventExecutor);
+        var publisherKey = _publishingEventExecutor.GetPublisherKey(typeOfSentEvent.Name, providerType.ToString());
+        Assert.That(publishers.ContainsKey(publisherKey), Is.True);
 
-        publishers.Should().ContainKey($"{typeOfSentEvent.Name}-{providerType.ToString()}");
+        var publisherInformation = publishers[publisherKey];
+        Assert.That(publisherInformation.EventType, Is.EqualTo(typeOfSentEvent));
+        Assert.That(publisherInformation.EventPublisherType, Is.EqualTo(typeOfEventPublisher));
     }
     
     [Test]
-    public void AddPublisher_OneEventWithHeaders_ShouldAddOnDictionary()
+    public void AddPublisher_AddingOneEventTypeWithAdditionalInfo_PublisherInfoShouldBeEqualToAddedInfo()
     {
-        // Arrange
         var typeOfSentEvent = typeof(SimpleSendEventCreated);
         var typeOfEventPublisher = typeof(SimpleSendEventCreatedHandler);
         var providerType = EventProviderType.MessageBroker;
 
-        // Act
         _publishingEventExecutor.AddPublisher(
             typeOfEventSender: typeOfSentEvent,
             typeOfEventPublisher: typeOfEventPublisher,
             providerType: providerType,
             hasHeaders: true,
-            hasAdditionalData: false,
+            hasAdditionalData: true,
             isGlobalPublisher: true
         );
-        
-        // Assert
-        var field = typeof(PublishingEventExecutor).GetField("_publishers",
-            BindingFlags.NonPublic | BindingFlags.Instance);
 
-        field.Should().NotBeNull();
-        var publishers =
-            (Dictionary<string, (Type typeOfEvent, Type typeOfPublisher, string provider, bool hasHeaders, bool
-                hasAdditionalData, bool isGlobalPublisher)>)field.GetValue(_publishingEventExecutor);
+        var publishers = GetPublishersInformation();
 
-        publishers.First().Value.hasHeaders.Should().BeTrue();
+        var publisherKey = _publishingEventExecutor.GetPublisherKey(typeOfSentEvent.Name, providerType.ToString());
+        Assert.That(publishers.ContainsKey(publisherKey), Is.True);
+
+        var publisherInformation = publishers[publisherKey];
+        Assert.That(publisherInformation.HasHeaders, Is.True);
+        Assert.That(publisherInformation.HasAdditionalData, Is.True);
+        Assert.That(publisherInformation.IsGlobalPublisher, Is.True);
     }
+    
+    #endregion
+
+    #region Helper methods
+
+    /// <summary>
+    /// Get the publisher information from the PublishingEventExecutor
+    /// </summary>
+    private Dictionary<string, PublisherInformation> GetPublishersInformation()
+    {
+        const string publishersFieldName = "_publishers";
+        var field = _publishingEventExecutor.GetType().GetField(publishersFieldName,
+            BindingFlags.NonPublic | BindingFlags.Instance);
+        field.Should().NotBeNull();
+
+        var publishers = (Dictionary<string, PublisherInformation>)field!.GetValue(_publishingEventExecutor);
+        return publishers;
+    }
+
     #endregion
 }

@@ -58,11 +58,13 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
         
         var hasHeaders = HasHeadersType.IsAssignableFrom(typeOfReceiveEvent);
         var hasAdditionalData = HasAdditionalDataType.IsAssignableFrom(typeOfReceiveEvent);
+        var handleMethod = typeOfEventReceiver.GetMethod(ReceiverMethodName);
 
         var receiverInformation = new ReceiverInformation
         {
             EventType = typeOfReceiveEvent,
             EventReceiverType = typeOfEventReceiver,
+            HandleMethod = handleMethod,
             ProviderType = providerType,
             HasHeaders = hasHeaders,
             HasAdditionalData = hasAdditionalData
@@ -133,9 +135,8 @@ internal class ReceivedEventExecutor : IReceivedEventExecutor
                         serviceScope.ServiceProvider);
                     
                     var eventReceiver = serviceScope.ServiceProvider.GetRequiredService(receiverInformation.EventReceiverType);
-                    var receiveMethod = receiverInformation.EventReceiverType.GetMethod(ReceiverMethodName);
-                    await (Task)receiveMethod.Invoke(eventReceiver,
-                        [receivedEvent]);
+                    await ((Task)receiverInformation.HandleMethod.Invoke(eventReceiver,
+                        [receivedEvent]))!;
                 }
 
                 @event.Processed();

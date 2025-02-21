@@ -1,8 +1,10 @@
-﻿using EventStorage.Models;
+﻿using System.Reflection;
+using EventStorage.Inbox.Providers;
+using EventStorage.Models;
 
 namespace EventStorage.Inbox.Models;
 
-public record ReceiverInformation
+internal record ReceiverInformation
 {
     /// <summary>
     /// The type of the received event.
@@ -13,6 +15,11 @@ public record ReceiverInformation
     /// The type of the event receiver.
     /// </summary>
     public required Type EventReceiverType { get; init; }
+    
+    /// <summary>
+    /// The handle method of the event receiver.
+    /// </summary>
+    public required MethodInfo HandleMethod { get; init; }
     
     /// <summary>
     /// The provider type of the received event.
