@@ -16,8 +16,7 @@ internal class PublishingEventExecutor : IPublishingEventExecutor
     private readonly ILogger<PublishingEventExecutor> _logger;
     private readonly InboxOrOutboxStructure _settings;
 
-    private readonly Dictionary<string, (Type typeOfEvent, Type typeOfPublisher, string provider, bool hasHeaders, bool
-        hasAdditionalData, bool isGlobalPublisher)> _publishers;
+    private readonly Dictionary<string, PublisherInformation> _publishers;
 
     private const string PublisherMethodName = nameof(IEventPublisher.PublishAsync);
     private readonly SemaphoreSlim _singleExecutionLock = new(1, 1);
@@ -28,8 +27,8 @@ internal class PublishingEventExecutor : IPublishingEventExecutor
         _serviceProvider = serviceProvider;
         _logger = serviceProvider.GetRequiredService<ILogger<PublishingEventExecutor>>();
         _settings = serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Outbox;
-        _publishers = new();
-        _semaphore = new(_settings.MaxConcurrency);
+        _publishers = new Dictionary<string, PublisherInformation>();
+        _semaphore = new SemaphoreSlim(_settings.MaxConcurrency);
     }
 
     /// <summary>
@@ -46,11 +45,21 @@ internal class PublishingEventExecutor : IPublishingEventExecutor
     {
         var providerName = providerType.ToString();
         var publisherKey = GetPublisherKey(typeOfEventSender.Name, providerName);
-        _publishers[publisherKey] = (typeOfEventSender, typeOfEventPublisher, providerName, hasHeaders,
-            hasAdditionalData, isGlobalPublisher);
+        var publishMethod = typeOfEventPublisher.GetMethod(PublisherMethodName);
+        var publisherInformation = new PublisherInformation
+        {
+            EventType = typeOfEventSender,
+            EventPublisherType = typeOfEventPublisher,
+            PublishMethod = publishMethod,
+            ProviderType = providerName,
+            HasHeaders = hasHeaders,
+            HasAdditionalData = hasAdditionalData,
+            IsGlobalPublisher = isGlobalPublisher
+        };
+        _publishers[publisherKey] = publisherInformation;
     }
 
-    private string GetPublisherKey(string eventName, string providerName)
+    internal string GetPublisherKey(string eventName, string providerName)
     {
         return $"{eventName}-{providerName}";
     }
@@ -103,28 +112,24 @@ internal class PublishingEventExecutor : IPublishingEventExecutor
         try
         {
             var publisherKey = GetPublisherKey(@event.EventName, @event.Provider);
-            if (_publishers.TryGetValue(publisherKey,
-                    out (Type typeOfEvent, Type typeOfPublisher, string provider, bool hasHeaders, bool
-                    hasAdditionalData, bool isGlobalPublisher) info))
+            if (_publishers.TryGetValue(publisherKey, out var publisherInformation))
             {
                 _logger.LogTrace("Executing the {EventType} outbox event with ID {EventId} to publish.",
                     @event.EventName, @event.Id);
 
                 var jsonSerializerSetting = @event.GetJsonSerializer();
-                var eventToPublish = JsonSerializer.Deserialize(@event.Payload, info.typeOfEvent, jsonSerializerSetting) as ISendEvent;
-                if (info.hasHeaders && @event.Headers is not null)
+                var eventToPublish = JsonSerializer.Deserialize(@event.Payload, publisherInformation.EventType, jsonSerializerSetting) as ISendEvent;
+                if (publisherInformation.HasHeaders && @event.Headers is not null)
                     ((IHasHeaders)eventToPublish)!.Headers =
                         JsonSerializer.Deserialize<Dictionary<string, string>>(@event.Headers);
 
-                if (info.hasAdditionalData && @event.AdditionalData is not null)
+                if (publisherInformation.HasAdditionalData && @event.AdditionalData is not null)
                     ((IHasAdditionalData)eventToPublish)!.AdditionalData =
                         JsonSerializer.Deserialize<Dictionary<string, string>>(@event!.AdditionalData);
 
-                var eventHandlerSubscriber = serviceScope.ServiceProvider.GetRequiredService(info.typeOfPublisher);
+                var eventHandlerSubscriber = serviceScope.ServiceProvider.GetRequiredService(publisherInformation.EventPublisherType);
 
-                var publisherMethod = info.typeOfPublisher.GetMethod(PublisherMethodName);
-                await (Task)publisherMethod.Invoke(eventHandlerSubscriber,
-                    [eventToPublish, @event.EventPath]);
+                await ((Task)publisherInformation.PublishMethod.Invoke(eventHandlerSubscriber, [eventToPublish, @event.EventPath]))!;
                 @event.Processed();
 
                 return;
