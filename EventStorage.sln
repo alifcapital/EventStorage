@@ -7,6 +7,16 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EventStorage", "src\EventSt
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EventStorage.Tests", "tests\EventStorage.Tests.csproj", "{59F7B852-0B7A-4709-9378-06506E9EE976}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Deployments", "Deployments", "{A68442F1-DC0D-42E4-A604-22F1FF1054C2}"
+	ProjectSection(SolutionItems) = preProject
+		.github\workflows\build.yml = .github\workflows\build.yml
+		.github\workflows\push-nuget-package.yml = .github\workflows\push-nuget-package.yml
+		.github\workflows\release.yml = .github\workflows\release.yml
+		.github\workflows\run-tests.yml = .github\workflows\run-tests.yml
+		.github\workflows\service-tests.yml = .github\workflows\service-tests.yml
+		.github\workflows\service-versioning.yml = .github\workflows\service-versioning.yml
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
