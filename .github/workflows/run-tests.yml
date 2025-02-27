@@ -64,6 +64,7 @@ jobs:
             dotnet nuget add source ${{ vars.NUGET_SOURCE }} --name github --username ${{ github.actor }} --password ${{ secrets.NUGET_SOURCE_SECRET }} --store-password-in-clear-text
           else
             echo "Source already exists, skipping addition."
+          fi
           
       - name: Restore dependencies
         run: dotnet restore ${{ inputs.unit_and_functionality_tests_project_path }}
