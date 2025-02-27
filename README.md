@@ -221,18 +221,11 @@ public class CreatedUserMessageBrokerEventPublisher : IMessageBrokerEventPublish
 ```
 
 Since we want to publish our an event to the RabbitMQ, the event subscriber must implement the `IMessageBrokerEventPublisher` by passing the type of event (`UserCreated`), we want to publish.
-Your application is now ready to use this publisher. Inject the `IEventSenderManager` interface from anywhere in your application, and use the `Send` method to publish your `UserCreated` event.
+Your application is now ready to use this publisher. Inject the `IOutboxEventManager` interface from anywhere in your application, and use the `Store` method to publish your `UserCreated` event.
 
 ```
-public class UserController : ControllerBase
+public class UserController(IOutboxEventManager outboxEventManager) : ControllerBase
 {
-    private readonly IOutboxEventManager _outboxEventManager;
-
-    public UserController(IOutboxEventManager outboxEventManager)
-    {
-        _outboxEventManager = outboxEventManager;
-    }
-    
     [HttpPost]
     public IActionResult Create([FromBody] User item)
     {
@@ -240,7 +233,7 @@ public class UserController : ControllerBase
 
         var userCreated = new UserCreated { UserId = item.Id, UserName = item.Name };
         var routingKey = "usser.created";
-        var succussfullySent = _outboxEventManager.Store(userCreated, EventProviderType.MessageBroker, routingKey);
+        var succussfullySent = outboxEventManager.Store(userCreated, EventProviderType.MessageBroker, routingKey);
         
         return Ok(item);
     }
@@ -286,7 +279,7 @@ public class CreatedUserMessageBrokerEventPublisher : IMessageBrokerEventPublish
         var login = @event.AdditionalData["login"];
         var password = @event.AdditionalData["password"];
         //Your logic
-        _eventPublisher.Publish(@event);
+        eventPublisher.Publish(@event);
         
         await Task.CompletedTask;
     }
@@ -345,7 +338,7 @@ try
     IInboxEventManager inboxEventManager = scope.ServiceProvider.GetService<IInboxEventManager>();
     if (inboxEventManager is not null)
     {
-        var succussfullyReceived = inboxEventManager.Received(receivedEvent, eventArgs.RoutingKey, EventProviderType.RabbitMq);
+        var succussfullyReceived = inboxEventManager.Store(receivedEvent, eventArgs.RoutingKey, EventProviderType.RabbitMq);
         if(succussfullyReceived){
             //If the event received twice, it will return false. You need to add your logic to manage this use case.
         }
