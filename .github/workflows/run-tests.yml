@@ -23,12 +23,6 @@ on:
         required: false
         type: string
         default: ""
-      nuget_source:
-        required: true
-        type: string
-      gethub_actor:
-        required: true
-        type: string
 
 jobs:
   Tests:
@@ -66,8 +60,8 @@ jobs:
 
       - name: Add GitHub Packages source if it does not exist
         run: |
-          if ! dotnet nuget list source | grep -q "${{ inputs.nuget_source }}"; then
-            dotnet nuget add source ${{ inputs.nuget_source }} --name github --username ${{ inputs.gethub_actor }} --password ${{ secrets.NUGET_SOURCE_SECRET }} --store-password-in-clear-text
+          if ! dotnet nuget list source | grep -q "${{ vars.NUGET_SOURCE }}"; then
+            dotnet nuget add source ${{ vars.NUGET_SOURCE }} --name github --username ${{ github.actor }} --password ${{ secrets.NUGET_SOURCE_SECRET }} --store-password-in-clear-text
           else
             echo "Source already exists, skipping addition."
           fi
