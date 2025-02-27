@@ -24,9 +24,8 @@ jobs:
           if ! dotnet nuget list source | grep -q "${{ vars.NUGET_SOURCE }}"; then
             dotnet nuget add source ${{ vars.NUGET_SOURCE }} --name github --username ${{ github.actor }} --password ${{ secrets.NUGET_SOURCE_SECRET }} --store-password-in-clear-text
           else
-              echo "Source already exists, skipping addition."
-          fi
-          
+            echo "Source already exists, skipping addition."
+      
       - name: Restore dependencies
         run: dotnet restore "src/EventStorage.csproj"
 
