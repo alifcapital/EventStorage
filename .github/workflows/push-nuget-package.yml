@@ -41,4 +41,4 @@ jobs:
         run: dotnet pack ${{ inputs.project_file_path }} --configuration Release --output ./nupkgs -p:PackageId="${{ inputs.package_name }}" -p:Version="${{ inputs.version }}"
 
       - name: Push the package to GitHub Packages
-        run: dotnet nuget push ./nupkgs/*.nupkg --source "https://nuget.pkg.github.com/alifcapital/index.json" --api-key ${{ secrets.EVENT_STORAGE_SECRET }}
+        run: dotnet nuget push ./nupkgs/*.nupkg --source "${{ vars.NUGET_SOURCE }}"
