@@ -306,18 +306,11 @@ public record UserCreated : IInboxEvent
 Next, add an event receiver to manage a publishing RabbitMQ event.
 
 ```
-public class UserCreatedHandler : IRabbitMqEventHandler<UserCreated>
+public class UserCreatedHandler(ILogger<UserCreatedHandler> logger) : IRabbitMqEventHandler<UserCreated>
 {
-    private readonly ILogger<UserCreatedHandler> _logger;
-
-    public UserCreatedHandler(ILogger<UserCreatedHandler> logger)
-    {
-        _logger = logger;
-    }
-
     public async Task HandleAsync(UserCreated @event)
     {
-        _logger.LogInformation("EventId ({EventId}): {UserName} user is created with the {UserId} id", @event.EventId,
+        logger.LogInformation("EventId ({EventId}): {UserName} user is created with the {UserId} id", @event.EventId,
             @event.UserName, @event.UserId);
         //Add your logic in here
         
