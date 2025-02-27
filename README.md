@@ -89,19 +89,20 @@ builder.Services.AddEventStore(builder.Configuration,
 
 Based on the configuration the tables will be automatically created while starting the server, if not exists.
 
-### Using the Outbox pattern while publishing event
+### Using the Outbox pattern when publishing an event.
+
 **Scenario 1:** _When user is deleted I need to notice the another service using the WebHook._<br/>
 
-Start creating a structure of event to send. Your record must implement the `ISendEvent` interface. Example:
+Start creating a structure of event to send. Your record must implement the `IOutboxEvent` interface. Example:
 
 ```
-public record UserDeleted : ISendEvent
+public record UserDeleted : IOutboxEvent
 {
-    public Guid Id { get; } = Guid.NewGuid();
+    public required Guid Id { get; } = Guid.CreateVersion7();
     
-    public Guid UserId { get; init; }
+    public required Guid UserId { get; init; }
     
-    public string UserName { get; init; }
+    public required string UserName { get; init; }
 }
 ```
 The `EventId` property is required, the other property can be added based on your business logic.<br/>
@@ -118,7 +119,7 @@ public class DeletedUserPublisher : IWebHookEventPublisher<UserDeleted>
     //     _webHookProvider = webHookProvider;
     // }
 
-    public async Task PublishAsync(UserDeleted @event, string eventPath)
+    public async Task PublishAsync(UserDeleted @event, string webHookUrl)
     {
         //Add your logic
         await Task.CompletedTask;
@@ -128,16 +129,16 @@ public class DeletedUserPublisher : IWebHookEventPublisher<UserDeleted>
 The event provider support a few types: `MessageBroker`-for RabbitMQ message or any other message broker, `Sms`-for SMS message, `Http`-for Http requests, `WebHook`- for WebHook call, `Email` for sending email, `Unknown` for other unknown type messages.
 Depend on the event provider, the event subscriber must implement the necessary publisher interface: `IMessageBrokerEventPublisher`, `ISmsEventPublisher`, `IHttpEventPublisher`, `IWebHookEventPublisher`, `IEmailEventPublisher` and `IUnknownEventPublisher`- for `Unknown` provider type.
 
-Now you can inject the `IEventSenderManager` interface from anywhere in your application, and use the `Send` method to publish your event.
+Now you can inject the `IOutboxEventManager` interface from anywhere in your application, and use the `Store` method to publish your event.
 
 ```
 public class UserController : ControllerBase
 {
-    private readonly IEventSenderManager _eventSenderManager;
+    private readonly IOutboxEventManager _outboxEventManager;
 
-    public UserController(IEventSenderManager eventSenderManager)
+    public UserController(IOutboxEventManager outboxEventManager)
     {
-        _eventSenderManager = eventSenderManager;
+        _outboxEventManager = outboxEventManager;
     }
     
     [HttpDelete("{id:guid}")]
@@ -148,7 +149,7 @@ public class UserController : ControllerBase
 
         var userDeleted = new UserDeleted { UserId = item.Id, UserName = item.Name };
         var webHookUrl = "https:example.com/api/users";
-        var succussfullySent = _eventSenderManager.Send(userDeleted, EventProviderType.WebHook, webHookUrl);
+        var succussfullySent = _outboxEventManager.Store(userDeleted, EventProviderType.WebHook, webHookUrl);
         
         Items.Remove(id);
         return Ok(item);
@@ -156,24 +157,24 @@ public class UserController : ControllerBase
 }
 ```
 
-When we use the `Send` method of the `IEventSenderManager` to send an event, the event is first stored in the database. Based on our configuration (_by default, after one second_), the event will then be automatically execute the `PublishAsync` method of created the `DeletedUserPublisher` event publisher.
+When we use the `Store` method of the `IOutboxEventManager` to send an event, the event is first stored in the database. Based on our configuration (_by default, after one second_), the event will then be automatically execute the `PublishAsync` method of created the `DeletedUserPublisher` event publisher.
 
 If an event fails for any reason, the server will automatically retry publishing it, with delays based on the configuration you set in the [Outbox section](#options-of-inbox-and-outbox-sections).
 
 **Scenario 2:** _When user is created I need to notice the another service using the RabbitMQ._<br/>
 
-Start creating a structure of event to send. Your record must implement the `ISendEvent` interface. Example:
+Start creating a structure of event to send. Your record must implement the `IOutboxEvent` interface. Example:
 
 ```
-public record UserCreated : ISendEvent
+public record UserCreated : IOutboxEvent
 {
-    public Guid Id { get; } = Guid.NewGuid();
+    public required Guid EventId { get; } = Guid.CreateVersion7();
     
-    public Guid UserId { get; init; }
+    public required Guid UserId { get; init; }
     
-    public string UserName { get; init; }
+    public required string UserName { get; init; }
     
-    public int Age { get; init; }
+    public required int Age { get; init; }
 }
 ```
 
@@ -189,7 +190,7 @@ public class MessageBrokerEventPublisher : IMessageBrokerEventPublisher
     //     _eventPublisher = eventPublisher;
     // }
     
-    public async Task PublishAsync(ISendEvent @event, string eventPath)
+    public async Task PublishAsync(ISendEvent @event, string routingKey)
     {
         // _eventPublisher.Publish((IPublishEvent)@event);
         await Task.CompletedTask;
@@ -209,7 +210,7 @@ public class CreatedUserMessageBrokerEventPublisher : IMessageBrokerEventPublish
     //     _eventPublisher = eventPublisher;
     // }
     
-    public async Task PublishAsync(UserCreated @event, string eventPath)
+    public async Task PublishAsync(UserCreated @event, string routingKey)
     {
         // _eventPublisher.Publish(@event);
         //Add you logic to publish an event to the RabbitMQ
@@ -225,11 +226,11 @@ Your application is now ready to use this publisher. Inject the `IEventSenderMan
 ```
 public class UserController : ControllerBase
 {
-    private readonly IEventSenderManager _eventSenderManager;
+    private readonly IOutboxEventManager _outboxEventManager;
 
-    public UserController(IEventSenderManager eventSenderManager)
+    public UserController(IOutboxEventManager outboxEventManager)
     {
-        _eventSenderManager = eventSenderManager;
+        _outboxEventManager = outboxEventManager;
     }
     
     [HttpPost]
@@ -239,7 +240,7 @@ public class UserController : ControllerBase
 
         var userCreated = new UserCreated { UserId = item.Id, UserName = item.Name };
         var routingKey = "usser.created";
-        var succussfullySent = _eventSenderManager.Send(userCreated, EventProviderType.MessageBroker, routingKey);
+        var succussfullySent = _outboxEventManager.Store(userCreated, EventProviderType.MessageBroker, routingKey);
         
         return Ok(item);
     }
@@ -251,13 +252,13 @@ public class UserController : ControllerBase
 Yes, there is a way to do that. For that, we need to just implement `IHasAdditionalData` interface to the event structure of our sending event:
 
 ```
-public record UserCreated : ISendEvent, IHasAdditionalData
+public record UserCreated : IOutboxEvent, IHasAdditionalData
 {
-    public Guid Id { get; }= Guid.NewGuid();
+    public required Guid EventId { get; } = Guid.CreateVersion7();
     
-    public Guid UserId { get; init; } 
+    public required Guid UserId { get; init; } 
     
-    public string UserName { get; init; }
+    public required string UserName { get; init; }
     
     public Dictionary<string, string> AdditionalData { get; set; }
 }
@@ -270,7 +271,7 @@ var userCreated = new UserCreated { UserId = item.Id, UserName = item.Name };
 userCreated.AdditionalData = new();
 userCreated.AdditionalData.Add("login", "admin");
 userCreated.AdditionalData.Add("password", "123");
-var succussfullySent = _eventSenderManager.Send(userCreated, EventProviderType.MessageBroker, eventPath);
+var succussfullySent = _outboxEventManager.Store(userCreated, EventProviderType.MessageBroker, eventPath);
 ```
 
 While publishing event, now you are able to read and use the added property from your event:
@@ -280,7 +281,7 @@ public class CreatedUserMessageBrokerEventPublisher : IMessageBrokerEventPublish
 {
     //Your logic
     
-    public async Task PublishAsync(UserCreated @event, string eventPath)
+    public async Task PublishAsync(UserCreated @event, string routingKey)
     {
         var login = @event.AdditionalData["login"];
         var password = @event.AdditionalData["password"];
@@ -292,31 +293,31 @@ public class CreatedUserMessageBrokerEventPublisher : IMessageBrokerEventPublish
 }
 ```
 
-### Using the Inbox pattern while receiving event
+### Using the Inbox pattern for receiving an inbox event.
 
-Start creating a structure of event to receive. Your record must implement the `IReceiveEvent` interface. Example:
+Start creating a structure of an inbox event to receive. Your record must implement the `IInboxEvent` interface. Example:
 
 ```
-public record UserCreated : IReceiveEvent
+public record UserCreated : IInboxEvent
 {
-    public Guid Id { get; init; }
+    public required Guid EventId { get; } = Guid.CreateVersion7();
     
-    public Guid UserId { get; init; }
+    public required Guid UserId { get; init; }
     
-    public string UserName { get; init; }
+    public required string UserName { get; init; }
     
-    public int Age { get; init; }
+    public required int Age { get; init; }
 }
 ```
 
 Next, add an event receiver to manage a publishing RabbitMQ event.
 
 ```
-public class UserCreatedReceiver : IRabbitMqEventReceiver<UserCreated>
+public class UserCreatedHandler : IRabbitMqEventHandler<UserCreated>
 {
-    private readonly ILogger<UserCreatedReceiver> _logger;
+    private readonly ILogger<UserCreatedHandler> _logger;
 
-    public UserCreatedReceiver(ILogger<UserCreatedReceiver> logger)
+    public UserCreatedHandler(ILogger<UserCreatedHandler> logger)
     {
         _logger = logger;
     }
@@ -332,7 +333,7 @@ public class UserCreatedReceiver : IRabbitMqEventReceiver<UserCreated>
 }
 ```
 
-Now the `UserCreatedReceiver` receiver is ready to receive the event. To make it work, from your logic which you receive the event from the RabbitMQ, you need to inject the `IEventReceiverManager` interface and puss the received event to the `HandleAsync` method.
+Now the `UserCreatedHandler` handler is ready to handle the event. To make it work, from your logic which you receive the event from the RabbitMQ, you need to inject the `IInboxEventManager` interface and pass the received inbox event to the `Store` method.
 
 ```
 UserCreated receivedEvent = new UserCreated
@@ -341,15 +342,15 @@ UserCreated receivedEvent = new UserCreated
 };
 try
 {
-    IEventReceiverManager eventReceiverManager = scope.ServiceProvider.GetService<IEventReceiverManager>();
-    if (eventReceiverManager is not null)
+    IInboxEventManager inboxEventManager = scope.ServiceProvider.GetService<IInboxEventManager>();
+    if (inboxEventManager is not null)
     {
-        var succussfullyReceived = eventReceiverManager.Received(receivedEvent, eventArgs.RoutingKey, EventProviderType.RabbitMq);
+        var succussfullyReceived = inboxEventManager.Received(receivedEvent, eventArgs.RoutingKey, EventProviderType.RabbitMq);
         if(succussfullyReceived){
             //If the event received twice, it will return false. You need to add your logic to manage this use case.
         }
     }else{
-        //the IEventReceiverManager will not be injected if the Inbox pattern is not enabled. You need to add your logic to manage this use case.
+        //the IInboxEventManager will not be injected if the Inbox pattern is not enabled. You need to add your logic to manage this use case.
     }
 }
 catch (Exception ex)
@@ -359,9 +360,9 @@ catch (Exception ex)
 ```
 
 That's all. As we mentioned in above, the event provider support a few types: `MessageBroker`-for RabbitMQ message or any other message broker, `Http`-for receiving http requests, `Sms`-for SMS message, `WebHook`- for WebHook call, `Email` for sending email, `Unknown` for other unknown type messages.
-Depend on the event provider, the event receiver must implement the necessary receiver interface: `IMessageBrokerEventReceiver`, `ISmsEventReceiver`, `IWebHookEventReceiver`, `IHttpEventReceiver`, `IEmailEventReceiver` and `IUnknownEventReceiver`- for `Unknown` provider type.
+Depend on the event provider, the event handler must implement the necessary a handler interface: `IMessageBrokerEventHandler`, `ISmsEventHandler`, `IWebHookEventHandler`, `IHttpEventHandler`, `IEmailEventHandler` and `IUnknownEventHandler`- for `Unknown` provider type.
 
-### Options of Inbox and Outbox sections
+### Options for the Inbox and Outbox sections
 
 The `InboxAndOutbox` is the main section for setting of the Outbox and Inbox functionalities. The `Outbox` and `Inbox` subsections offer numerous options.
 

@@ -3,9 +3,7 @@ using EventStorage.Outbox.Models;
 namespace EventStorage.Outbox.Providers.EventProviders;
 
 /// <summary>
-/// An interface for determine a publisher of events and implement publishing events functionality with the WebHook provider
+/// An interface for implementing the publishing functionality of specific outbox event for the WebHook provider.
 /// </summary>
-public interface IWebHookEventPublisher<TSendEvent> : IEventPublisher<TSendEvent>
-    where TSendEvent : class, ISendEvent
-{
-}
+public interface IWebHookEventPublisher<in TOutboxEvent> : IEventPublisher<TOutboxEvent>
+    where TOutboxEvent : class, IOutboxEvent;

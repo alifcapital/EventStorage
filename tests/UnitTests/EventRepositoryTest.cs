@@ -5,7 +5,7 @@ using FluentAssertions;
 
 namespace EventStorage.Tests.UnitTests
 {
-    internal abstract class EventRepositoryTest<TEvent> : BaseTestEntity where TEvent : BaseEventBox, new()
+    internal abstract class EventRepositoryTest<TEvent> : BaseTestEntity where TEvent : BaseMessageBox, new()
     {
         private readonly EventRepository<TEvent> _repository;
         private readonly DataContext<TEvent> _dataContext;

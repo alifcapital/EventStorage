@@ -1,8 +1,8 @@
-
 using EventStorage.Models;
 
 namespace EventStorage.Inbox.Models;
 
-public interface IInboxEvent : IBaseEventBox
-{
-}
+/// <summary>
+/// An interface for determining an inbox event.
+/// </summary>
+public interface IInboxEvent : IEvent;

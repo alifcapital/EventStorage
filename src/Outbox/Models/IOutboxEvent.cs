@@ -1,8 +1,8 @@
-
 using EventStorage.Models;
 
 namespace EventStorage.Outbox.Models;
 
-interface IOutboxEvent : IBaseEventBox
-{
-}
+/// <summary>
+/// An interface for determining an outbox event.
+/// </summary>
+public interface IOutboxEvent : IEvent;

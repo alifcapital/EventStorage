@@ -2,7 +2,7 @@ using EventStorage.Inbox.Models;
 
 namespace EventStorage.Tests.Domain.Module2;
 
-public record UserCreated : IReceiveEvent
+public record UserCreated : IInboxEvent
 {
     public Guid EventId { get; init; }
 
