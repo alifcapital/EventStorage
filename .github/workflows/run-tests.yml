@@ -58,9 +58,14 @@ jobs:
           sudo sysctl -w fs.file-max=262144
           sudo sysctl -w vm.max_map_count=262144
 
-      - name: Add GitHub Packages source
-        run: dotnet nuget add source https://nuget.pkg.github.com/alifcapital/index.json --name github --username ${{ github.actor }} --password ${{ secrets.NUGET_SOURCE_SECRET }} --store-password-in-clear-text
-
+      - name: Add GitHub Packages source if it does not exist
+        run: |
+          if ! dotnet nuget list source | grep -q "${{ vars.NUGET_SOURCE }}"; then
+            dotnet nuget add source ${{ vars.NUGET_SOURCE }} --name github --username ${{ github.actor }} --password ${{ secrets.NUGET_SOURCE_SECRET }} --store-password-in-clear-text
+          else
+              echo "Source already exists, skipping addition."
+          fi
+          
       - name: Restore dependencies
         run: dotnet restore ${{ inputs.unit_and_functionality_tests_project_path }}
 
