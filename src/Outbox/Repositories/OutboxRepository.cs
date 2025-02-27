@@ -4,9 +4,5 @@ using EventStorage.Repositories;
 
 namespace EventStorage.Outbox.Repositories;
 
-internal class OutboxRepository : EventRepository<OutboxEvent>, IOutboxRepository
-{
-    public OutboxRepository(InboxOrOutboxStructure settings) : base(settings)
-    {
-    }
-}
+internal class OutboxRepository(InboxOrOutboxStructure settings)
+    : EventRepository<OutboxMessage>(settings), IOutboxRepository;

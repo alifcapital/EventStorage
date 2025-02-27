@@ -3,7 +3,7 @@ using Npgsql;
 
 namespace EventStorage.Tests.Infrastructure;
 
-class DataContext<TEvent> where TEvent : BaseEventBox, new()
+class DataContext<TEvent> where TEvent : BaseMessageBox, new()
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly string _tableName;
@@ -25,13 +25,13 @@ class DataContext<TEvent> where TEvent : BaseEventBox, new()
     public TEvent GetById(Guid id)
     {
         
-        var sql = @$"SELECT id as ""{nameof(IBaseEventBox.Id)}"", provider as ""{nameof(IBaseEventBox.Provider)}"", 
-                        event_name as ""{nameof(IBaseEventBox.EventName)}"", event_path as ""{nameof(IBaseEventBox.EventPath)}"", 
-                        payload as ""{nameof(IBaseEventBox.Payload)}"", headers as ""{nameof(IBaseEventBox.Headers)}"", 
-                        naming_policy_type as ""{nameof(IBaseEventBox.NamingPolicyType)}"", 
-                        additional_data as ""{nameof(IBaseEventBox.AdditionalData)}"", created_at as ""{nameof(IBaseEventBox.CreatedAt)}"", 
-                        try_count as ""{nameof(IBaseEventBox.TryCount)}"", try_after_at as ""{nameof(IBaseEventBox.TryAfterAt)}"", 
-                        processed_at as ""{nameof(IBaseEventBox.ProcessedAt)}""
+        var sql = @$"SELECT id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"", 
+                        event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"", 
+                        payload as ""{nameof(IBaseMessageBox.Payload)}"", headers as ""{nameof(IBaseMessageBox.Headers)}"", 
+                        naming_policy_type as ""{nameof(IBaseMessageBox.NamingPolicyType)}"", 
+                        additional_data as ""{nameof(IBaseMessageBox.AdditionalData)}"", created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"", 
+                        try_count as ""{nameof(IBaseMessageBox.TryCount)}"", try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"", 
+                        processed_at as ""{nameof(IBaseMessageBox.ProcessedAt)}""
                 FROM {_tableName} where id = @id";
         var command = _dataSource.CreateCommand(sql);
 

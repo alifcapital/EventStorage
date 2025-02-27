@@ -6,7 +6,7 @@ using Npgsql;
 
 namespace EventStorage.Repositories;
 
-internal abstract class EventRepository<TBaseEvent> : IEventRepository<TBaseEvent> where TBaseEvent : class,  IBaseEventBox
+internal abstract class EventRepository<TBaseEvent> : IEventRepository<TBaseEvent> where TBaseEvent : class,  IBaseMessageBox
 {
     private readonly string _tableName;
     private readonly string _connectionString;
@@ -117,13 +117,13 @@ internal abstract class EventRepository<TBaseEvent> : IEventRepository<TBaseEven
     }
 
     private const string selectSqlQueryTemplate = $@"
-                SELECT id as ""{nameof(IBaseEventBox.Id)}"", provider as ""{nameof(IBaseEventBox.Provider)}"", 
-                        event_name as ""{nameof(IBaseEventBox.EventName)}"", event_path as ""{nameof(IBaseEventBox.EventPath)}"", 
-                        payload as ""{nameof(IBaseEventBox.Payload)}"", headers as ""{nameof(IBaseEventBox.Headers)}"", 
-                        naming_policy_type as ""{nameof(IBaseEventBox.NamingPolicyType)}"", 
-                        additional_data as ""{nameof(IBaseEventBox.AdditionalData)}"", created_at as ""{nameof(IBaseEventBox.CreatedAt)}"", 
-                        try_count as ""{nameof(IBaseEventBox.TryCount)}"", try_after_at as ""{nameof(IBaseEventBox.TryAfterAt)}"", 
-                        processed_at as ""{nameof(IBaseEventBox.ProcessedAt)}""
+                SELECT id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"", 
+                        event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"", 
+                        payload as ""{nameof(IBaseMessageBox.Payload)}"", headers as ""{nameof(IBaseMessageBox.Headers)}"", 
+                        naming_policy_type as ""{nameof(IBaseMessageBox.NamingPolicyType)}"", 
+                        additional_data as ""{nameof(IBaseMessageBox.AdditionalData)}"", created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"", 
+                        try_count as ""{nameof(IBaseMessageBox.TryCount)}"", try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"", 
+                        processed_at as ""{nameof(IBaseMessageBox.ProcessedAt)}""
                 FROM {{0}}
                 WHERE 
                     processed_at IS NULL

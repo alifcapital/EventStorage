@@ -1,8 +1,6 @@
 namespace EventStorage.Outbox.Providers;
 
 /// <summary>
-/// An interface to implement publishing events functionality with the HTTP provider
+/// An interface for implementing the publishing functionality of outbox events for the HTTP provider.
 /// </summary>
-public interface IHttpEventPublisher : IEventPublisher
-{
-}
+public interface IHttpEventPublisher : IEventPublisher;

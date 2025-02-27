@@ -3,9 +3,7 @@ using EventStorage.Outbox.Models;
 namespace EventStorage.Outbox.Providers.EventProviders;
 
 /// <summary>
-/// An interface to determine a publisher of events and implement publishing events functionality with the HTTP provider
+/// An interface for implementing the publishing functionality of specific outbox event for the HTTP provider;
 /// </summary>
-public interface IHttpEventPublisher<TSendEvent> : IEventPublisher<TSendEvent>
-    where TSendEvent : class, ISendEvent
-{
-}
+public interface IHttpEventPublisher<in TOutboxEvent> : IEventPublisher<TOutboxEvent>
+    where TOutboxEvent : class, IOutboxEvent;

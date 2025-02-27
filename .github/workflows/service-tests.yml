@@ -9,3 +9,4 @@ jobs:
     uses: ./.github/workflows/run-tests.yml
     with:
       unit_and_functionality_tests_project_path: 'tests/EventStorage.Tests.csproj'
+    secrets: inherit
