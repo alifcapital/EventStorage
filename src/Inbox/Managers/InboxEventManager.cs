@@ -9,25 +9,17 @@ using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Inbox.Managers;
 
-internal class InboxEventManager : IInboxEventManager
+internal class InboxEventManager(IInboxRepository repository, ILogger<InboxEventManager> logger)
+    : IInboxEventManager
 {
-    private readonly IInboxRepository _repository;
-    private readonly ILogger<InboxEventManager> _logger;
-
-    public InboxEventManager(IInboxRepository repository, ILogger<InboxEventManager> logger)
+    public bool Store<TInboxEvent>(TInboxEvent inboxEvent, string eventPath, EventProviderType eventProvider, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
+        where TInboxEvent : IInboxEvent
     {
-        _repository = repository;
-        _logger = logger;
-    }
-
-    public bool Store<TReceiveEvent>(TReceiveEvent receivedEvent, string eventPath, EventProviderType eventProvider, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
-        where TReceiveEvent : IInboxEvent
-    {
-        var receivedEventType = receivedEvent.GetType().Name;
+        var receivedEventType = inboxEvent.GetType().Name;
         try
         {
             string headers = null;
-            if (receivedEvent is IHasHeaders hasHeaders)
+            if (inboxEvent is IHasHeaders hasHeaders)
             {
                 if (hasHeaders.Headers?.Any() == true)
                     headers = SerializeHeadersData(hasHeaders.Headers);
@@ -35,23 +27,23 @@ internal class InboxEventManager : IInboxEventManager
             }
 
             string additionalData = null;
-            if (receivedEvent is IHasAdditionalData hasAdditionalData)
+            if (inboxEvent is IHasAdditionalData hasAdditionalData)
             {
                 if (hasAdditionalData.AdditionalData?.Any() == true)
                     additionalData = SerializeHeadersData(hasAdditionalData.AdditionalData);
                 hasAdditionalData.AdditionalData = null;
             }
 
-            var payload = SerializeData(receivedEvent);
+            var payload = SerializeData(inboxEvent);
 
-            return Store(receivedEvent.EventId, receivedEventType, eventPath, eventProvider, payload, headers,
+            return Store(inboxEvent.EventId, receivedEventType, eventPath, eventProvider, payload, headers,
                 additionalData, namingPolicyType);
         }
         catch (Exception e) when (e is not EventStoreException)
         {
-            _logger.LogError(e,
+            logger.LogError(e,
                 "Error while serializing data of the {EventType} received event with the {EventId} id to store to the the table of Inbox.",
-                receivedEventType, receivedEvent.EventId);
+                receivedEventType, inboxEvent.EventId);
             throw;
         }
 
@@ -61,23 +53,23 @@ internal class InboxEventManager : IInboxEventManager
         }
     }
 
-    public bool Store<TReceiveEvent>(TReceiveEvent receivedEvent, string eventPath, EventProviderType eventProvider,
+    public bool Store<TReceiveEvent>(TReceiveEvent inboxEvent, string eventPath, EventProviderType eventProvider,
         string headers, string additionalData = null, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
         where TReceiveEvent : IInboxEvent
     {
-        var receivedEventType = receivedEvent.GetType().Name;
+        var receivedEventType = inboxEvent.GetType().Name;
         try
         {
-            var payload = SerializeData(receivedEvent);
+            var payload = SerializeData(inboxEvent);
 
-            return Store(receivedEvent.EventId, receivedEventType, eventPath, eventProvider, payload, headers,
+            return Store(inboxEvent.EventId, receivedEventType, eventPath, eventProvider, payload, headers,
                 additionalData, namingPolicyType);
         }
         catch (Exception e) when (e is not EventStoreException)
         {
-            _logger.LogError(e,
+            logger.LogError(e,
                 "Error while serializing data of the {EventType} received event with the {EventId} id to store to the the table of Inbox.",
-                receivedEventType, receivedEvent.EventId);
+                receivedEventType, inboxEvent.EventId);
             throw;
         }
     }
@@ -99,9 +91,9 @@ internal class InboxEventManager : IInboxEventManager
                 AdditionalData = additionalData
             };
 
-            var successfullyInserted = _repository.InsertEvent(inboxEvent);
+            var successfullyInserted = repository.InsertEvent(inboxEvent);
             if (!successfullyInserted)
-                _logger.LogWarning(
+                logger.LogWarning(
                     "The {EventType} event type with the {EventId} id is already added to the table of Inbox.",
                     eventTypeName, eventId);
 
@@ -109,7 +101,7 @@ internal class InboxEventManager : IInboxEventManager
         }
         catch (Exception e)
         {
-            _logger.LogError(e,
+            logger.LogError(e,
                 "Error while entering the {EventType} event type with the {EventId} id to the table of Inbox.",
                 eventTypeName, eventId);
             throw;

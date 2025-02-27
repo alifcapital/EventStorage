@@ -114,7 +114,7 @@ public class InboxEventManagerTests
 
         // Act
         var result = _manager.Store<IInboxEvent>(
-            receivedEvent: receiveEvent,
+            inboxEvent: receiveEvent,
             eventPath: "path",
             eventProvider: EventProviderType.Unknown,
             headers: null,
@@ -158,7 +158,7 @@ public class InboxEventManagerTests
 
         // Act
         var result = _manager.Store<IInboxEvent>(
-            receivedEvent: receiveEvent,
+            inboxEvent: receiveEvent,
             eventPath: "path",
             eventProvider: EventProviderType.Unknown,
             headers: JsonConvert.SerializeObject(headers),

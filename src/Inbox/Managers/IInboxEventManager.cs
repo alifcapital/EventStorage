@@ -8,19 +8,19 @@ public interface IInboxEventManager
     /// <summary>
     /// To store a received inbox event to the database
     /// </summary>
-    /// <param name="receivedEvent">Event to send</param>
+    /// <param name="inboxEvent">Event to send</param>
     /// <param name="eventPath">Path of receivedEvent. It can be receivedEvent name or routing kew or any other thing depend on receivedEvent type</param>
     /// <param name="eventProvider">Provider type of sending receivedEvent</param>
     /// <param name="namingPolicyType">Name of the naming policy type for serializing and deserializing properties of Event. Default value is "PascalCase". It can be one of "PascalCase", "CamelCase", "SnakeCaseLower", "SnakeCaseUpper", "KebabCaseLower", or "KebabCaseUpper".</param>
     /// <typeparam name="TReceiveEvent">Event type that must implement from the IEventReceiverManager</typeparam>
     /// <returns>Returns true if it was entered successfully or false if the value is duplicated. It can throw an exception if something goes wrong.</returns>
-    public bool Store<TReceiveEvent>(TReceiveEvent receivedEvent, string eventPath, EventProviderType eventProvider, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
+    public bool Store<TReceiveEvent>(TReceiveEvent inboxEvent, string eventPath, EventProviderType eventProvider, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
         where TReceiveEvent : IInboxEvent;
     
     /// <summary>
     /// To store receiving a received event to the database
     /// </summary>
-    /// <param name="receivedEvent">Event to send</param>
+    /// <param name="inboxEvent">Event to send</param>
     /// <param name="eventPath">Path of receivedEvent. It can be receivedEvent name or routing kew or any other thing depend on receivedEvent type</param>
     /// <param name="eventProvider">Provider type of sending receivedEvent</param>
     /// <param name="headers">Headers of received event</param>
@@ -28,7 +28,7 @@ public interface IInboxEventManager
     /// <param name="namingPolicyType">Name of the naming policy type for serializing and deserializing properties of Event. Default value is "PascalCase". It can be one of "PascalCase", "CamelCase", "SnakeCaseLower", "SnakeCaseUpper", "KebabCaseLower", or "KebabCaseUpper".</param>
     /// <typeparam name="TReceiveEvent">Event type that must implement from the IEventReceiverManager</typeparam>
     /// <returns>Returns true if it was entered successfully or false if the value is duplicated. It can throw an exception if something goes wrong.</returns>
-    public bool Store<TReceiveEvent>(TReceiveEvent receivedEvent, string eventPath, EventProviderType eventProvider, string headers, string additionalData = null, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
+    public bool Store<TReceiveEvent>(TReceiveEvent inboxEvent, string eventPath, EventProviderType eventProvider, string headers, string additionalData = null, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
         where TReceiveEvent : IInboxEvent;
 
     /// <summary>
