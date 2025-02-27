@@ -24,9 +24,9 @@ internal class OutboxEventManager : IOutboxEventManager
         _logger = logger;
     }
 
-    public bool Store<TSendEvent>(TSendEvent @event, EventProviderType eventProvider, string eventPath = null, 
+    public bool Store<TOutboxEvent>(TOutboxEvent @event, EventProviderType eventProvider, string eventPath = null, 
         NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
-        where TSendEvent : IOutboxEvent
+        where TOutboxEvent : IOutboxEvent
     {
         var eventName = @event.GetType().Name;
         try
