@@ -31,7 +31,7 @@ internal class OutboxEventManager : IOutboxEventManager
         var eventName = @event.GetType().Name;
         try
         {
-            var _event = new OutboxMessage
+            var outboxMessage = new OutboxMessage
             {
                 Id = @event.EventId,
                 Provider = eventProvider.ToString(),
@@ -42,21 +42,21 @@ internal class OutboxEventManager : IOutboxEventManager
 
             if (@event is IHasHeaders hasHeaders)
             {
-                if (hasHeaders.Headers?.Any() == true)
-                    _event.Headers = SerializeData(hasHeaders.Headers);
+                if (hasHeaders.Headers?.Count > 0)
+                    outboxMessage.Headers = SerializeData(hasHeaders.Headers);
                 hasHeaders.Headers = null;
             }
 
             if (@event is IHasAdditionalData hasAdditionalData)
             {
-                if (hasAdditionalData.AdditionalData?.Any() == true)
-                    _event.AdditionalData = SerializeData(hasAdditionalData.AdditionalData);
+                if (hasAdditionalData.AdditionalData?.Count > 0)
+                    outboxMessage.AdditionalData = SerializeData(hasAdditionalData.AdditionalData);
                 hasAdditionalData.AdditionalData = null;
             }
 
-            _event.Payload = SerializeData(@event);
+            outboxMessage.Payload = SerializeData(@event);
 
-            _eventsToSend.Add(_event);
+            _eventsToSend.Add(outboxMessage);
             
             return true;
         }
@@ -73,7 +73,7 @@ internal class OutboxEventManager : IOutboxEventManager
 
     private static string SerializeData<TValue>(TValue data)
     {
-        return JsonSerializer.Serialize(data, SerializerSettings);
+        return JsonSerializer.Serialize(data, data.GetType(), SerializerSettings);
     }
 
     #endregion
