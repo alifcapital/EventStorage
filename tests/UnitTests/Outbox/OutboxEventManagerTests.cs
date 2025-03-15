@@ -47,8 +47,7 @@ public class OutboxEventManagerTests
 
         var result = _outboxEventManager.Store(
             senderEvent,
-            EventProviderType.MessageBroker,
-            "path"
+            EventProviderType.MessageBroker
         );
 
         result.Should().BeTrue();
@@ -69,8 +68,7 @@ public class OutboxEventManagerTests
 
         var result = _outboxEventManager.Store(
             senderEvent,
-            EventProviderType.MessageBroker,
-            "path"
+            EventProviderType.MessageBroker
         );
         _outboxEventManager.Dispose();
 
@@ -98,8 +96,7 @@ public class OutboxEventManagerTests
 
         var result = _outboxEventManager.Store(
             senderEvent,
-            EventProviderType.MessageBroker,
-            "path"
+            EventProviderType.MessageBroker
         );
         _outboxEventManager.Dispose();
 
@@ -144,7 +141,7 @@ public class OutboxEventManagerTests
             Date = DateTime.Now,
             CreatedAt = DateTime.Now,
             Headers = new Dictionary<string, string>(),
-            AdditionalData = new Dictionary<string, string>()
+            AdditionalData = null
         };
 
         _outboxEventManager.Store(eventToStore, EventProviderType.MessageBroker);
@@ -217,13 +214,11 @@ public class OutboxEventManagerTests
         };
         _outboxEventManager.Store(
             senderEvent1,
-            EventProviderType.MessageBroker,
-            "path"
+            EventProviderType.MessageBroker
         );
         _outboxEventManager.Store(
             senderEvent2,
-            EventProviderType.MessageBroker,
-            "path"
+            EventProviderType.MessageBroker
         );
         var eventsToSend = GetCollectedEvents();
         eventsToSend.Should().HaveCount(2);
@@ -253,13 +248,11 @@ public class OutboxEventManagerTests
         };
         _outboxEventManager.Store(
             senderEvent1,
-            EventProviderType.MessageBroker,
-            "path"
+            EventProviderType.MessageBroker
         );
         _outboxEventManager.Store(
             senderEvent2,
-            EventProviderType.MessageBroker,
-            "path"
+            EventProviderType.MessageBroker
         );
         var eventsToSend = GetCollectedEvents();
 

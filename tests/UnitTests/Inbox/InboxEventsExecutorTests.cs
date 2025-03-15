@@ -93,9 +93,13 @@ internal class InboxEventsExecutorTests
         var inboxEvent = new InboxMessage
         {
             Id = Guid.NewGuid(),
-            EventName = "SimpleEntityWasCreated",
+            EventName = nameof(SimpleEntityWasCreated),
+            EventPath = typeof(SimpleEntityWasCreated).Namespace,
             Provider = "Unknown",
             Payload = "{}",
+            Headers = null,
+            AdditionalData = null,
+            NamingPolicyType = NamingPolicyType.PascalCase.ToString(),
             TryCount = 0,
             TryAfterAt = DateTime.UtcNow.AddMinutes(-1),
             ProcessedAt = null

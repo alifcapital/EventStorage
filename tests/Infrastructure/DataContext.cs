@@ -3,7 +3,7 @@ using Npgsql;
 
 namespace EventStorage.Tests.Infrastructure;
 
-class DataContext<TEvent> where TEvent : BaseMessageBox, new()
+internal class DataContext<TEvent> where TEvent : BaseMessageBox, new()
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly string _tableName;

@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using EventStorage.Extensions;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Repositories;
@@ -24,37 +24,42 @@ internal class OutboxEventManager : IOutboxEventManager
         _logger = logger;
     }
 
-    public bool Store<TOutboxEvent>(TOutboxEvent @event, EventProviderType eventProvider, string eventPath = null, 
+    public bool Store<TOutboxEvent>(TOutboxEvent outboxEvent, EventProviderType eventProvider, 
         NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
         where TOutboxEvent : IOutboxEvent
     {
-        var eventName = @event.GetType().Name;
+        var eventType = outboxEvent.GetType();
         try
         {
-            var outboxMessage = new OutboxMessage
-            {
-                Id = @event.EventId,
-                Provider = eventProvider.ToString(),
-                EventName = eventName,
-                EventPath = eventPath?? eventName,
-                NamingPolicyType = namingPolicyType.ToString()
-            };
-
-            if (@event is IHasHeaders hasHeaders)
+            string eventHeaders = null;
+            if (outboxEvent is IHasHeaders hasHeaders)
             {
                 if (hasHeaders.Headers?.Count > 0)
-                    outboxMessage.Headers = SerializeData(hasHeaders.Headers);
+                    eventHeaders = JsonSerializer.Serialize(hasHeaders.Headers);
                 hasHeaders.Headers = null;
             }
 
-            if (@event is IHasAdditionalData hasAdditionalData)
+            string eventAdditionalData = null;
+            if (outboxEvent is IHasAdditionalData hasAdditionalData)
             {
                 if (hasAdditionalData.AdditionalData?.Count > 0)
-                    outboxMessage.AdditionalData = SerializeData(hasAdditionalData.AdditionalData);
+                    eventAdditionalData = JsonSerializer.Serialize(hasAdditionalData.AdditionalData);
                 hasAdditionalData.AdditionalData = null;
             }
-
-            outboxMessage.Payload = SerializeData(@event);
+            
+            var eventPayload = outboxEvent.SerializeToJson();
+            
+            var outboxMessage = new OutboxMessage
+            {
+                Id = outboxEvent.EventId,
+                Provider = eventProvider.ToString(),
+                EventName = eventType.Name,
+                EventPath = eventType.Namespace,
+                NamingPolicyType = namingPolicyType.ToString(),
+                Headers = eventHeaders,
+                AdditionalData = eventAdditionalData,
+                Payload = eventPayload
+            };
 
             _eventsToSend.Add(outboxMessage);
             
@@ -62,21 +67,10 @@ internal class OutboxEventManager : IOutboxEventManager
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Error while collecting the {EventType} event type with the {EventId} id to store the Outbox table.",  eventName, @event.EventId);
+            _logger.LogError(e, "Error while collecting the {EventType} event type with the {EventId} id to store the Outbox table.", eventType.Name, outboxEvent.EventId);
             throw;
         }
     }
-
-    #region SerializeData
-
-    private static readonly JsonSerializerOptions SerializerSettings = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
-
-    private static string SerializeData<TValue>(TValue data)
-    {
-        return JsonSerializer.Serialize(data, data.GetType(), SerializerSettings);
-    }
-
-    #endregion
 
     #region PublishCollectedEvents
     

@@ -7,10 +7,10 @@ internal abstract class BaseMessageBox : IBaseMessageBox
     public Guid Id { get; init; }
     public string Provider { get; init; }
     public string EventName { get; init; }
-    public string EventPath { get; init; }
-    public string Payload { get; internal set; }
-    public string Headers { get; internal set; }
-    public string AdditionalData { get; internal set; }
+    public string EventPath { get; init;  }
+    public string Payload { get; internal init; }
+    public string Headers { get; internal init; }
+    public string AdditionalData { get; internal init; }
     public DateTime CreatedAt { get; } = DateTime.Now;
     public int TryCount { get; set; }
     public string NamingPolicyType { get; init; } = NamingPolicyTypeNames.PascalCase;

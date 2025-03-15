@@ -24,7 +24,7 @@ internal interface IBaseMessageBox
     string EventName { get; }
 
     /// <summary>
-    /// Gets or sets the path of the event. It can be pouting key, URL, or different value depend on provider type.
+    /// The full path (namespace) of the event type. It just for information.
     /// </summary>
     string EventPath { get; }
 
@@ -51,7 +51,7 @@ internal interface IBaseMessageBox
     /// <summary>
     /// Gets the count of attempts to process the event.
     /// </summary>
-    int TryCount { get; set; }
+    int TryCount { get; }
     
     /// <summary>
     /// Name of the naming policy type for serializing and deserializing properties of Event. Default value is "PascalCase". It can be one of "PascalCase", "CamelCase", "SnakeCaseLower", "SnakeCaseUpper", "KebabCaseLower", or "KebabCaseUpper".

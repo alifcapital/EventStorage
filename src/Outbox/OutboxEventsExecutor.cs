@@ -129,7 +129,7 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
 
                 var eventHandlerSubscriber = serviceScope.ServiceProvider.GetRequiredService(publisherInformation.EventPublisherType);
 
-                await ((Task)publisherInformation.PublishMethod.Invoke(eventHandlerSubscriber, [eventToPublish, message.EventPath]))!;
+                await ((Task)publisherInformation.PublishMethod.Invoke(eventHandlerSubscriber, [eventToPublish]))!;
                 message.Processed();
 
                 return;
