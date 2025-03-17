@@ -17,5 +17,5 @@ internal interface IOutboxEventsExecutor
     /// </summary>
     /// <param name="eventName">Type name of outbox event</param>
     /// <returns>Array of outbox publisher types. If there is no publisher, return null.</returns>
-    IEnumerable<EventProviderType> GetEventPublisherTypes(string eventName);
+    EventProviderType[] GetEventPublisherTypes(string eventName);
 }

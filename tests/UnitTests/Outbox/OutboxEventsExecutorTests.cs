@@ -90,11 +90,83 @@ public class OutboxEventsExecutorTests
     }
     
     #endregion
+    
+    #region Add and get event provider types
+    
+    [Test]
+    public void AddEventProviderType_AddingOneEventTypeWithPublisherInfo_OnePublisherTypeShouldBeAdded()
+    {
+        var typeOfSentEvent = typeof(SimpleOutboxEventCreated);
+        var typeOfEventPublisher = typeof(SimpleSendEventCreatedHandler);
+        var providerType = EventProviderType.MessageBroker;
+
+        _outboxEventsExecutor.AddPublisher(
+            typeOfOutboxEvent: typeOfSentEvent,
+            typeOfEventPublisher: typeOfEventPublisher,
+            providerType: providerType,
+            hasHeaders: false,
+            hasAdditionalData: false,
+            isGlobalPublisher: true
+        );
+
+        var publishers = _outboxEventsExecutor.GetEventPublisherTypes(typeOfSentEvent.Name);
+        Assert.That(publishers, Does.Contain(providerType));
+    }
+    
+    [Test]
+    public void AddEventProviderType_AddingOneEventTypeTwice_OnePublisherTypeShouldBeAdded()
+    {
+        var typeOfSentEvent = typeof(SimpleOutboxEventCreated);
+        var typeOfEventPublisher = typeof(SimpleSendEventCreatedHandler);
+        var providerType = EventProviderType.MessageBroker;
+
+        _outboxEventsExecutor.AddPublisher(
+            typeOfOutboxEvent: typeOfSentEvent,
+            typeOfEventPublisher: typeOfEventPublisher,
+            providerType: providerType,
+            hasHeaders: false,
+            hasAdditionalData: false,
+            isGlobalPublisher: true
+        );
+        _outboxEventsExecutor.AddPublisher(
+            typeOfOutboxEvent: typeOfSentEvent,
+            typeOfEventPublisher: typeOfEventPublisher,
+            providerType: providerType,
+            hasHeaders: false,
+            hasAdditionalData: false,
+            isGlobalPublisher: true
+        );
+
+        var eventProviderTypes = _outboxEventsExecutor.GetEventPublisherTypes(typeOfSentEvent.Name);
+        Assert.That(eventProviderTypes.Count, Is.EqualTo(1));
+    }
+    
+    [Test]
+    public void GetEventPublisherTypes_TryingToGetInvalidType_ShouldReturnNull()
+    {
+        var typeOfSentEvent = typeof(SimpleOutboxEventCreated);
+        var typeOfEventPublisher = typeof(SimpleSendEventCreatedHandler);
+        var providerType = EventProviderType.MessageBroker;
+
+        _outboxEventsExecutor.AddPublisher(
+            typeOfOutboxEvent: typeOfSentEvent,
+            typeOfEventPublisher: typeOfEventPublisher,
+            providerType: providerType,
+            hasHeaders: false,
+            hasAdditionalData: false,
+            isGlobalPublisher: true
+        );
+
+        var publishers = _outboxEventsExecutor.GetEventPublisherTypes(typeOfEventPublisher.Name);
+        Assert.That(publishers, Is.Null);
+    }
+    
+    #endregion
 
     #region Helper methods
 
     /// <summary>
-    /// Get the publisher information from the PublishingEventExecutor
+    /// Get the publisher information from the OutboxEventsExecutor.
     /// </summary>
     private Dictionary<string, EventPublisherInformation> GetPublishersInformation()
     {

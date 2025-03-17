@@ -55,7 +55,7 @@ public class OutboxEventManagerTests
     public void Store_StoringEventHasTwoPublishers_TwoOutboxMessagesShouldBeStoredAndReturnFalse()
     {
         var outboxEvent = new SimpleOutboxEventCreated();
-        var eventProviderTypes = new List<EventProviderType>
+        var eventProviderTypes = new[]
         {
             EventProviderType.MessageBroker, EventProviderType.Sms
         };

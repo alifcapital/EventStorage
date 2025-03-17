@@ -186,9 +186,9 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
 
     #region Get publisher types of event
 
-    public IEnumerable<EventProviderType> GetEventPublisherTypes(string eventName)
+    public EventProviderType[] GetEventPublisherTypes(string eventName)
     {
-        return _eventPublisherTypes.GetValueOrDefault(eventName);
+        return _eventPublisherTypes.GetValueOrDefault(eventName)?.ToArray();
     }
 
     #endregion
