@@ -11,6 +11,7 @@ namespace EventStorage.Outbox.Managers;
 internal class OutboxEventManager : IOutboxEventManager
 {
     private readonly IOutboxRepository _repository;
+    private readonly IOutboxEventsExecutor _outboxEventsExecutor;
     private readonly ILogger<OutboxEventManager> _logger;
     private readonly ConcurrentBag<OutboxMessage> _eventsToSend = [];
     private bool _disposed;
@@ -18,10 +19,27 @@ internal class OutboxEventManager : IOutboxEventManager
     /// <summary>
     /// The EventSenderManager class will keep injecting itself even the outbox pattern is off, but the repository will be null since that is not registered in the DI container.
     /// </summary>
-    public OutboxEventManager(ILogger<OutboxEventManager> logger, IOutboxRepository repository = null)
+    public OutboxEventManager(ILogger<OutboxEventManager> logger, IOutboxEventsExecutor outboxEventsExecutor, IOutboxRepository repository = null)
     {
         _repository = repository;
         _logger = logger;
+        _outboxEventsExecutor = outboxEventsExecutor;
+    }
+
+    public bool Store<TOutboxEvent>(TOutboxEvent outboxEvent, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
+    {
+        var outboxEventName = outboxEvent.GetType().Name;
+        var eventPublisherTypes = _outboxEventsExecutor.GetEventPublisherTypes(outboxEventName);
+        if (eventPublisherTypes is null)
+        {
+            _logger.LogError("There is no publisher for the {OutboxEventName} outbox event type.", outboxEventName);
+            return false;
+        }
+        
+        foreach (var eventProvider in eventPublisherTypes)
+            Store(outboxEvent, eventProvider);
+        
+        return true;
     }
 
     public bool Store<TOutboxEvent>(TOutboxEvent outboxEvent, EventProviderType eventProvider, 

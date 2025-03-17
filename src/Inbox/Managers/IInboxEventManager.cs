@@ -6,18 +6,17 @@ namespace EventStorage.Inbox.Managers;
 public interface IInboxEventManager
 {
     /// <summary>
-    /// To store a received inbox event to the database
+    /// To store an inbox event to the database.
     /// </summary>
     /// <param name="inboxEvent">Event to send</param>
     /// <param name="eventProvider">Provider type of sending receivedEvent</param>
     /// <param name="namingPolicyType">Name of the naming policy type for serializing and deserializing properties of Event. Default value is "PascalCase". It can be one of "PascalCase", "CamelCase", "SnakeCaseLower", "SnakeCaseUpper", "KebabCaseLower", or "KebabCaseUpper".</param>
-    /// <typeparam name="TReceiveEvent">Event type that must implement from the IEventReceiverManager</typeparam>
     /// <returns>Returns true if it was entered successfully or false if the value is duplicated. It can throw an exception if something goes wrong.</returns>
-    public bool Store<TReceiveEvent>(TReceiveEvent inboxEvent, EventProviderType eventProvider, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
-        where TReceiveEvent : IInboxEvent;
+    public bool Store<TInboxEvent>(TInboxEvent inboxEvent, EventProviderType eventProvider, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
+        where TInboxEvent : IInboxEvent;
 
     /// <summary>
-    /// To store receiving an event to the database
+    /// To store an inbox event to the database.
     /// </summary>
     /// <param name="eventId">The id of event</param>
     /// <param name="eventTypeName">The type name of event</param>

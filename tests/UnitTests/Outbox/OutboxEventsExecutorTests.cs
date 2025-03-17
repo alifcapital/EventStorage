@@ -44,7 +44,7 @@ public class OutboxEventsExecutorTests
         var providerType = EventProviderType.MessageBroker;
 
         _outboxEventsExecutor.AddPublisher(
-            typeOfEventSender: typeOfSentEvent,
+            typeOfOutboxEvent: typeOfSentEvent,
             typeOfEventPublisher: typeOfEventPublisher,
             providerType: providerType,
             hasHeaders: false,
@@ -70,7 +70,7 @@ public class OutboxEventsExecutorTests
         var providerType = EventProviderType.MessageBroker;
 
         _outboxEventsExecutor.AddPublisher(
-            typeOfEventSender: typeOfSentEvent,
+            typeOfOutboxEvent: typeOfSentEvent,
             typeOfEventPublisher: typeOfEventPublisher,
             providerType: providerType,
             hasHeaders: true,

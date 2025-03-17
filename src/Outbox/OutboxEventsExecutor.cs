@@ -16,7 +16,15 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
     private readonly ILogger<OutboxEventsExecutor> _logger;
     private readonly InboxOrOutboxStructure _settings;
 
+    /// <summary>
+    /// To collect all publisher information. The key is the event name and provider name. The value is the publisher information.
+    /// </summary>
     private readonly Dictionary<string, EventPublisherInformation> _publishers;
+
+    /// <summary>
+    /// To collect all event names with their publisher types which have publishers.
+    /// </summary>
+    private readonly Dictionary<string, HashSet<EventProviderType>> _eventPublisherTypes;
 
     private const string PublisherMethodName = nameof(IEventPublisher.PublishAsync);
     private readonly SemaphoreSlim _singleExecutionLock = new(1, 1);
@@ -28,27 +36,30 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
         _logger = serviceProvider.GetRequiredService<ILogger<OutboxEventsExecutor>>();
         _settings = serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Outbox;
         _publishers = new Dictionary<string, EventPublisherInformation>();
+        _eventPublisherTypes = new Dictionary<string, HashSet<EventProviderType>>();
         _semaphore = new SemaphoreSlim(_settings.MaxConcurrency);
     }
 
+    #region Register publisher
+
     /// <summary>
-    /// Registers a publisher 
+    /// Registers a publisher.
     /// </summary>
-    /// <param name="typeOfEventSender">Event type which we want to use to send</param>
+    /// <param name="typeOfOutboxEvent">Event type which we want to use to send</param>
     /// <param name="typeOfEventPublisher">Publisher type of the event which we want to publish event</param>
     /// <param name="providerType">Provider type of event publisher</param>
     /// <param name="hasHeaders">The event may have headers</param>
     /// <param name="hasAdditionalData">The event may have AdditionalData</param>
     /// <param name="isGlobalPublisher">Publisher of event is global publisher</param>
-    public void AddPublisher(Type typeOfEventSender, Type typeOfEventPublisher, EventProviderType providerType,
+    public void AddPublisher(Type typeOfOutboxEvent, Type typeOfEventPublisher, EventProviderType providerType,
         bool hasHeaders, bool hasAdditionalData, bool isGlobalPublisher)
     {
         var providerName = providerType.ToString();
-        var publisherKey = GetPublisherKey(typeOfEventSender.Name, providerName);
+        var publisherKey = GetPublisherKey(typeOfOutboxEvent.Name, providerName);
         var publishMethod = typeOfEventPublisher.GetMethod(PublisherMethodName);
         var publisherInformation = new EventPublisherInformation
         {
-            EventType = typeOfEventSender,
+            EventType = typeOfOutboxEvent,
             EventPublisherType = typeOfEventPublisher,
             PublishMethod = publishMethod,
             ProviderType = providerName,
@@ -57,13 +68,14 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
             IsGlobalPublisher = isGlobalPublisher
         };
         _publishers[publisherKey] = publisherInformation;
+        
+        AddEventProviderType(typeOfOutboxEvent.Name, providerType);
     }
 
-    internal string GetPublisherKey(string eventName, string providerName)
-    {
-        return $"{eventName}-{providerName}";
-    }
+    #endregion
 
+    #region Execute unprocessed events
+    
     /// <summary>
     /// The method to execute unprocessed events. We are locking the logic to prevent re-entry into the method while processing is ongoing.
     /// </summary>
@@ -147,4 +159,46 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
             throw exception;
         }
     }
+    
+    #endregion
+
+    #region Register publisher type of event
+
+    /// <summary>
+    /// Register the provider type of the event.
+    /// </summary>
+    /// <param name="eventName">Type name of outbox event</param>
+    /// <param name="providerType">Type of event handler</param>
+    private void AddEventProviderType(string eventName, EventProviderType providerType)
+    {
+        if (_eventPublisherTypes.TryGetValue(eventName, out var providerTypes))
+        {
+            providerTypes.Add(providerType);
+        }
+        else
+        {
+            providerTypes = [providerType];
+            _eventPublisherTypes[eventName] = providerTypes;
+        }
+    }
+
+    #endregion
+
+    #region Get publisher types of event
+
+    public IEnumerable<EventProviderType> GetEventPublisherTypes(string eventName)
+    {
+        return _eventPublisherTypes.GetValueOrDefault(eventName);
+    }
+
+    #endregion
+    
+    #region Get publisher key
+    
+    internal string GetPublisherKey(string eventName, string providerName)
+    {
+        return $"{eventName}-{providerName}";
+    }
+    
+    #endregion
 }
