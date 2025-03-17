@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using EventStorage.Extensions;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Repositories;
@@ -11,6 +11,7 @@ namespace EventStorage.Outbox.Managers;
 internal class OutboxEventManager : IOutboxEventManager
 {
     private readonly IOutboxRepository _repository;
+    private readonly IOutboxEventsExecutor _outboxEventsExecutor;
     private readonly ILogger<OutboxEventManager> _logger;
     private readonly ConcurrentBag<OutboxMessage> _eventsToSend = [];
     private bool _disposed;
@@ -18,43 +19,65 @@ internal class OutboxEventManager : IOutboxEventManager
     /// <summary>
     /// The EventSenderManager class will keep injecting itself even the outbox pattern is off, but the repository will be null since that is not registered in the DI container.
     /// </summary>
-    public OutboxEventManager(ILogger<OutboxEventManager> logger, IOutboxRepository repository = null)
+    public OutboxEventManager(ILogger<OutboxEventManager> logger, IOutboxEventsExecutor outboxEventsExecutor, IOutboxRepository repository = null)
     {
         _repository = repository;
         _logger = logger;
+        _outboxEventsExecutor = outboxEventsExecutor;
     }
 
-    public bool Store<TOutboxEvent>(TOutboxEvent @event, EventProviderType eventProvider, string eventPath = null, 
+    public bool Store<TOutboxEvent>(TOutboxEvent outboxEvent, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
+    {
+        var outboxEventName = outboxEvent.GetType().Name;
+        var eventPublisherTypes = _outboxEventsExecutor.GetEventPublisherTypes(outboxEventName);
+        if (eventPublisherTypes is null)
+        {
+            _logger.LogError("There is no publisher for the {OutboxEventName} outbox event type.", outboxEventName);
+            return false;
+        }
+        
+        foreach (var eventProvider in eventPublisherTypes)
+            Store(outboxEvent, eventProvider);
+        
+        return true;
+    }
+
+    public bool Store<TOutboxEvent>(TOutboxEvent outboxEvent, EventProviderType eventProvider, 
         NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
         where TOutboxEvent : IOutboxEvent
     {
-        var eventName = @event.GetType().Name;
+        var eventType = outboxEvent.GetType();
         try
         {
-            var outboxMessage = new OutboxMessage
-            {
-                Id = @event.EventId,
-                Provider = eventProvider.ToString(),
-                EventName = eventName,
-                EventPath = eventPath?? eventName,
-                NamingPolicyType = namingPolicyType.ToString()
-            };
-
-            if (@event is IHasHeaders hasHeaders)
+            string eventHeaders = null;
+            if (outboxEvent is IHasHeaders hasHeaders)
             {
                 if (hasHeaders.Headers?.Count > 0)
-                    outboxMessage.Headers = SerializeData(hasHeaders.Headers);
+                    eventHeaders = JsonSerializer.Serialize(hasHeaders.Headers);
                 hasHeaders.Headers = null;
             }
 
-            if (@event is IHasAdditionalData hasAdditionalData)
+            string eventAdditionalData = null;
+            if (outboxEvent is IHasAdditionalData hasAdditionalData)
             {
                 if (hasAdditionalData.AdditionalData?.Count > 0)
-                    outboxMessage.AdditionalData = SerializeData(hasAdditionalData.AdditionalData);
+                    eventAdditionalData = JsonSerializer.Serialize(hasAdditionalData.AdditionalData);
                 hasAdditionalData.AdditionalData = null;
             }
-
-            outboxMessage.Payload = SerializeData(@event);
+            
+            var eventPayload = outboxEvent.SerializeToJson();
+            
+            var outboxMessage = new OutboxMessage
+            {
+                Id = outboxEvent.EventId,
+                Provider = eventProvider.ToString(),
+                EventName = eventType.Name,
+                EventPath = eventType.Namespace,
+                NamingPolicyType = namingPolicyType.ToString(),
+                Headers = eventHeaders,
+                AdditionalData = eventAdditionalData,
+                Payload = eventPayload
+            };
 
             _eventsToSend.Add(outboxMessage);
             
@@ -62,21 +85,10 @@ internal class OutboxEventManager : IOutboxEventManager
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Error while collecting the {EventType} event type with the {EventId} id to store the Outbox table.",  eventName, @event.EventId);
+            _logger.LogError(e, "Error while collecting the {EventType} event type with the {EventId} id to store the Outbox table.", eventType.Name, outboxEvent.EventId);
             throw;
         }
     }
-
-    #region SerializeData
-
-    private static readonly JsonSerializerOptions SerializerSettings = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
-
-    private static string SerializeData<TValue>(TValue data)
-    {
-        return JsonSerializer.Serialize(data, data.GetType(), SerializerSettings);
-    }
-
-    #endregion
 
     #region PublishCollectedEvents
     

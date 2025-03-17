@@ -1,6 +1,6 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using EventStorage.Exceptions;
+using EventStorage.Extensions;
 using EventStorage.Inbox.Models;
 using EventStorage.Inbox.Repositories;
 using EventStorage.Models;
@@ -12,70 +12,46 @@ namespace EventStorage.Inbox.Managers;
 internal class InboxEventManager(IInboxRepository repository, ILogger<InboxEventManager> logger)
     : IInboxEventManager
 {
-    public bool Store<TInboxEvent>(TInboxEvent inboxEvent, string eventPath, EventProviderType eventProvider, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
+    public bool Store<TInboxEvent>(TInboxEvent inboxEvent, EventProviderType eventProvider,
+        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
         where TInboxEvent : IInboxEvent
     {
-        var receivedEventType = inboxEvent.GetType().Name;
+        var eventType = inboxEvent.GetType();
         try
         {
-            string headers = null;
+            string eventHeaders = null;
             if (inboxEvent is IHasHeaders hasHeaders)
             {
-                if (hasHeaders.Headers?.Any() == true)
-                    headers = SerializeHeadersData(hasHeaders.Headers);
+                if (hasHeaders.Headers?.Count > 0)
+                    eventHeaders = JsonSerializer.Serialize(hasHeaders.Headers);
                 hasHeaders.Headers = null;
             }
 
-            string additionalData = null;
+            string eventAdditionalData = null;
             if (inboxEvent is IHasAdditionalData hasAdditionalData)
             {
-                if (hasAdditionalData.AdditionalData?.Any() == true)
-                    additionalData = SerializeHeadersData(hasAdditionalData.AdditionalData);
+                if (hasAdditionalData.AdditionalData?.Count > 0)
+                    eventAdditionalData = JsonSerializer.Serialize(hasAdditionalData.AdditionalData);
                 hasAdditionalData.AdditionalData = null;
             }
 
-            var payload = SerializeData(inboxEvent);
+            var eventPayload = inboxEvent.SerializeToJson();
 
-            return Store(inboxEvent.EventId, receivedEventType, eventPath, eventProvider, payload, headers,
-                additionalData, namingPolicyType);
+            return Store(inboxEvent.EventId, eventType.Name, eventProvider, eventPayload, eventHeaders,
+                eventAdditionalData, eventType.Namespace, namingPolicyType);
         }
         catch (Exception e) when (e is not EventStoreException)
         {
             logger.LogError(e,
                 "Error while serializing data of the {EventType} received event with the {EventId} id to store to the the table of Inbox.",
-                receivedEventType, inboxEvent.EventId);
-            throw;
-        }
-
-        static string SerializeHeadersData<TValue>(TValue data)
-        {
-            return JsonSerializer.Serialize(data);
-        }
-    }
-
-    public bool Store<TReceiveEvent>(TReceiveEvent inboxEvent, string eventPath, EventProviderType eventProvider,
-        string headers, string additionalData = null, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
-        where TReceiveEvent : IInboxEvent
-    {
-        var receivedEventType = inboxEvent.GetType().Name;
-        try
-        {
-            var payload = SerializeData(inboxEvent);
-
-            return Store(inboxEvent.EventId, receivedEventType, eventPath, eventProvider, payload, headers,
-                additionalData, namingPolicyType);
-        }
-        catch (Exception e) when (e is not EventStoreException)
-        {
-            logger.LogError(e,
-                "Error while serializing data of the {EventType} received event with the {EventId} id to store to the the table of Inbox.",
-                receivedEventType, inboxEvent.EventId);
+                eventType.Name, inboxEvent.EventId);
             throw;
         }
     }
 
-    public bool Store(Guid eventId, string eventTypeName, string eventPath, EventProviderType eventProvider,
-        string payload, string headers, string additionalData = null, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
+    public bool Store(Guid eventId, string eventTypeName, EventProviderType eventProvider,
+        string payload, string headers, string additionalData = null, string eventPath = null,
+        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
     {
         try
         {
@@ -106,13 +82,5 @@ internal class InboxEventManager(IInboxRepository repository, ILogger<InboxEvent
                 eventTypeName, eventId);
             throw;
         }
-    }
-
-    private static readonly JsonSerializerOptions SerializerSettings =
-        new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
-
-    private static string SerializeData<TValue>(TValue data)
-    {
-        return JsonSerializer.Serialize(data, data.GetType(), SerializerSettings);
     }
 }

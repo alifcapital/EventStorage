@@ -1,3 +1,4 @@
+using EventStorage.Extensions;
 using EventStorage.Inbox.Managers;
 using EventStorage.Inbox.Models;
 using EventStorage.Inbox.Repositories;
@@ -5,7 +6,7 @@ using EventStorage.Models;
 using EventStorage.Tests.Domain;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
+using System.Text.Json;
 using NSubstitute;
 
 namespace EventStorage.Tests.UnitTests.Inbox;
@@ -24,11 +25,11 @@ public class InboxEventManagerTests
     }
 
     #region ReceivedWithGeneric
+    
     [Test]
     public void Received_OneEventWithGenericEvent_ShouldAdd()
     {
-        // Arrange
-        var receiveEvent = new SimpleEntityWasCreated()
+        var receiveEvent = new SimpleEntityWasCreated
         {
             EventId = Guid.NewGuid(),
             Type = "type",
@@ -37,21 +38,16 @@ public class InboxEventManagerTests
         };
         _inboxRepository.InsertEvent(Arg.Any<InboxMessage>()).Returns(true);
 
-        // Act
-        var result = _manager.Store<IInboxEvent>(
-            receiveEvent,
-            "path",
-            EventProviderType.Unknown);
+        var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
 
-        // Assert
         result.Should().BeTrue();
 
         _inboxRepository.Received(1)
             .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
                                                  && x.EventName == receiveEvent.GetType().Name
-                                                 && x.Payload == JsonConvert.SerializeObject(receiveEvent)
+                                                 && x.EventPath == receiveEvent.GetType().Namespace
+                                                 && x.Payload == receiveEvent.SerializeToJson()
                                                  && x.AdditionalData == null
-                                                 && x.EventPath == "path"
                                                  && x.Provider == EventProviderType.Unknown.ToString()
                 )
             );
@@ -60,36 +56,31 @@ public class InboxEventManagerTests
     [Test]
     public void Received_OneEventWithGenericAndHeaders_ShouldAdd()
     {
-        // Arrange
-        var receiveEvent = new SimpleEntityWasCreated()
-        {
-            EventId = Guid.NewGuid(),
-            Type = "type",
-            Date = DateTime.Now,
-            CreatedAt = DateTime.Now
-        };
         var headers = new Dictionary<string, string>
         {
             { "key", "value" }
         };
+        var receiveEvent = new SimpleEntityWasCreated
+        {
+            EventId = Guid.NewGuid(),
+            Type = "type",
+            Date = DateTime.Now,
+            CreatedAt = DateTime.Now,
+            Headers = headers
+        };
         _inboxRepository.InsertEvent(Arg.Any<InboxMessage>()).Returns(true);
 
-        // Act
-        var result = _manager.Store<IInboxEvent>(
-            receiveEvent,
-            "path",
-            EventProviderType.Unknown,
-            headers: JsonConvert.SerializeObject(headers));
+        var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
 
-        // Assert
         result.Should().BeTrue();
 
+        var headerAsJson = JsonSerializer.Serialize(headers);
         _inboxRepository.Received(1)
             .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
                                                  && x.EventName == receiveEvent.GetType().Name
-                                                 && x.Payload == JsonConvert.SerializeObject(receiveEvent)
-                                                 && x.Headers == JsonConvert.SerializeObject(headers)
-                                                 && x.EventPath == "path"
+                                                 && x.EventPath == receiveEvent.GetType().Namespace
+                                                 && x.Payload == receiveEvent.SerializeToJson()
+                                                 && x.Headers == headerAsJson
                                                  && x.Provider == EventProviderType.Unknown.ToString()
                 )
             );
@@ -98,38 +89,31 @@ public class InboxEventManagerTests
     [Test]
     public void Received_OneEventWithGenericAndAdditionalData_ShouldAdd()
     {
-        // Arrange
+        var additionalData = new Dictionary<string, string>
+        {
+            { "key", "value" }
+        };
         var receiveEvent = new SimpleEntityWasCreated
         {
             EventId = Guid.NewGuid(),
             Type = "type",
             Date = DateTime.Now,
-            CreatedAt = DateTime.Now
-        };
-        var additionalData = new Dictionary<string, string>
-        {
-            { "key", "value" }
+            CreatedAt = DateTime.Now,
+            AdditionalData = additionalData
         };
         _inboxRepository.InsertEvent(Arg.Any<InboxMessage>()).Returns(true);
 
-        // Act
-        var result = _manager.Store<IInboxEvent>(
-            inboxEvent: receiveEvent,
-            eventPath: "path",
-            eventProvider: EventProviderType.Unknown,
-            headers: null,
-            additionalData: JsonConvert.SerializeObject(additionalData)
-        );
+        var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
 
-        // Assert
         result.Should().BeTrue();
 
+        var additionalDataAsJson = JsonSerializer.Serialize(additionalData);
         _inboxRepository.Received(1)
             .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
                                                  && x.EventName == receiveEvent.GetType().Name
-                                                 && x.Payload == JsonConvert.SerializeObject(receiveEvent)
-                                                 && x.AdditionalData == JsonConvert.SerializeObject(additionalData)
-                                                 && x.EventPath == "path"
+                                                 && x.EventPath == receiveEvent.GetType().Namespace
+                                                 && x.Payload == receiveEvent.SerializeToJson()
+                                                 && x.AdditionalData == additionalDataAsJson
                                                  && x.Provider == EventProviderType.Unknown.ToString()
                 )
             );
@@ -138,14 +122,6 @@ public class InboxEventManagerTests
     [Test]
     public void Received_OneEventWithGenericAndAdditionalDataAndHeaders_ShouldAdd()
     {
-        // Arrange
-        var receiveEvent = new SimpleEntityWasCreated
-        {
-            EventId = Guid.NewGuid(),
-            Type = "type",
-            Date = DateTime.Now,
-            CreatedAt = DateTime.Now
-        };
         var headers = new Dictionary<string, string>
         {
             { "key", "value" }
@@ -154,38 +130,42 @@ public class InboxEventManagerTests
         {
             { "key", "value" }
         };
+        var receiveEvent = new SimpleEntityWasCreated
+        {
+            EventId = Guid.NewGuid(),
+            Type = "type",
+            Date = DateTime.Now,
+            CreatedAt = DateTime.Now,
+            Headers = headers,
+            AdditionalData = additionalData
+        };
         _inboxRepository.InsertEvent(Arg.Any<InboxMessage>()).Returns(true);
 
-        // Act
-        var result = _manager.Store<IInboxEvent>(
-            inboxEvent: receiveEvent,
-            eventPath: "path",
-            eventProvider: EventProviderType.Unknown,
-            headers: JsonConvert.SerializeObject(headers),
-            additionalData: JsonConvert.SerializeObject(additionalData)
-        );
+        var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
 
-        // Assert
         result.Should().BeTrue();
 
+        var headerAsJson = JsonSerializer.Serialize(headers);
+        var additionalDataAsJson = JsonSerializer.Serialize(additionalData);
         _inboxRepository.Received(1)
             .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
                                                  && x.EventName == receiveEvent.GetType().Name
-                                                 && x.Payload == JsonConvert.SerializeObject(receiveEvent)
-                                                 && x.Headers == JsonConvert.SerializeObject(headers)
-                                                 && x.AdditionalData == JsonConvert.SerializeObject(additionalData)
-                                                 && x.EventPath == "path"
+                                                 && x.EventPath == receiveEvent.GetType().Namespace
+                                                 && x.Payload == receiveEvent.SerializeToJson()
+                                                 && x.Headers == headerAsJson
+                                                 && x.AdditionalData == additionalDataAsJson
                                                  && x.Provider == EventProviderType.Unknown.ToString()
                 )
             );
     }
+    
     #endregion
 
-    #region ReceivedWithouGeneric
+    #region ReceivedWithoutGeneric
+    
     [Test]
     public void Received_WithoutGeneric_ShouldAdd()
     {
-        // Arrange
         var receiveEvent = new SimpleEntityWasCreated
         {
             EventId = Guid.NewGuid(),
@@ -195,21 +175,15 @@ public class InboxEventManagerTests
         };
         _inboxRepository.InsertEvent(Arg.Any<InboxMessage>()).Returns(true);
 
-        // Act
-        var result = _manager.Store(
-            receiveEvent,
-            "path",
-            EventProviderType.Unknown);
+        var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
 
-        // Assert
         result.Should().BeTrue();
 
         _inboxRepository.Received(1)
             .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
                                                  && x.EventName == receiveEvent.GetType().Name
-                                                 && x.Payload == JsonConvert.SerializeObject(receiveEvent)
+                                                 && x.Payload == receiveEvent.SerializeToJson()
                                                  && x.AdditionalData == null
-                                                 && x.EventPath == "path"
                                                  && x.Provider == EventProviderType.Unknown.ToString()
                 )
             );
@@ -218,7 +192,6 @@ public class InboxEventManagerTests
     [Test]
     public void Received_WithoutGenericAndWithHeaders_ShouldAdd()
     {
-        // Arrange
         var receiveEvent = new SimpleEntityWasCreated
         {
             EventId = Guid.NewGuid(),
@@ -226,31 +199,22 @@ public class InboxEventManagerTests
             Date = DateTime.Now,
             CreatedAt = DateTime.Now
         };
-        var headers = new Dictionary<string, string>
-        {
-            { "key", "value" }
-        };
         _inboxRepository.InsertEvent(Arg.Any<InboxMessage>()).Returns(true);
 
-        // Act
-        var result = _manager.Store(
-            receiveEvent,
-            "path",
-            EventProviderType.Unknown,
-            headers: JsonConvert.SerializeObject(headers));
+        var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
 
-        // Assert
         result.Should().BeTrue();
 
         _inboxRepository.Received(1)
             .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
                                                  && x.EventName == receiveEvent.GetType().Name
-                                                 && x.Payload == JsonConvert.SerializeObject(receiveEvent)
-                                                 && x.Headers == JsonConvert.SerializeObject(headers)
-                                                 && x.EventPath == "path"
+                                                 && x.Payload == receiveEvent.SerializeToJson()
+                                                 && x.Headers == null
+                                                 && x.AdditionalData == null
                                                  && x.Provider == EventProviderType.Unknown.ToString()
                 )
             );
     }
+    
     #endregion
 }

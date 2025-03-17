@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text.Json;
 using EventStorage.Models;
+using EventStorage.Outbox;
 using EventStorage.Outbox.Managers;
 using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Repositories;
@@ -15,14 +16,17 @@ namespace EventStorage.Tests.UnitTests.Outbox;
 public class OutboxEventManagerTests
 {
     private IOutboxRepository _outboxRepository;
+    private IOutboxEventsExecutor _outboxEventsExecutor;
     private OutboxEventManager _outboxEventManager;
+    private ILogger<OutboxEventManager> _logger;
 
     [SetUp]
     public void SetUp()
     {
         _outboxRepository = Substitute.For<IOutboxRepository>();
-        var logger = Substitute.For<ILogger<OutboxEventManager>>();
-        _outboxEventManager = new OutboxEventManager(logger, _outboxRepository);
+        _outboxEventsExecutor = Substitute.For<IOutboxEventsExecutor>();
+        _logger = Substitute.For<ILogger<OutboxEventManager>>();
+        _outboxEventManager = new OutboxEventManager(_logger, _outboxEventsExecutor, _outboxRepository);
     }
 
     [TearDown]
@@ -34,7 +38,39 @@ public class OutboxEventManagerTests
     #region Store
 
     [Test]
-    public void Store_AddedOneEventButDidNotDisposed_ShouldNotBeSend()
+    public void Store_StoringEventDoesNotHavePublisher_ShouldNotAddMessageAndReturnFalse()
+    {
+        var outboxEvent = new SimpleOutboxEventCreated();
+        _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent.GetType().Name)
+            .Returns((IEnumerable<EventProviderType>)null);
+
+        var result = _outboxEventManager.Store(outboxEvent);
+
+        var collectedEvents = GetCollectedEvents();
+        Assert.That(collectedEvents, Is.Empty);
+        Assert.That(result, Is.False);
+    }
+
+    [Test]
+    public void Store_StoringEventHasTwoPublishers_TwoOutboxMessagesShouldBeStoredAndReturnFalse()
+    {
+        var outboxEvent = new SimpleOutboxEventCreated();
+        var eventProviderTypes = new[]
+        {
+            EventProviderType.MessageBroker, EventProviderType.Sms
+        };
+        _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent.GetType().Name).Returns(eventProviderTypes);
+
+        var result = _outboxEventManager.Store(outboxEvent);
+
+        var collectedEvents = GetCollectedEvents();
+        Assert.That(collectedEvents.Any(m => m.Provider == eventProviderTypes[0].ToString()), Is.True);
+        Assert.That(collectedEvents.Any(m => m.Provider == eventProviderTypes[1].ToString()), Is.True);
+        Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public void Store_AddedOneEvent_ShouldBeCollected()
     {
         var senderEvent = new SimpleOutboxEventCreated
         {
@@ -43,69 +79,15 @@ public class OutboxEventManagerTests
             Date = DateTime.Now,
             CreatedAt = DateTime.Now
         };
-        _outboxRepository.BulkInsertEvents(Arg.Any<IEnumerable<OutboxMessage>>()).Returns(true);
-
+        
         var result = _outboxEventManager.Store(
             senderEvent,
-            EventProviderType.MessageBroker,
-            "path"
+            EventProviderType.MessageBroker
         );
-
+        
+        var collectedEvents = GetCollectedEvents();
+        Assert.That(collectedEvents.Any(m => m.Provider == EventProviderType.MessageBroker.ToString()), Is.True);
         result.Should().BeTrue();
-        _outboxRepository.Received(0).BulkInsertEvents(Arg.Any<IEnumerable<OutboxMessage>>());
-    }
-
-    [Test]
-    public void Store_AddedOneEventAndExecutedDispose_ShouldBeSent()
-    {
-        var senderEvent = new SimpleOutboxEventCreated
-        {
-            EventId = Guid.NewGuid(),
-            Type = "type",
-            Date = DateTime.Now,
-            CreatedAt = DateTime.Now
-        };
-        _outboxRepository.BulkInsertEvents(Arg.Any<IEnumerable<OutboxMessage>>()).Returns(true);
-
-        var result = _outboxEventManager.Store(
-            senderEvent,
-            EventProviderType.MessageBroker,
-            "path"
-        );
-        _outboxEventManager.Dispose();
-
-        result.Should().BeTrue();
-        _outboxRepository.Received(1)
-            .BulkInsertEvents(Arg.Any<IEnumerable<OutboxMessage>>());
-    }
-
-    [Test]
-    public void Store_AddedOneEventWithHeadersAndExecutedDispose_ShouldBeSent()
-    {
-        var headers = new Dictionary<string, string>
-        {
-            { "key", "value" }
-        };
-        var senderEvent = new SimpleOutboxEventCreated
-        {
-            EventId = Guid.NewGuid(),
-            Type = "type",
-            Date = DateTime.Now,
-            CreatedAt = DateTime.Now,
-            Headers = headers
-        };
-        _outboxRepository.BulkInsertEvents(Arg.Any<IEnumerable<OutboxMessage>>()).Returns(true);
-
-        var result = _outboxEventManager.Store(
-            senderEvent,
-            EventProviderType.MessageBroker,
-            "path"
-        );
-        _outboxEventManager.Dispose();
-
-        result.Should().BeTrue();
-        _outboxRepository.Received(1)
-            .BulkInsertEvents(Arg.Any<IEnumerable<OutboxMessage>>());
     }
 
     #endregion
@@ -144,7 +126,7 @@ public class OutboxEventManagerTests
             Date = DateTime.Now,
             CreatedAt = DateTime.Now,
             Headers = new Dictionary<string, string>(),
-            AdditionalData = new Dictionary<string, string>()
+            AdditionalData = null
         };
 
         _outboxEventManager.Store(eventToStore, EventProviderType.MessageBroker);
@@ -157,11 +139,12 @@ public class OutboxEventManagerTests
         Assert.That(storedEvent.Payload, Does.Contain(nameof(SimpleOutboxEventCreated.Type)));
         Assert.That(storedEvent.Payload, Does.Contain(nameof(SimpleOutboxEventCreated.Date)));
         Assert.That(storedEvent.Payload, Does.Contain(nameof(SimpleOutboxEventCreated.CreatedAt)));
-        Assert.That(storedEvent.Payload, Does.Not.Contain(nameof(SimpleOutboxEventCreated.Headers)), "We will not include Headers to the payload even it has value");
-        Assert.That(storedEvent.Payload, Does.Not.Contain(nameof(SimpleOutboxEventCreated.AdditionalData)), "We will not include AdditionalData to the payload even it has value");
+        Assert.That(storedEvent.Payload, Does.Not.Contain(nameof(SimpleOutboxEventCreated.Headers)),
+            "We will not include Headers to the payload even it has value");
+        Assert.That(storedEvent.Payload, Does.Not.Contain(nameof(SimpleOutboxEventCreated.AdditionalData)),
+            "We will not include AdditionalData to the payload even it has value");
         Assert.That(storedEvent.Headers, Is.Null);
         Assert.That(storedEvent.AdditionalData, Is.Null);
-        
     }
 
     [Test]
@@ -188,8 +171,10 @@ public class OutboxEventManagerTests
         Assert.That(storedEvent.Payload, Does.Contain(nameof(SimpleOutboxEventCreated.Type)));
         Assert.That(storedEvent.Payload, Does.Contain(nameof(SimpleOutboxEventCreated.Date)));
         Assert.That(storedEvent.Payload, Does.Contain(nameof(SimpleOutboxEventCreated.CreatedAt)));
-        Assert.That(storedEvent.Payload, Does.Not.Contain(nameof(SimpleOutboxEventCreated.Headers)), "We will not include Headers to the payload even it has value");
-        Assert.That(storedEvent.Payload, Does.Not.Contain(nameof(SimpleOutboxEventCreated.AdditionalData)), "We will not include AdditionalData to the payload even it has value");
+        Assert.That(storedEvent.Payload, Does.Not.Contain(nameof(SimpleOutboxEventCreated.Headers)),
+            "We will not include Headers to the payload even it has value");
+        Assert.That(storedEvent.Payload, Does.Not.Contain(nameof(SimpleOutboxEventCreated.AdditionalData)),
+            "We will not include AdditionalData to the payload even it has value");
         Assert.That(storedEvent.Headers, Is.Not.Null);
         Assert.That(storedEvent.AdditionalData, Is.Not.Null);
     }
@@ -217,13 +202,11 @@ public class OutboxEventManagerTests
         };
         _outboxEventManager.Store(
             senderEvent1,
-            EventProviderType.MessageBroker,
-            "path"
+            EventProviderType.MessageBroker
         );
         _outboxEventManager.Store(
             senderEvent2,
-            EventProviderType.MessageBroker,
-            "path"
+            EventProviderType.MessageBroker
         );
         var eventsToSend = GetCollectedEvents();
         eventsToSend.Should().HaveCount(2);
@@ -253,13 +236,11 @@ public class OutboxEventManagerTests
         };
         _outboxEventManager.Store(
             senderEvent1,
-            EventProviderType.MessageBroker,
-            "path"
+            EventProviderType.MessageBroker
         );
         _outboxEventManager.Store(
             senderEvent2,
-            EventProviderType.MessageBroker,
-            "path"
+            EventProviderType.MessageBroker
         );
         var eventsToSend = GetCollectedEvents();
 
