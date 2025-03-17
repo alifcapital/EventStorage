@@ -10,7 +10,7 @@ public interface IEventPublisher
     /// <summary>
     /// For publishing an outbox event.
     /// </summary>
-    /// <param name="event">Publishing an event</param>
+    /// <param name="outboxEvent">Publishing an event</param>
     /// <returns>It may throw an exception if fails</returns>
-    Task PublishAsync(IOutboxEvent @event);
+    Task PublishAsync(IOutboxEvent outboxEvent);
 }
