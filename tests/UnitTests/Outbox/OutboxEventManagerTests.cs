@@ -35,16 +35,16 @@ public class OutboxEventManagerTests
         _outboxEventManager.Dispose();
     }
 
-    #region Store
+    #region Collect
 
     [Test]
-    public void Store_StoringEventDoesNotHavePublisher_ShouldNotAddMessageAndReturnFalse()
+    public void Collect_StoringEventDoesNotHavePublisher_ShouldNotAddMessageAndReturnFalse()
     {
         var outboxEvent = new SimpleOutboxEventCreated();
         _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent)
             .Returns((string)null);
 
-        var result = _outboxEventManager.Collect(outboxEvent);
+        var result = _outboxEventManager.Collect(outboxEvent); 
 
         var collectedEvents = GetCollectedEvents();
         Assert.That(collectedEvents, Is.Empty);
@@ -52,7 +52,7 @@ public class OutboxEventManagerTests
     }
 
     [Test]
-    public void Store_StoringEventHasTwoPublishers_TwoOutboxMessagesShouldBeStoredAndReturnFalse()
+    public void Collect_StoringEventHasTwoPublishers_TwoOutboxMessagesShouldBeStoredAndReturnFalse()
     {
         var outboxEvent = new SimpleOutboxEventCreated();
         var eventProviderTypes = $"{EventProviderType.MessageBroker},{EventProviderType.Sms}";
@@ -66,7 +66,7 @@ public class OutboxEventManagerTests
     }
 
     [Test]
-    public void Store_AddedOneEvent_ShouldBeCollected()
+    public void Collect_AddedOneEvent_ShouldBeCollected()
     {
         var senderEvent = new SimpleOutboxEventCreated
         {
@@ -177,7 +177,7 @@ public class OutboxEventManagerTests
 
     #endregion
 
-    #region Dispose
+    #region Collect and Dispose
 
     [Test]
     public void Dispose_AddedTwoEventsToSend_EventsToSendCollectionShouldBeEmpty()
@@ -252,10 +252,10 @@ public class OutboxEventManagerTests
     private static readonly FieldInfo EventsToPublishFieldInfo = typeof(OutboxEventManager).GetField(
         "_eventsToSend", BindingFlags.NonPublic | BindingFlags.Instance);
 
-    private ConcurrentBag<OutboxMessage> GetCollectedEvents()
+    private ICollection<OutboxMessage> GetCollectedEvents()
     {
-        var eventsToSend = EventsToPublishFieldInfo!.GetValue(_outboxEventManager) as ConcurrentBag<OutboxMessage>;
-        return eventsToSend;
+        var eventsToSend = EventsToPublishFieldInfo!.GetValue(_outboxEventManager) as ConcurrentDictionary<Guid, OutboxMessage>;
+        return eventsToSend!.Values;
     }
 
     #endregion

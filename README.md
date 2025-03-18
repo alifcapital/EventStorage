@@ -240,9 +240,9 @@ public class UserController(IOutboxEventManager outboxEventManager) : Controller
 ```
 
 1. The `Collect` method is used to collect the event to the memory and then store it in the database while the scope/session/request is completed. It is useful if you want to collect multiple events and clear them if needed. You could use the `CleanCollectedEvents` method of the `IOutboxEventManager` to clear the collected events.
-2. The `StoreAsync` method is used to store the event in the database immediately. It is useful if you want to store the event immediately and don't need to collect multiple events.
+2. The `StoreAsync` method is used to store the event in the database immediately. It is useful if you want to store the event immediately and don't need to collect multiple events. It provides array of the event types to store multiple events at once.
 
-Both methods provide two forms of the method, one is with the event and the other is with the event and the event publisher type. When you store an event without the event publisher type, the library will automatically find all event providers that are suitable for the event type and publish the event to all of them. If you want to publish the event to a specific event provider, you need to pass the event provider type.
+Both methods provide two forms of the method, one is with the event and the other are with the event and the event publisher type. When you store an event without the event publisher type, the library will automatically find all event providers that are suitable for the event type and publish the event to all of them. If you want to publish the event to a specific event provider, you need to pass the event provider type.
 
 ##### Is there any way to add some additional data to the event while sending and use that while publishing event?
 

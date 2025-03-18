@@ -82,6 +82,12 @@ internal class OutboxEventManager : IOutboxEventManager
 
     #region StoreAsync Methods
 
+    public Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent, EventProviderType eventProvider,
+        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
+    {
+        return StoreAsync(outboxEvent, eventProvider.ToString(), namingPolicyType);
+    }
+    
     public Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent,
         NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
     {
@@ -96,10 +102,37 @@ internal class OutboxEventManager : IOutboxEventManager
         return StoreAsync(outboxEvent, eventPublisherTypes, namingPolicyType);
     }
 
-    public Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent, EventProviderType eventProvider,
-        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
+    public async Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent[] outboxEvents) where TOutboxEvent : IOutboxEvent
     {
-        return StoreAsync(outboxEvent, eventProvider.ToString(), namingPolicyType);
+        if (_repository is null)
+            throw new EventStoreException("The system trying to store an events into the outbox table, but the outbox functionality is not enabled.");
+        
+        try
+        {
+            var outboxMessages = new List<OutboxMessage>();
+            foreach (var outboxEvent in outboxEvents)
+            {
+                var eventPublisherTypes = _outboxEventsExecutor?.GetEventPublisherTypes(outboxEvent);
+                if (string.IsNullOrEmpty(eventPublisherTypes))
+                {
+                    _logger.LogError("There is no publisher for the {OutboxEventName} outbox event type.",
+                        outboxEvent.GetType().FullName);
+                    continue;
+                }
+                
+                var outboxMessage = CreateOutboxMessage(outboxEvent, eventPublisherTypes, NamingPolicyType.PascalCase);
+                outboxMessages.Add(outboxMessage);
+            }
+            
+            var successfullyInserted= _repository.BulkInsertEvents(outboxMessages)!;
+            
+            return await Task.FromResult(successfullyInserted);
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Error while storing multiple events to the Outbox table.");
+            throw;
+        }
     }
 
     private async Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent, string eventProvider,
