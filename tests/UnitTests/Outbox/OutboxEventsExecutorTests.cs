@@ -53,11 +53,13 @@ public class OutboxEventsExecutorTests
         );
         
         var publishers = GetPublishersInformation();
-
-        var publisherKey = _outboxEventsExecutor.GetPublisherKey(typeOfSentEvent.Name, providerType.ToString());
+        var publisherKey = _outboxEventsExecutor.GetPublisherKey(typeOfSentEvent.Name, typeOfSentEvent.Namespace);
         Assert.That(publishers.ContainsKey(publisherKey), Is.True);
 
-        var publisherInformation = publishers[publisherKey];
+        var publishersInfo = publishers[publisherKey];
+        Assert.That(publishersInfo.Count, Is.EqualTo(1));
+        
+        var publisherInformation = publishersInfo.First().Value;
         Assert.That(publisherInformation.EventType, Is.EqualTo(typeOfSentEvent));
         Assert.That(publisherInformation.EventPublisherType, Is.EqualTo(typeOfEventPublisher));
     }
@@ -80,10 +82,10 @@ public class OutboxEventsExecutorTests
 
         var publishers = GetPublishersInformation();
 
-        var publisherKey = _outboxEventsExecutor.GetPublisherKey(typeOfSentEvent.Name, providerType.ToString());
+        var publisherKey = _outboxEventsExecutor.GetPublisherKey(typeOfSentEvent.Name, typeOfSentEvent.Namespace);
         Assert.That(publishers.ContainsKey(publisherKey), Is.True);
 
-        var publisherInformation = publishers[publisherKey];
+        var publisherInformation = publishers[publisherKey].First().Value;
         Assert.That(publisherInformation.HasHeaders, Is.True);
         Assert.That(publisherInformation.HasAdditionalData, Is.True);
         Assert.That(publisherInformation.IsGlobalPublisher, Is.True);
@@ -109,8 +111,9 @@ public class OutboxEventsExecutorTests
             isGlobalPublisher: true
         );
 
-        var publishers = _outboxEventsExecutor.GetEventPublisherTypes(typeOfSentEvent.Name);
-        Assert.That(publishers, Does.Contain(providerType));
+        var outboxEvent = new SimpleOutboxEventCreated();
+        var publishers = _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent);
+        Assert.That(publishers, Does.Contain(providerType.ToString()));
     }
     
     [Test]
@@ -137,8 +140,9 @@ public class OutboxEventsExecutorTests
             isGlobalPublisher: true
         );
 
-        var eventProviderTypes = _outboxEventsExecutor.GetEventPublisherTypes(typeOfSentEvent.Name);
-        Assert.That(eventProviderTypes.Count, Is.EqualTo(1));
+        var outboxEvent = new SimpleOutboxEventCreated();
+        var publishers = _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent);
+        Assert.That(publishers, Does.Contain(providerType.ToString()));
     }
     
     [Test]
@@ -156,8 +160,9 @@ public class OutboxEventsExecutorTests
             hasAdditionalData: false,
             isGlobalPublisher: true
         );
-
-        var publishers = _outboxEventsExecutor.GetEventPublisherTypes(typeOfEventPublisher.Name);
+        
+        var outboxEvent = new SimpleOutboxEventWithoutAdditionalProperties();
+        var publishers = _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent);
         Assert.That(publishers, Is.Null);
     }
     
@@ -168,14 +173,14 @@ public class OutboxEventsExecutorTests
     /// <summary>
     /// Get the publisher information from the OutboxEventsExecutor.
     /// </summary>
-    private Dictionary<string, EventPublisherInformation> GetPublishersInformation()
+    private Dictionary<string, Dictionary<EventProviderType, EventPublisherInformation>> GetPublishersInformation()
     {
-        const string publishersFieldName = "_publishers";
+        const string publishersFieldName = "_allPublishers";
         var field = _outboxEventsExecutor.GetType().GetField(publishersFieldName,
             BindingFlags.NonPublic | BindingFlags.Instance);
         field.Should().NotBeNull();
 
-        var publishers = (Dictionary<string, EventPublisherInformation>)field!.GetValue(_outboxEventsExecutor);
+        var publishers = (Dictionary<string, Dictionary<EventProviderType, EventPublisherInformation>>)field!.GetValue(_outboxEventsExecutor);
         return publishers;
     }
 

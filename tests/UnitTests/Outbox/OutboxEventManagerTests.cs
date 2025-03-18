@@ -41,8 +41,8 @@ public class OutboxEventManagerTests
     public void Store_StoringEventDoesNotHavePublisher_ShouldNotAddMessageAndReturnFalse()
     {
         var outboxEvent = new SimpleOutboxEventCreated();
-        _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent.GetType().Name)
-            .Returns((IEnumerable<EventProviderType>)null);
+        _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent)
+            .Returns((string)null);
 
         var result = _outboxEventManager.Store(outboxEvent);
 
@@ -55,17 +55,13 @@ public class OutboxEventManagerTests
     public void Store_StoringEventHasTwoPublishers_TwoOutboxMessagesShouldBeStoredAndReturnFalse()
     {
         var outboxEvent = new SimpleOutboxEventCreated();
-        var eventProviderTypes = new[]
-        {
-            EventProviderType.MessageBroker, EventProviderType.Sms
-        };
-        _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent.GetType().Name).Returns(eventProviderTypes);
+        var eventProviderTypes = $"{EventProviderType.MessageBroker},{EventProviderType.Sms}";
+        _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent).Returns(eventProviderTypes);
 
         var result = _outboxEventManager.Store(outboxEvent);
 
         var collectedEvents = GetCollectedEvents();
-        Assert.That(collectedEvents.Any(m => m.Provider == eventProviderTypes[0].ToString()), Is.True);
-        Assert.That(collectedEvents.Any(m => m.Provider == eventProviderTypes[1].ToString()), Is.True);
+        Assert.That(collectedEvents.Any(m => m.Provider == eventProviderTypes), Is.True);
         Assert.That(result, Is.True);
     }
 
