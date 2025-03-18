@@ -112,7 +112,7 @@ internal class OutboxEventManager : IOutboxEventManager
         try
         {
             var outboxMessage = CreateOutboxMessage(outboxEvent, eventProvider, namingPolicyType);
-            return await _repository!.InsertEventAsync(outboxMessage)!;
+            return await _repository.InsertEventAsync(outboxMessage)!;
         }
         catch (Exception e)
         {
