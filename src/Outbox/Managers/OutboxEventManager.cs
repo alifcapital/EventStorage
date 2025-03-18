@@ -19,30 +19,38 @@ internal class OutboxEventManager : IOutboxEventManager
     /// <summary>
     /// The EventSenderManager class will keep injecting itself even the outbox pattern is off, but the repository will be null since that is not registered in the DI container.
     /// </summary>
-    public OutboxEventManager(ILogger<OutboxEventManager> logger, IOutboxEventsExecutor outboxEventsExecutor, IOutboxRepository repository = null)
+    public OutboxEventManager(ILogger<OutboxEventManager> logger, IOutboxEventsExecutor outboxEventsExecutor,
+        IOutboxRepository repository = null)
     {
         _repository = repository;
         _logger = logger;
         _outboxEventsExecutor = outboxEventsExecutor;
     }
 
-    public bool Store<TOutboxEvent>(TOutboxEvent outboxEvent, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
+    public bool Store<TOutboxEvent>(TOutboxEvent outboxEvent,
+        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
     {
-        var outboxEventName = outboxEvent.GetType().Name;
-        var eventPublisherTypes = _outboxEventsExecutor.GetEventPublisherTypes(outboxEventName);
-        if (eventPublisherTypes is null)
+        var eventPublisherTypes = _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent);
+        if (string.IsNullOrEmpty(eventPublisherTypes))
         {
-            _logger.LogError("There is no publisher for the {OutboxEventName} outbox event type.", outboxEventName);
+            _logger.LogError("There is no publisher for the {OutboxEventName} outbox event type.",
+                outboxEvent.GetType().FullName);
             return false;
         }
-        
-        foreach (var eventProvider in eventPublisherTypes)
-            Store(outboxEvent, eventProvider);
-        
-        return true;
+
+        var stored= Store(outboxEvent, eventPublisherTypes, namingPolicyType);
+        return stored;
     }
 
-    public bool Store<TOutboxEvent>(TOutboxEvent outboxEvent, EventProviderType eventProvider, 
+    public bool Store<TOutboxEvent>(TOutboxEvent outboxEvent, EventProviderType eventProvider,
+        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
+        where TOutboxEvent : IOutboxEvent
+    {
+        var stored=  Store(outboxEvent, eventProvider.ToString(), namingPolicyType);
+        return stored;
+    }
+
+    private bool Store<TOutboxEvent>(TOutboxEvent outboxEvent, string eventProvider,
         NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
         where TOutboxEvent : IOutboxEvent
     {
@@ -64,13 +72,13 @@ internal class OutboxEventManager : IOutboxEventManager
                     eventAdditionalData = JsonSerializer.Serialize(hasAdditionalData.AdditionalData);
                 hasAdditionalData.AdditionalData = null;
             }
-            
+
             var eventPayload = outboxEvent.SerializeToJson();
-            
+
             var outboxMessage = new OutboxMessage
             {
                 Id = outboxEvent.EventId,
-                Provider = eventProvider.ToString(),
+                Provider = eventProvider,
                 EventName = eventType.Name,
                 EventPath = eventType.Namespace,
                 NamingPolicyType = namingPolicyType.ToString(),
@@ -80,18 +88,20 @@ internal class OutboxEventManager : IOutboxEventManager
             };
 
             _eventsToSend.Add(outboxMessage);
-            
+
             return true;
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Error while collecting the {EventType} event type with the {EventId} id to store the Outbox table.", eventType.Name, outboxEvent.EventId);
+            _logger.LogError(e,
+                "Error while collecting the {EventType} event type with the {EventId} id to store the Outbox table.",
+                eventType.Name, outboxEvent.EventId);
             throw;
         }
     }
 
     #region PublishCollectedEvents
-    
+
     /// <summary>
     /// Store all collected events to the database and clear the memory.
     /// </summary>

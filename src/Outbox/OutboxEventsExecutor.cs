@@ -19,12 +19,12 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
     /// <summary>
     /// To collect all publisher information. The key is the event name and provider name. The value is the publisher information.
     /// </summary>
-    private readonly Dictionary<string, EventPublisherInformation> _publishers;
+    private readonly Dictionary<string, Dictionary<EventProviderType, EventPublisherInformation>> _allPublishers;
 
     /// <summary>
     /// To collect all event names with their publisher types which have publishers.
     /// </summary>
-    private readonly Dictionary<string, HashSet<EventProviderType>> _eventPublisherTypes;
+    private readonly Dictionary<string, string> _eventPublisherTypes;
 
     private const string PublisherMethodName = nameof(IEventPublisher.PublishAsync);
     private readonly SemaphoreSlim _singleExecutionLock = new(1, 1);
@@ -35,8 +35,8 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
         _serviceProvider = serviceProvider;
         _logger = serviceProvider.GetRequiredService<ILogger<OutboxEventsExecutor>>();
         _settings = serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Outbox;
-        _publishers = new Dictionary<string, EventPublisherInformation>();
-        _eventPublisherTypes = new Dictionary<string, HashSet<EventProviderType>>();
+        _allPublishers = new Dictionary<string, Dictionary<EventProviderType, EventPublisherInformation>>();
+        _eventPublisherTypes = new Dictionary<string, string>();
         _semaphore = new SemaphoreSlim(_settings.MaxConcurrency);
     }
 
@@ -54,28 +54,34 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
     public void AddPublisher(Type typeOfOutboxEvent, Type typeOfEventPublisher, EventProviderType providerType,
         bool hasHeaders, bool hasAdditionalData, bool isGlobalPublisher)
     {
-        var providerName = providerType.ToString();
-        var publisherKey = GetPublisherKey(typeOfOutboxEvent.Name, providerName);
+        var eventFullName = GetPublisherKey(typeOfOutboxEvent.Name, typeOfOutboxEvent.Namespace);
+        if (!_allPublishers.TryGetValue(eventFullName!, out var publishers))
+        {
+            publishers = new Dictionary<EventProviderType, EventPublisherInformation>();
+            _allPublishers.Add(eventFullName, publishers);
+        }
+
         var publishMethod = typeOfEventPublisher.GetMethod(PublisherMethodName);
-        var publisherInformation = new EventPublisherInformation
+        var eventPublisherInfo = new EventPublisherInformation
         {
             EventType = typeOfOutboxEvent,
             EventPublisherType = typeOfEventPublisher,
             PublishMethod = publishMethod,
-            ProviderType = providerName,
+            ProviderType = providerType.ToString(),
             HasHeaders = hasHeaders,
             HasAdditionalData = hasAdditionalData,
             IsGlobalPublisher = isGlobalPublisher
         };
-        _publishers[publisherKey] = publisherInformation;
-        
-        AddEventProviderType(typeOfOutboxEvent.Name, providerType);
+
+        publishers[providerType] = eventPublisherInfo;
+
+        CacheEventProviderTypes(eventFullName, publishers.Keys);
     }
 
     #endregion
 
     #region Execute unprocessed events
-    
+
     /// <summary>
     /// The method to execute unprocessed events. We are locking the logic to prevent re-entry into the method while processing is ongoing.
     /// </summary>
@@ -123,33 +129,40 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
     {
         try
         {
-            var publisherKey = GetPublisherKey(message.EventName, message.Provider);
-            if (_publishers.TryGetValue(publisherKey, out var publisherInformation))
+            var publisherKey = GetPublisherKey(message.EventName, message.EventPath);
+            if (_allPublishers.TryGetValue(publisherKey, out var publishers))
             {
                 _logger.LogTrace("Executing the {EventType} outbox event with ID {EventId} to publish.",
                     message.EventName, message.Id);
 
+                var firstEventInfo = publishers.First().Value;
                 var jsonSerializerSetting = message.GetJsonSerializer();
-                var eventToPublish = JsonSerializer.Deserialize(message.Payload, publisherInformation.EventType, jsonSerializerSetting) as IOutboxEvent;
-                if (publisherInformation.HasHeaders && message.Headers is not null)
+                var eventToPublish =
+                    JsonSerializer.Deserialize(message.Payload, firstEventInfo.EventType, jsonSerializerSetting)
+                        as IOutboxEvent;
+                if (firstEventInfo.HasHeaders && message.Headers is not null)
                     ((IHasHeaders)eventToPublish)!.Headers =
                         JsonSerializer.Deserialize<Dictionary<string, string>>(message.Headers);
 
-                if (publisherInformation.HasAdditionalData && message.AdditionalData is not null)
+                if (firstEventInfo.HasAdditionalData && message.AdditionalData is not null)
                     ((IHasAdditionalData)eventToPublish)!.AdditionalData =
                         JsonSerializer.Deserialize<Dictionary<string, string>>(message!.AdditionalData);
 
-                var eventHandlerSubscriber = serviceScope.ServiceProvider.GetRequiredService(publisherInformation.EventPublisherType);
+                foreach (var publisherInformation in publishers.Values)
+                {
+                    var eventHandlerSubscriber =
+                        serviceScope.ServiceProvider.GetRequiredService(publisherInformation.EventPublisherType);
 
-                await ((Task)publisherInformation.PublishMethod.Invoke(eventHandlerSubscriber, [eventToPublish]))!;
-                message.Processed();
+                    await ((Task)publisherInformation.PublishMethod.Invoke(eventHandlerSubscriber, [eventToPublish]))!;
+                    message.Processed();
+                }
 
                 return;
             }
-            
+
             message.Failed(0, _settings.TryAfterMinutesIfEventNotFound);
             _logger.LogError(
-                "The {EventType} outbox event with ID {EventId} requested to publish with {ProviderType} provider, but no publisher configured for this event.",
+                "The {EventType} outbox event with ID {EventId} requested to publish with {ProviderType} provider(s), but no publisher configured for this event.",
                 message.EventName, message.Id, message.Provider);
         }
         catch (Exception e)
@@ -159,46 +172,40 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
             throw exception;
         }
     }
-    
+
     #endregion
 
     #region Register publisher type of event
 
     /// <summary>
-    /// Register the provider type of the event.
+    /// Cache the event publisher types.
     /// </summary>
-    /// <param name="eventName">Type name of outbox event</param>
-    /// <param name="providerType">Type of event handler</param>
-    private void AddEventProviderType(string eventName, EventProviderType providerType)
+    /// <param name="eventFullName">Full type name of outbox event</param>
+    /// <param name="providerTypes">Event provider types which event has publisher for them</param>
+    private void CacheEventProviderTypes(string eventFullName, IEnumerable<EventProviderType> providerTypes)
     {
-        if (_eventPublisherTypes.TryGetValue(eventName, out var providerTypes))
-        {
-            providerTypes.Add(providerType);
-        }
-        else
-        {
-            providerTypes = [providerType];
-            _eventPublisherTypes[eventName] = providerTypes;
-        }
+        _eventPublisherTypes[eventFullName] = string.Join(",", providerTypes.Select(x => x.ToString()));
     }
 
     #endregion
 
     #region Get publisher types of event
 
-    public EventProviderType[] GetEventPublisherTypes(string eventName)
+    public string GetEventPublisherTypes<TOutboxEvent>(TOutboxEvent outboxEvent)
+        where TOutboxEvent : IOutboxEvent
     {
-        return _eventPublisherTypes.GetValueOrDefault(eventName)?.ToArray();
+        var eventFullName = outboxEvent.GetType().FullName;
+        return _eventPublisherTypes.GetValueOrDefault(eventFullName);
     }
 
     #endregion
-    
+
     #region Get publisher key
-    
-    internal string GetPublisherKey(string eventName, string providerName)
+
+    internal string GetPublisherKey(string eventName, string eventNamespace)
     {
-        return $"{eventName}-{providerName}";
+        return $"{eventNamespace}.{eventName}";
     }
-    
+
     #endregion
 }
