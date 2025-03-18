@@ -125,49 +125,53 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
         }
     }
 
-    private async Task ExecuteEventPublisher(IOutboxMessage message, IServiceScope serviceScope)
+    private async Task ExecuteEventPublisher(IOutboxMessage outboxMessage, IServiceScope serviceScope)
     {
         try
         {
-            var publisherKey = GetPublisherKey(message.EventName, message.EventPath);
+            var publisherKey = GetPublisherKey(outboxMessage.EventName, outboxMessage.EventPath);
             if (_allPublishers.TryGetValue(publisherKey, out var publishers))
             {
                 _logger.LogTrace("Executing the {EventType} outbox event with ID {EventId} to publish.",
-                    message.EventName, message.Id);
+                    outboxMessage.EventName, outboxMessage.Id);
 
                 var firstEventInfo = publishers.First().Value;
-                var jsonSerializerSetting = message.GetJsonSerializer();
+                var jsonSerializerSetting = outboxMessage.GetJsonSerializer();
                 var eventToPublish =
-                    JsonSerializer.Deserialize(message.Payload, firstEventInfo.EventType, jsonSerializerSetting)
+                    JsonSerializer.Deserialize(outboxMessage.Payload, firstEventInfo.EventType, jsonSerializerSetting)
                         as IOutboxEvent;
-                if (firstEventInfo.HasHeaders && message.Headers is not null)
+                if (firstEventInfo.HasHeaders && outboxMessage.Headers is not null)
                     ((IHasHeaders)eventToPublish)!.Headers =
-                        JsonSerializer.Deserialize<Dictionary<string, string>>(message.Headers);
+                        JsonSerializer.Deserialize<Dictionary<string, string>>(outboxMessage.Headers);
 
-                if (firstEventInfo.HasAdditionalData && message.AdditionalData is not null)
+                if (firstEventInfo.HasAdditionalData && outboxMessage.AdditionalData is not null)
                     ((IHasAdditionalData)eventToPublish)!.AdditionalData =
-                        JsonSerializer.Deserialize<Dictionary<string, string>>(message!.AdditionalData);
+                        JsonSerializer.Deserialize<Dictionary<string, string>>(outboxMessage!.AdditionalData);
 
                 foreach (var publisherInformation in publishers.Values)
                 {
+                    if (outboxMessage.Provider is null ||
+                        !outboxMessage.Provider.Contains(publisherInformation.ProviderType))
+                        continue;
+
                     var eventHandlerSubscriber =
                         serviceScope.ServiceProvider.GetRequiredService(publisherInformation.EventPublisherType);
 
                     await ((Task)publisherInformation.PublishMethod.Invoke(eventHandlerSubscriber, [eventToPublish]))!;
-                    message.Processed();
+                    outboxMessage.Processed();
                 }
 
                 return;
             }
 
-            message.Failed(0, _settings.TryAfterMinutesIfEventNotFound);
+            outboxMessage.Failed(0, _settings.TryAfterMinutesIfEventNotFound);
             _logger.LogError(
                 "The {EventType} outbox event with ID {EventId} requested to publish with {ProviderType} provider(s), but no publisher configured for this event.",
-                message.EventName, message.Id, message.Provider);
+                outboxMessage.EventName, outboxMessage.Id, outboxMessage.Provider);
         }
         catch (Exception e)
         {
-            var exception = new EventStoreException(e, $"Error while publishing event with ID: {message.Id}");
+            var exception = new EventStoreException(e, $"Error while publishing event with ID: {outboxMessage.Id}");
             _logger.LogError(exception, exception.Message);
             throw exception;
         }
