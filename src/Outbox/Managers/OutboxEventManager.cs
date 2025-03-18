@@ -19,7 +19,7 @@ internal class OutboxEventManager : IOutboxEventManager
     /// <summary>
     /// The EventSenderManager class will keep injecting itself even the outbox pattern is off, but the repository will be null since that is not registered in the DI container.
     /// </summary>
-    public OutboxEventManager(ILogger<OutboxEventManager> logger, IOutboxEventsExecutor outboxEventsExecutor,
+    public OutboxEventManager(ILogger<OutboxEventManager> logger, IOutboxEventsExecutor outboxEventsExecutor = null,
         IOutboxRepository repository = null)
     {
         _repository = repository;
@@ -30,7 +30,7 @@ internal class OutboxEventManager : IOutboxEventManager
     public bool Store<TOutboxEvent>(TOutboxEvent outboxEvent,
         NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
     {
-        var eventPublisherTypes = _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent);
+        var eventPublisherTypes = _outboxEventsExecutor?.GetEventPublisherTypes(outboxEvent);
         if (string.IsNullOrEmpty(eventPublisherTypes))
         {
             _logger.LogError("There is no publisher for the {OutboxEventName} outbox event type.",
