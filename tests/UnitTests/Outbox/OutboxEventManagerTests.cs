@@ -44,7 +44,7 @@ public class OutboxEventManagerTests
         _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent)
             .Returns((string)null);
 
-        var result = _outboxEventManager.Store(outboxEvent);
+        var result = _outboxEventManager.Collect(outboxEvent);
 
         var collectedEvents = GetCollectedEvents();
         Assert.That(collectedEvents, Is.Empty);
@@ -58,7 +58,7 @@ public class OutboxEventManagerTests
         var eventProviderTypes = $"{EventProviderType.MessageBroker},{EventProviderType.Sms}";
         _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent).Returns(eventProviderTypes);
 
-        var result = _outboxEventManager.Store(outboxEvent);
+        var result = _outboxEventManager.Collect(outboxEvent);
 
         var collectedEvents = GetCollectedEvents();
         Assert.That(collectedEvents.Any(m => m.Provider == eventProviderTypes), Is.True);
@@ -76,7 +76,7 @@ public class OutboxEventManagerTests
             CreatedAt = DateTime.Now
         };
         
-        var result = _outboxEventManager.Store(
+        var result = _outboxEventManager.Collect(
             senderEvent,
             EventProviderType.MessageBroker
         );
@@ -101,7 +101,7 @@ public class OutboxEventManagerTests
             CreatedAt = DateTime.Now
         };
 
-        _outboxEventManager.Store(eventToStore, EventProviderType.MessageBroker);
+        _outboxEventManager.Collect(eventToStore, EventProviderType.MessageBroker);
 
         var eventsToSend = GetCollectedEvents();
         Assert.That(eventsToSend, Has.Count.EqualTo(1));
@@ -125,7 +125,7 @@ public class OutboxEventManagerTests
             AdditionalData = null
         };
 
-        _outboxEventManager.Store(eventToStore, EventProviderType.MessageBroker);
+        _outboxEventManager.Collect(eventToStore, EventProviderType.MessageBroker);
 
         var eventsToSend = GetCollectedEvents();
         Assert.That(eventsToSend, Has.Count.EqualTo(1));
@@ -157,7 +157,7 @@ public class OutboxEventManagerTests
             AdditionalData = new Dictionary<string, string> { { "key", "value" } },
         };
 
-        _outboxEventManager.Store(eventToStore, EventProviderType.MessageBroker);
+        _outboxEventManager.Collect(eventToStore, EventProviderType.MessageBroker);
 
         var eventsToSend = GetCollectedEvents();
         Assert.That(eventsToSend, Has.Count.EqualTo(1));
@@ -196,11 +196,11 @@ public class OutboxEventManagerTests
             Date = DateTime.Now,
             CreatedAt = DateTime.Now
         };
-        _outboxEventManager.Store(
+        _outboxEventManager.Collect(
             senderEvent1,
             EventProviderType.MessageBroker
         );
-        _outboxEventManager.Store(
+        _outboxEventManager.Collect(
             senderEvent2,
             EventProviderType.MessageBroker
         );
@@ -230,11 +230,11 @@ public class OutboxEventManagerTests
             Date = DateTime.Now,
             CreatedAt = DateTime.Now
         };
-        _outboxEventManager.Store(
+        _outboxEventManager.Collect(
             senderEvent1,
             EventProviderType.MessageBroker
         );
-        _outboxEventManager.Store(
+        _outboxEventManager.Collect(
             senderEvent2,
             EventProviderType.MessageBroker
         );
