@@ -5,12 +5,12 @@ using FluentAssertions;
 
 namespace EventStorage.Tests.UnitTests
 {
-    internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEvent : BaseMessageBox, new()
+    internal abstract class EventRepositoryTest<TEvent> : BaseTestEntity where TEvent : BaseMessageBox, new()
     {
         private readonly EventRepository<TEvent> _repository;
         private readonly DataContext<TEvent> _dataContext;
 
-        internal EventRepositoryTests(
+        internal EventRepositoryTest(
             EventRepository<TEvent> eventRepository,
             DataContext<TEvent> dataContext
         )
@@ -24,6 +24,7 @@ namespace EventStorage.Tests.UnitTests
         [Test]
         public void CreateTableIfNotExists_ShouldCreateTable()
         {
+            // Assert
             Assert.IsTrue(_dataContext.ExistTable());
         }
 
@@ -34,7 +35,8 @@ namespace EventStorage.Tests.UnitTests
         [Test]
         public void InsertEvent_OneItem_EventShouldBeInserted()
         {
-            var eventBox = new TEvent
+            // Arrange
+            var eventBox = new TEvent()
             {
                 Id = Guid.NewGuid(),
                 Provider = "TestProvider",
@@ -47,8 +49,10 @@ namespace EventStorage.Tests.UnitTests
                 TryAfterAt = DateTime.Now.AddMinutes(5)
             };
 
+            // Act
             var result = _repository.InsertEvent(eventBox);
 
+            // Assert
             result.Should().BeTrue();
             var eventFromDb = _dataContext.GetById(eventBox.Id);
 
@@ -58,41 +62,13 @@ namespace EventStorage.Tests.UnitTests
         }
 
         #endregion
-        
-        #region InsertEventAsync
-        
-        [Test]
-        public async Task InsertEventAsync_OneItem_EventShouldBeInserted()
-        {
-            var eventBox = new TEvent
-            {
-                Id = Guid.NewGuid(),
-                Provider = "TestProvider",
-                EventName = "TestEvent",
-                EventPath = "/test/path",
-                Payload = "TestPayload",
-                Headers = "TestHeaders",
-                AdditionalData = "TestAdditionalData",
-                TryCount = 0,
-                TryAfterAt = DateTime.Now.AddMinutes(5)
-            };
-
-            var result = await _repository.InsertEventAsync(eventBox);
-
-            result.Should().BeTrue();
-            var eventFromDb = _dataContext.GetById(eventBox.Id);
-
-            eventFromDb.Id.Should().Be(eventBox.Id);
-            eventFromDb.EventName.Should().Be(eventBox.EventName);
-        }
-
-        #endregion
 
         #region BulkInsertEvents
         
         [Test]
         public void BulkInsertEvents_AddedTwoItems_BothEventsShouldBeInserted()
         {
+            // Arrange
             var firstEvent = new TEvent
             {
                 Id = Guid.NewGuid(),
@@ -119,53 +95,10 @@ namespace EventStorage.Tests.UnitTests
                 TryAfterAt = DateTime.Now.AddMinutes(5)
             };
 
+            // Act
             var result = _repository.BulkInsertEvents([firstEvent, secondEvent]);
 
-            result.Should().BeTrue();
-            var firstEventFromDb = _dataContext.GetById(firstEvent.Id);
-            firstEventFromDb.Id.Should().Be(firstEvent.Id);
-            firstEventFromDb.EventName.Should().Be(firstEvent.EventName);
-            
-            var secondEventFromDb = _dataContext.GetById(secondEvent.Id);
-            secondEventFromDb.Id.Should().Be(secondEvent.Id);
-            secondEventFromDb.EventName.Should().Be(secondEvent.EventName);
-        }
-
-        #endregion
-
-        #region BulkInsertEventsAsync
-        
-        [Test]
-        public async Task BulkInsertEventsAsync_AddedTwoItems_BothEventsShouldBeInserted()
-        {
-            var firstEvent = new TEvent
-            {
-                Id = Guid.NewGuid(),
-                Provider = "TestProvider",
-                EventName = "TestEvent1",
-                EventPath = "/test/path",
-                Payload = "TestPayload",
-                Headers = "TestHeaders",
-                AdditionalData = "TestAdditionalData",
-                TryCount = 0,
-                TryAfterAt = DateTime.Now.AddMinutes(5)
-            };
-            var secondEvent = new TEvent()
-            {
-                Id = Guid.NewGuid(),
-                Provider = "TestProvider",
-                EventName = "TestEvent2",
-                EventPath = "/test/path",
-                Payload = "TestPayload",
-                Headers = "TestHeaders",
-                AdditionalData = "TestAdditionalData",
-                NamingPolicyType = NamingPolicyTypeNames.PascalCase,
-                TryCount = 0,
-                TryAfterAt = DateTime.Now.AddMinutes(5)
-            };
-
-            var result = await _repository.BulkInsertEventsAsync([firstEvent, secondEvent]);
-
+            // Assert
             result.Should().BeTrue();
             var firstEventFromDb = _dataContext.GetById(firstEvent.Id);
             firstEventFromDb.Id.Should().Be(firstEvent.Id);

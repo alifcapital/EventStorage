@@ -9,7 +9,7 @@ namespace EventStorage.Tests.UnitTests.Inbox
     /// written for the generic type.
     /// </summary>
     [TestFixture]
-    internal class InboxRepositoryTestses() : EventRepositoryTests<InboxMessage>(
+    internal class InboxRepositoryTests() : EventRepositoryTest<InboxMessage>(
         eventRepository: new InboxRepository(InboxAndOutboxSettings.Inbox),
         dataContext: new DataContext<InboxMessage>(
             InboxAndOutboxSettings.Inbox.ConnectionString,

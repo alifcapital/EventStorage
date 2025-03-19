@@ -119,7 +119,7 @@ public class DeletedUserPublisher : IWebHookEventPublisher<UserDeleted>
     //     _webHookProvider = webHookProvider;
     // }
 
-    public async Task PublishAsync(UserDeleted userDeleted)
+    public async Task PublishAsync(UserDeleted @event, string webHookUrl)
     {
         //Add your logic
         await Task.CompletedTask;
@@ -142,20 +142,22 @@ public class UserController : ControllerBase
     }
     
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> Delete(Guid id)
+    public IActionResult Delete(Guid id)
     {
         if (!Items.TryGetValue(id, out User item))
             return NotFound();
 
         var userDeleted = new UserDeleted { UserId = item.Id, UserName = item.Name };
-        var succussfullySent = await _outboxEventManager.StoreAsync(userDeleted, EventProviderType.WebHook);
+        var webHookUrl = "https:example.com/api/users";
+        var succussfullySent = _outboxEventManager.Store(userDeleted, EventProviderType.WebHook, webHookUrl);
         
+        Items.Remove(id);
         return Ok(item);
     }
 }
 ```
 
-When we use the `StoreAsync` method of the `IOutboxEventManager` to send an event, the event is first stored in the database. Based on our configuration (_by default, after one second_), the event will then be automatically execute the `PublishAsync` method of created the `DeletedUserPublisher` event publisher.
+When we use the `Store` method of the `IOutboxEventManager` to send an event, the event is first stored in the database. Based on our configuration (_by default, after one second_), the event will then be automatically execute the `PublishAsync` method of created the `DeletedUserPublisher` event publisher.
 
 If an event fails for any reason, the server will automatically retry publishing it, with delays based on the configuration you set in the [Outbox section](#options-of-inbox-and-outbox-sections).
 
@@ -188,10 +190,9 @@ public class MessageBrokerEventPublisher : IMessageBrokerEventPublisher
     //     _eventPublisher = eventPublisher;
     // }
     
-    public async Task PublishAsync(IOutboxEvent outboxEvent)
+    public async Task PublishAsync(ISendEvent @event, string routingKey)
     {
-        // if (outboxEvent is IPublishEvent publishEvent)
-        //   _eventPublisher.Publish(publishEvent);
+        // _eventPublisher.Publish((IPublishEvent)@event);
         await Task.CompletedTask;
     }
 }
@@ -209,9 +210,9 @@ public class CreatedUserMessageBrokerEventPublisher : IMessageBrokerEventPublish
     //     _eventPublisher = eventPublisher;
     // }
     
-    public async Task PublishAsync(UserCreated userCreated)
+    public async Task PublishAsync(UserCreated @event, string routingKey)
     {
-        // _eventPublisher.Publish(userCreated);
+        // _eventPublisher.Publish(@event);
         //Add you logic to publish an event to the RabbitMQ
         
         await Task.CompletedTask;
@@ -220,28 +221,24 @@ public class CreatedUserMessageBrokerEventPublisher : IMessageBrokerEventPublish
 ```
 
 Since we want to publish our an event to the RabbitMQ, the event subscriber must implement the `IMessageBrokerEventPublisher` by passing the type of event (`UserCreated`), we want to publish.
-Your application is now ready to use this publisher. Inject the `IOutboxEventManager` interface from anywhere in your application, and use the `Collect` or `StoreAsync` methods to publish your `UserCreated` event.
+Your application is now ready to use this publisher. Inject the `IOutboxEventManager` interface from anywhere in your application, and use the `Store` method to publish your `UserCreated` event.
 
 ```
 public class UserController(IOutboxEventManager outboxEventManager) : ControllerBase
 {
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] User item)
+    public IActionResult Create([FromBody] User item)
     {
         Items.Add(item.Id, item);
 
         var userCreated = new UserCreated { UserId = item.Id, UserName = item.Name };
-        var succussfullySent = await outboxEventManager.StoreAsync(userCreated, EventProviderType.MessageBroker);
+        var routingKey = "usser.created";
+        var succussfullySent = outboxEventManager.Store(userCreated, EventProviderType.MessageBroker, routingKey);
         
         return Ok(item);
     }
 }
 ```
-
-1. The `Collect` method is used to collect the event to the memory and then store it in the database while the scope/session/request is completed. It is useful if you want to collect multiple events and clear them if needed. You could use the `CleanCollectedEvents` method of the `IOutboxEventManager` to clear the collected events.
-2. The `StoreAsync` method is used to store the event in the database immediately. It is useful if you want to store the event immediately and don't need to collect multiple events. It provides array of the event types to store multiple events at once.
-
-Both methods provide two forms of the method, one is with the event and the other are with the event and the event publisher type. When you store an event without the event publisher type, the library will automatically find all event providers that are suitable for the event type and publish the event to all of them. If you want to publish the event to a specific event provider, you need to pass the event provider type.
 
 ##### Is there any way to add some additional data to the event while sending and use that while publishing event?
 
@@ -267,7 +264,7 @@ var userCreated = new UserCreated { UserId = item.Id, UserName = item.Name };
 userCreated.AdditionalData = new();
 userCreated.AdditionalData.Add("login", "admin");
 userCreated.AdditionalData.Add("password", "123");
-var succussfullySent = await _outboxEventManager.StoreAsync(userCreated, EventProviderType.MessageBroker);
+var succussfullySent = _outboxEventManager.Store(userCreated, EventProviderType.MessageBroker, eventPath);
 ```
 
 While publishing event, now you are able to read and use the added property from your event:
@@ -277,12 +274,12 @@ public class CreatedUserMessageBrokerEventPublisher : IMessageBrokerEventPublish
 {
     //Your logic
     
-    public async Task PublishAsync(UserCreated userCreated)
+    public async Task PublishAsync(UserCreated @event, string routingKey)
     {
-        var login = userCreated.AdditionalData["login"];
-        var password = userCreated.AdditionalData["password"];
+        var login = @event.AdditionalData["login"];
+        var password = @event.AdditionalData["password"];
         //Your logic
-        eventPublisher.Publish(userCreated);
+        eventPublisher.Publish(@event);
         
         await Task.CompletedTask;
     }
@@ -311,10 +308,10 @@ Next, add an event receiver to manage a publishing RabbitMQ event.
 ```
 public class UserCreatedHandler(ILogger<UserCreatedHandler> logger) : IRabbitMqEventHandler<UserCreated>
 {
-    public async Task HandleAsync(UserCreated userCreated)
+    public async Task HandleAsync(UserCreated @event)
     {
-        logger.LogInformation("EventId ({EventId}): {UserName} user is created with the {UserId} id", userCreated.EventId,
-            userCreated.UserName, userCreated.UserId);
+        logger.LogInformation("EventId ({EventId}): {UserName} user is created with the {UserId} id", @event.EventId,
+            @event.UserName, @event.UserId);
         //Add your logic in here
         
         await Task.CompletedTask;
@@ -334,7 +331,7 @@ try
     IInboxEventManager inboxEventManager = scope.ServiceProvider.GetService<IInboxEventManager>();
     if (inboxEventManager is not null)
     {
-        var succussfullyReceived = await inboxEventManager.StoreAsync(receivedEvent, EventProviderType.MessageBroker);
+        var succussfullyReceived = inboxEventManager.Store(receivedEvent, eventArgs.RoutingKey, EventProviderType.RabbitMq);
         if(succussfullyReceived){
             //If the event received twice, it will return false. You need to add your logic to manage this use case.
         }

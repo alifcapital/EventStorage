@@ -12,23 +12,9 @@ internal interface IEventRepository<TBaseMessage> where TBaseMessage : IBaseMess
     /// <summary>
     /// Inserts a new event into the database.
     /// </summary>
-    /// <param name="message">The event to insert.</param>
+    /// <param name="event">The event to insert.</param>
     /// <returns>Returns true if it was entered successfully or false if the value is duplicated. It can throw an exception if something goes wrong.</returns>
-    bool InsertEvent(TBaseMessage message);
-
-    /// <summary>
-    /// Inserts a new event into the database.
-    /// </summary>
-    /// <param name="message">The event to insert.</param>
-    /// <returns>Returns true if it was entered successfully or false if the value is duplicated. It can throw an exception if something goes wrong.</returns>
-    Task<bool> InsertEventAsync(TBaseMessage message);
-
-    /// <summary>
-    /// Inserts one or more new events into the database.
-    /// </summary>
-    /// <param name="events">Events to insert.</param>
-    /// <returns>Returns true if it was entered successfully or false if the value is duplicated. It can throw an exception if something goes wrong.</returns>
-    Task<bool>  BulkInsertEventsAsync(IEnumerable<TBaseMessage> events);
+    bool InsertEvent(TBaseMessage @event);
 
     /// <summary>
     /// Inserts one or more new events into the database.
