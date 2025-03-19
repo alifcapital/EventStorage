@@ -34,10 +34,10 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
                     processed_at TIMESTAMP(0) DEFAULT NULL
                 );
 
-                CREATE INDEX IF NOT EXISTS idx_for_get_unprocessed_events
+                CREATE INDEX IF NOT EXISTS idx_for_get_unprocessed_events_of_{_tableName}
                     ON public.{_tableName} (processed_at, try_after_at);
 
-                CREATE INDEX IF NOT EXISTS idx_for_delete_processed_events
+                CREATE INDEX IF NOT EXISTS idx_for_delete_processed_events_of_{_tableName}
                     ON public.{_tableName} (processed_at);";
 
             dbConnection.Execute(sql);
@@ -48,14 +48,8 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
         }
     }
 
-    public bool InsertEvent(TBaseMessage @event)
-    {
-        using var dbConnection = new NpgsqlConnection(_connectionString);
-        try
-        {
-            dbConnection.Open();
-            string sql = $@"
-                INSERT INTO {_tableName} (
+    private readonly string _sqlQueryToInsertEvent = $@"
+                INSERT INTO {settings.TableName} (
                     id, provider, event_name, event_path, payload, headers, 
                     additional_data, naming_policy_type, created_at, try_count, try_after_at
                 ) VALUES (
@@ -63,7 +57,13 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
                     @AdditionalData, @NamingPolicyType, @CreatedAt, @TryCount, @TryAfterAt
                 )";
 
-            dbConnection.Execute(sql, @event);
+    public bool InsertEvent(TBaseMessage message)
+    {
+        using var dbConnection = new NpgsqlConnection(_connectionString);
+        try
+        {
+            dbConnection.Open();
+            dbConnection.Execute(_sqlQueryToInsertEvent, message);
 
             return true;
         }
@@ -71,9 +71,50 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
         {
             if (e is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
                 return false;
-                
+
             throw new EventStoreException(e,
-                $"Error while inserting a new event to the {_tableName} table with the {@event.Id} id.");
+                $"Error while inserting a new event to the {_tableName} table with the {message.Id} id.");
+        }
+    }
+
+    public async Task<bool> InsertEventAsync(TBaseMessage message)
+    {
+        await using var dbConnection = new NpgsqlConnection(_connectionString);
+        try
+        {
+            await dbConnection.OpenAsync();
+
+            var affectedRows = await dbConnection.ExecuteAsync(_sqlQueryToInsertEvent, message);
+            return affectedRows > 0;
+        }
+        catch (Exception e)
+        {
+            if (e is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+                return false;
+
+            throw new EventStoreException(e,
+                $"Error while inserting a new event to the {_tableName} table with the {message.Id} id.");
+        }
+    }
+
+    public async Task<bool> BulkInsertEventsAsync(IEnumerable<TBaseMessage> events)
+    {
+        await using var dbConnection = new NpgsqlConnection(_connectionString);
+        try
+        {
+           await dbConnection.OpenAsync();
+
+            var affectedRows = await dbConnection.ExecuteAsync(_sqlQueryToInsertEvent, events);
+            return affectedRows > 0;
+        }
+        catch (Exception e)
+        {
+            if (e is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+                return false;
+
+            var insertingEventIds = string.Join(", ", events.Select(x => x.Id));
+            throw new EventStoreException(e,
+                $"Error while inserting an events to the {_tableName} table with the {insertingEventIds} ids.");
         }
     }
 
@@ -83,31 +124,22 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
         try
         {
             dbConnection.Open();
-            string sql = $@"
-                INSERT INTO {_tableName} (
-                    id, provider, event_name, event_path, payload, headers, 
-                    additional_data, naming_policy_type, created_at, try_count, try_after_at
-                ) VALUES (
-                    @Id, @Provider, @EventName, @EventPath, @Payload, @Headers, 
-                    @AdditionalData, @NamingPolicyType, @CreatedAt, @TryCount, @TryAfterAt
-                )";
 
-            dbConnection.Execute(sql, events);
-
-            return true;
+            var affectedRows = dbConnection.Execute(_sqlQueryToInsertEvent, events);
+            return affectedRows > 0;
         }
         catch (Exception e)
         {
             if (e is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
                 return false;
-                
+
             var insertingEventIds = string.Join(", ", events.Select(x => x.Id));
             throw new EventStoreException(e,
                 $"Error while inserting an events to the {_tableName} table with the {insertingEventIds} ids.");
         }
     }
 
-    private const string SelectSqlQueryTemplate = $@"
+    private readonly string _selectSqlQuery = $@"
                 SELECT id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"", 
                         event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"", 
                         payload as ""{nameof(IBaseMessageBox.Payload)}"", headers as ""{nameof(IBaseMessageBox.Headers)}"", 
@@ -115,7 +147,7 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
                         additional_data as ""{nameof(IBaseMessageBox.AdditionalData)}"", created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"", 
                         try_count as ""{nameof(IBaseMessageBox.TryCount)}"", try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"", 
                         processed_at as ""{nameof(IBaseMessageBox.ProcessedAt)}""
-                FROM {{0}}
+                FROM {settings.TableName}
                 WHERE 
                     processed_at IS NULL
                     AND try_after_at <= @CurrentTime
@@ -127,10 +159,9 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
         await using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
-            var selectSqlQuery = string.Format(SelectSqlQueryTemplate, _tableName);
             await dbConnection.OpenAsync();
-            var unprocessedEvents = await dbConnection.QueryAsync<TBaseMessage>(selectSqlQuery, new 
-            { 
+            var unprocessedEvents = await dbConnection.QueryAsync<TBaseMessage>(_selectSqlQuery, new
+            {
                 CurrentTime = DateTime.Now,
                 Limit = limit
             });
@@ -143,6 +174,14 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
         }
     }
 
+    private readonly string _sqlUpdateEventQuery = $@"
+                UPDATE {settings.TableName}
+                SET 
+                    try_count = @TryCount,
+                    try_after_at = @TryAfterAt,
+                    processed_at = @ProcessedAt
+                WHERE id = @Id";
+
     public async Task<bool> UpdateEventAsync(TBaseMessage @event)
     {
         await using var dbConnection = new NpgsqlConnection(_connectionString);
@@ -150,20 +189,13 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
         {
             await dbConnection.OpenAsync();
 
-            var sql = $@"
-                UPDATE {_tableName}
-                SET 
-                    try_count = @TryCount,
-                    try_after_at = @TryAfterAt,
-                    processed_at = @ProcessedAt
-                WHERE id = @Id";
-
-            var affectedRows = await dbConnection.ExecuteAsync(sql, @event);
+            var affectedRows = await dbConnection.ExecuteAsync(_sqlUpdateEventQuery, @event);
             return affectedRows > 0;
         }
         catch (Exception e)
         {
-            throw new EventStoreException(e, $"Error while updating the event in the {_tableName} table with the {@event.Id} id.");
+            throw new EventStoreException(e,
+                $"Error while updating the event in the {_tableName} table with the {@event.Id} id.");
         }
     }
 
@@ -174,15 +206,7 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
         {
             await dbConnection.OpenAsync();
 
-            var sql = $@"
-                UPDATE {_tableName}
-                SET 
-                    try_count = @TryCount,
-                    try_after_at = @TryAfterAt,
-                    processed_at = @ProcessedAt
-                WHERE id = @Id";
-
-            var affectedRows = await dbConnection.ExecuteAsync(sql, events);
+            var affectedRows = await dbConnection.ExecuteAsync(_sqlUpdateEventQuery, events);
             return affectedRows > 0;
         }
         catch (Exception e)
@@ -191,6 +215,10 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
         }
     }
 
+    private readonly string _sqlDeleteEventQuery = $@"
+                DELETE FROM {settings.TableName}
+                WHERE processed_at < @ProcessedAt";
+
     public async Task<bool> DeleteProcessedEventsAsync(DateTime processedAt)
     {
         await using var dbConnection = new NpgsqlConnection(_connectionString);
@@ -198,11 +226,7 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
         {
             await dbConnection.OpenAsync();
 
-            var sql = $@"
-                DELETE FROM {_tableName}
-                WHERE processed_at < @ProcessedAt";
-
-            var deletedRows = await dbConnection.ExecuteAsync(sql, new { ProcessedAt = processedAt });
+            var deletedRows = await dbConnection.ExecuteAsync(_sqlDeleteEventQuery, new { ProcessedAt = processedAt });
             return deletedRows > 0;
         }
         catch (Exception e)
