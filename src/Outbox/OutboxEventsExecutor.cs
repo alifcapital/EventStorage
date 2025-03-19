@@ -132,7 +132,14 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
             var publisherKey = GetPublisherKey(outboxMessage.EventName, outboxMessage.EventPath);
             if (_allPublishers.TryGetValue(publisherKey, out var publishers))
             {
-                _logger.LogTrace("Executing the {EventType} outbox event with ID {EventId} to publish.",
+                var eventPublishersToExecute = publishers.Values.Where(x => outboxMessage.Provider.Contains(x.ProviderType)).ToArray();
+                if (eventPublishersToExecute.Length == 0)
+                {
+                    MarkEventAsFailedWhenThereIsNoPublisher();
+                    return;
+                }
+                
+                _logger.LogTrace("Publishing the {EventType} outbox event with ID {EventId}.",
                     outboxMessage.EventName, outboxMessage.Id);
 
                 var firstEventInfo = publishers.First().Value;
@@ -148,32 +155,34 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
                     ((IHasAdditionalData)eventToPublish)!.AdditionalData =
                         JsonSerializer.Deserialize<Dictionary<string, string>>(outboxMessage!.AdditionalData);
 
-                foreach (var publisherInformation in publishers.Values)
+                foreach (var publisherInformation in eventPublishersToExecute)
                 {
-                    if (outboxMessage.Provider is null ||
-                        !outboxMessage.Provider.Contains(publisherInformation.ProviderType))
-                        continue;
-
                     var eventHandlerSubscriber =
                         serviceScope.ServiceProvider.GetRequiredService(publisherInformation.EventPublisherType);
 
                     await ((Task)publisherInformation.PublishMethod.Invoke(eventHandlerSubscriber, [eventToPublish]))!;
-                    outboxMessage.Processed();
                 }
+                outboxMessage.Processed();
 
                 return;
             }
 
-            outboxMessage.Failed(0, _settings.TryAfterMinutesIfEventNotFound);
-            _logger.LogError(
-                "The {EventType} outbox event with ID {EventId} requested to publish with {ProviderType} provider(s), but no publisher configured for this event.",
-                outboxMessage.EventName, outboxMessage.Id, outboxMessage.Provider);
+            MarkEventAsFailedWhenThereIsNoPublisher();
         }
         catch (Exception e)
         {
             var exception = new EventStoreException(e, $"Error while publishing event with ID: {outboxMessage.Id}");
             _logger.LogError(exception, exception.Message);
             throw exception;
+        }
+        return;
+
+        void MarkEventAsFailedWhenThereIsNoPublisher()
+        {
+            outboxMessage.Failed(0, _settings.TryAfterMinutesIfEventNotFound);
+            _logger.LogError(
+                "The {EventType} outbox event with ID {EventId} requested to publish with {ProviderType} provider(s), but no publisher configured for this event.",
+                outboxMessage.EventName, outboxMessage.Id, outboxMessage.Provider);
         }
     }
 
