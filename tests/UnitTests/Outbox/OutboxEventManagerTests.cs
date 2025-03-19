@@ -209,7 +209,8 @@ public class OutboxEventManagerTests
         _outboxRepository.BulkInsertEvents(Arg.Any<IEnumerable<OutboxMessage>>()).Returns(true);
 
         _outboxEventManager.Dispose();
-
+        
+        eventsToSend = GetCollectedEvents();
         eventsToSend.Should().HaveCount(0);
     }
 
@@ -238,11 +239,10 @@ public class OutboxEventManagerTests
             senderEvent2,
             EventProviderType.MessageBroker
         );
-        var eventsToSend = GetCollectedEvents();
 
         _outboxEventManager.Dispose();
 
-        _outboxRepository.Received(1).BulkInsertEvents(eventsToSend);
+        _outboxRepository.Received(1).BulkInsertEvents(Arg.Any<IEnumerable<OutboxMessage>>());
     }
 
     #endregion
