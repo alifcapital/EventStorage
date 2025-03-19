@@ -44,7 +44,7 @@ public class OutboxEventManagerTests
         _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent)
             .Returns((string)null);
 
-        var result = _outboxEventManager.Collect(outboxEvent); 
+        var result = _outboxEventManager.Collect(outboxEvent);
 
         var collectedEvents = GetCollectedEvents();
         Assert.That(collectedEvents, Is.Empty);
@@ -75,15 +75,142 @@ public class OutboxEventManagerTests
             Date = DateTime.Now,
             CreatedAt = DateTime.Now
         };
-        
+
         var result = _outboxEventManager.Collect(
             senderEvent,
             EventProviderType.MessageBroker
         );
-        
+
         var collectedEvents = GetCollectedEvents();
         Assert.That(collectedEvents.Any(m => m.Provider == EventProviderType.MessageBroker.ToString()), Is.True);
         result.Should().BeTrue();
+    }
+
+    [Test]
+    public void Collect_AddedOneEventTwice_OnlyFirstOneShouldBeAdded()
+    {
+        var senderEvent = new SimpleOutboxEventCreated
+        {
+            EventId = Guid.NewGuid(),
+            Type = "type",
+            Date = DateTime.Now,
+            CreatedAt = DateTime.Now
+        };
+        
+        _outboxEventManager.Collect(senderEvent, EventProviderType.MessageBroker);
+        var result = _outboxEventManager.Collect(senderEvent, EventProviderType.MessageBroker);
+
+        var collectedEvents = GetCollectedEvents();
+        Assert.That(collectedEvents, Has.Count.EqualTo(1));
+        Assert.That(result, Is.False);
+    }
+
+    #endregion
+
+    #region StoreAsync
+
+    [Test]
+    public async Task StoreAsync_AddedOneEventWithProvider_EventShouldNotBeCollected()
+    {
+        var outboxEvent = new SimpleOutboxEventCreated
+        {
+            EventId = Guid.NewGuid(),
+            Type = "type",
+            Date = DateTime.Now,
+            CreatedAt = DateTime.Now
+        };
+        _outboxRepository.InsertEventAsync(Arg.Any<OutboxMessage>()).Returns(true);
+
+        await _outboxEventManager.StoreAsync(
+            outboxEvent,
+            EventProviderType.MessageBroker
+        );
+
+        var collectedEvents = GetCollectedEvents();
+        Assert.That(collectedEvents, Is.Empty);
+    }
+
+    [Test]
+    public async Task StoreAsync_AddedOneEventWithProvider_ShouldBeStoredBasedOnPassingData()
+    {
+        var outboxEvent = new SimpleOutboxEventCreated
+        {
+            EventId = Guid.NewGuid(),
+            Type = "type",
+            Date = DateTime.Now,
+            CreatedAt = DateTime.Now
+        };
+        _outboxRepository.InsertEventAsync(Arg.Any<OutboxMessage>()).Returns(true);
+
+        var result = await _outboxEventManager.StoreAsync(
+            outboxEvent,
+            EventProviderType.MessageBroker
+        );
+
+        Assert.That(result, Is.True);
+        await _outboxRepository.Received(1).InsertEventAsync(Arg.Is<OutboxMessage>(e=> 
+            e.Provider == EventProviderType.MessageBroker.ToString()
+            && e.Id == outboxEvent.EventId));
+    }
+
+    [Test]
+    public async Task StoreAsync_StoringEventWithoutEventProvider_EventShouldBeStoredBasedOnCachedData()
+    {
+        var outboxEvent = new SimpleOutboxEventCreated();
+        var eventProviderType = EventProviderType.Sms.ToString();
+        _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent).Returns(eventProviderType);
+        _outboxRepository.InsertEventAsync(Arg.Any<OutboxMessage>()).Returns(true);
+
+        var result = await _outboxEventManager.StoreAsync(outboxEvent);
+
+        Assert.That(result, Is.True);
+        await _outboxRepository.Received(1).InsertEventAsync(Arg.Is<OutboxMessage>(e=> 
+            e.Provider == eventProviderType
+            && e.Id == outboxEvent.EventId));
+    }
+
+    [Test]
+    public async Task StoreAsync_StoringEventDoesNotHaveCachedPublisher_MessageShouldNotBeAddedAndReturnFalse()
+    {
+        var outboxEvent = new SimpleOutboxEventCreated();
+        _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent)
+            .Returns((string)null);
+
+        var result = await _outboxEventManager.StoreAsync(outboxEvent);
+
+        Assert.That(result, Is.False);
+        await _outboxRepository.Received(0).InsertEventAsync(Arg.Any<OutboxMessage>());
+    }
+
+    [Test]
+    public async Task StoreAsync_StoringMultipleEvents_ShouldBeStoredBasedOnPassingData()
+    {
+        var outboxEvents = new[]
+        {
+            new SimpleOutboxEventCreated
+            {
+                EventId = Guid.NewGuid(),
+                Type = "type",
+                Date = DateTime.Now,
+                CreatedAt = DateTime.Now
+            },
+            new SimpleOutboxEventCreated
+            {
+                EventId = Guid.NewGuid(),
+                Type = "type",
+                Date = DateTime.Now,
+                CreatedAt = DateTime.Now
+            }
+        };
+        var eventProviderType = EventProviderType.MessageBroker.ToString();
+        _outboxEventsExecutor.GetEventPublisherTypes(Arg.Any<IOutboxEvent>()).Returns(eventProviderType);
+        _outboxRepository.BulkInsertEvents(Arg.Any<IEnumerable<OutboxMessage>>()).Returns(true);
+
+        var result = await _outboxEventManager.StoreAsync(outboxEvents);
+
+        Assert.That(result, Is.True);
+        _outboxRepository.Received(1).BulkInsertEvents(Arg.Is<IEnumerable<OutboxMessage>>(events =>
+            outboxEvents.All(e=> events.Any(m=> m.Id == e.EventId))));
     }
 
     #endregion
@@ -209,7 +336,7 @@ public class OutboxEventManagerTests
         _outboxRepository.BulkInsertEvents(Arg.Any<IEnumerable<OutboxMessage>>()).Returns(true);
 
         _outboxEventManager.Dispose();
-        
+
         eventsToSend = GetCollectedEvents();
         eventsToSend.Should().HaveCount(0);
     }
@@ -254,7 +381,8 @@ public class OutboxEventManagerTests
 
     private ICollection<OutboxMessage> GetCollectedEvents()
     {
-        var eventsToSend = EventsToPublishFieldInfo!.GetValue(_outboxEventManager) as ConcurrentDictionary<Guid, OutboxMessage>;
+        var eventsToSend =
+            EventsToPublishFieldInfo!.GetValue(_outboxEventManager) as ConcurrentDictionary<Guid, OutboxMessage>;
         return eventsToSend!.Values;
     }
 

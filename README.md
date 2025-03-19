@@ -142,21 +142,20 @@ public class UserController : ControllerBase
     }
     
     [HttpDelete("{id:guid}")]
-    public IActionResult Delete(Guid id)
+    public async Task<IActionResult> Delete(Guid id)
     {
         if (!Items.TryGetValue(id, out User item))
             return NotFound();
 
         var userDeleted = new UserDeleted { UserId = item.Id, UserName = item.Name };
-        var succussfullySent = _outboxEventManager.Store(userDeleted, EventProviderType.WebHook);
+        var succussfullySent = await _outboxEventManager.StoreAsync(userDeleted, EventProviderType.WebHook);
         
-        Items.Remove(id);
         return Ok(item);
     }
 }
 ```
 
-When we use the `Store` method of the `IOutboxEventManager` to send an event, the event is first stored in the database. Based on our configuration (_by default, after one second_), the event will then be automatically execute the `PublishAsync` method of created the `DeletedUserPublisher` event publisher.
+When we use the `StoreAsync` method of the `IOutboxEventManager` to send an event, the event is first stored in the database. Based on our configuration (_by default, after one second_), the event will then be automatically execute the `PublishAsync` method of created the `DeletedUserPublisher` event publisher.
 
 If an event fails for any reason, the server will automatically retry publishing it, with delays based on the configuration you set in the [Outbox section](#options-of-inbox-and-outbox-sections).
 

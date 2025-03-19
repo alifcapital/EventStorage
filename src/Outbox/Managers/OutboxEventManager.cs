@@ -124,6 +124,9 @@ internal class OutboxEventManager : IOutboxEventManager
                 outboxMessages.Add(outboxMessage);
             }
             
+            if(outboxMessages.Count == 0)
+                return false;
+            
             var successfullyInserted= _repository.BulkInsertEvents(outboxMessages)!;
             
             return await Task.FromResult(successfullyInserted);
