@@ -127,9 +127,8 @@ internal class OutboxEventManager : IOutboxEventManager
             if(outboxMessages.Count == 0)
                 return false;
             
-            var successfullyInserted= _repository.BulkInsertEvents(outboxMessages)!;
-            
-            return await Task.FromResult(successfullyInserted);
+            var successfullyInserted= await _repository.BulkInsertEventsAsync(outboxMessages);
+            return successfullyInserted;
         }
         catch (Exception e)
         {

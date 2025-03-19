@@ -133,6 +133,51 @@ namespace EventStorage.Tests.UnitTests
 
         #endregion
 
+        #region BulkInsertEventsAsync
+        
+        [Test]
+        public async Task BulkInsertEventsAsync_AddedTwoItems_BothEventsShouldBeInserted()
+        {
+            var firstEvent = new TEvent
+            {
+                Id = Guid.NewGuid(),
+                Provider = "TestProvider",
+                EventName = "TestEvent1",
+                EventPath = "/test/path",
+                Payload = "TestPayload",
+                Headers = "TestHeaders",
+                AdditionalData = "TestAdditionalData",
+                TryCount = 0,
+                TryAfterAt = DateTime.Now.AddMinutes(5)
+            };
+            var secondEvent = new TEvent()
+            {
+                Id = Guid.NewGuid(),
+                Provider = "TestProvider",
+                EventName = "TestEvent2",
+                EventPath = "/test/path",
+                Payload = "TestPayload",
+                Headers = "TestHeaders",
+                AdditionalData = "TestAdditionalData",
+                NamingPolicyType = NamingPolicyTypeNames.PascalCase,
+                TryCount = 0,
+                TryAfterAt = DateTime.Now.AddMinutes(5)
+            };
+
+            var result = await _repository.BulkInsertEventsAsync([firstEvent, secondEvent]);
+
+            result.Should().BeTrue();
+            var firstEventFromDb = _dataContext.GetById(firstEvent.Id);
+            firstEventFromDb.Id.Should().Be(firstEvent.Id);
+            firstEventFromDb.EventName.Should().Be(firstEvent.EventName);
+            
+            var secondEventFromDb = _dataContext.GetById(secondEvent.Id);
+            secondEventFromDb.Id.Should().Be(secondEvent.Id);
+            secondEventFromDb.EventName.Should().Be(secondEvent.EventName);
+        }
+
+        #endregion
+
         #region GetUnprocessedEventsAsync
 
         [Test]

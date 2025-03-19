@@ -96,7 +96,7 @@ public class OutboxEventManagerTests
             Date = DateTime.Now,
             CreatedAt = DateTime.Now
         };
-        
+
         _outboxEventManager.Collect(senderEvent, EventProviderType.MessageBroker);
         var result = _outboxEventManager.Collect(senderEvent, EventProviderType.MessageBroker);
 
@@ -148,7 +148,7 @@ public class OutboxEventManagerTests
         );
 
         Assert.That(result, Is.True);
-        await _outboxRepository.Received(1).InsertEventAsync(Arg.Is<OutboxMessage>(e=> 
+        await _outboxRepository.Received(1).InsertEventAsync(Arg.Is<OutboxMessage>(e =>
             e.Provider == EventProviderType.MessageBroker.ToString()
             && e.Id == outboxEvent.EventId));
     }
@@ -164,7 +164,7 @@ public class OutboxEventManagerTests
         var result = await _outboxEventManager.StoreAsync(outboxEvent);
 
         Assert.That(result, Is.True);
-        await _outboxRepository.Received(1).InsertEventAsync(Arg.Is<OutboxMessage>(e=> 
+        await _outboxRepository.Received(1).InsertEventAsync(Arg.Is<OutboxMessage>(e =>
             e.Provider == eventProviderType
             && e.Id == outboxEvent.EventId));
     }
@@ -204,13 +204,13 @@ public class OutboxEventManagerTests
         };
         var eventProviderType = EventProviderType.MessageBroker.ToString();
         _outboxEventsExecutor.GetEventPublisherTypes(Arg.Any<IOutboxEvent>()).Returns(eventProviderType);
-        _outboxRepository.BulkInsertEvents(Arg.Any<IEnumerable<OutboxMessage>>()).Returns(true);
+        _outboxRepository.BulkInsertEventsAsync(Arg.Any<IEnumerable<OutboxMessage>>()).Returns(true);
 
         var result = await _outboxEventManager.StoreAsync(outboxEvents);
 
         Assert.That(result, Is.True);
-        _outboxRepository.Received(1).BulkInsertEvents(Arg.Is<IEnumerable<OutboxMessage>>(events =>
-            outboxEvents.All(e=> events.Any(m=> m.Id == e.EventId))));
+        await _outboxRepository.Received(1).BulkInsertEventsAsync(Arg.Is<IEnumerable<OutboxMessage>>(events =>
+            outboxEvents.All(e => events.Any(m => m.Id == e.EventId))));
     }
 
     #endregion

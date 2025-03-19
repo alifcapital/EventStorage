@@ -97,6 +97,27 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
         }
     }
 
+    public async Task<bool> BulkInsertEventsAsync(IEnumerable<TBaseMessage> events)
+    {
+        await using var dbConnection = new NpgsqlConnection(_connectionString);
+        try
+        {
+           await dbConnection.OpenAsync();
+
+            var affectedRows = await dbConnection.ExecuteAsync(_sqlQueryToInsertEvent, events);
+            return affectedRows > 0;
+        }
+        catch (Exception e)
+        {
+            if (e is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+                return false;
+
+            var insertingEventIds = string.Join(", ", events.Select(x => x.Id));
+            throw new EventStoreException(e,
+                $"Error while inserting an events to the {_tableName} table with the {insertingEventIds} ids.");
+        }
+    }
+
     public bool BulkInsertEvents(IEnumerable<TBaseMessage> events)
     {
         using var dbConnection = new NpgsqlConnection(_connectionString);
