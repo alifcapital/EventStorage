@@ -15,7 +15,6 @@ internal class OutboxEventManager : IOutboxEventManager
     private readonly IOutboxEventsExecutor _outboxEventsExecutor;
     private readonly ILogger<OutboxEventManager> _logger;
     private readonly ConcurrentDictionary<Guid, OutboxMessage> _eventsToSend = [];
-    private bool _disposed;
 
     /// <summary>
     /// The EventSenderManager class will keep injecting itself even the outbox pattern is off, but the repository will be null since that is not registered in the DI container.
@@ -61,7 +60,10 @@ internal class OutboxEventManager : IOutboxEventManager
             return false;
 
         if (_repository is null)
-            throw new EventStoreException("The system trying to store an event into the outbox table, but the outbox functionality is not enabled.");
+        {
+            _logger.LogError("The system trying to store an event into the outbox table, but the outbox functionality is not enabled.");
+            return false;
+        }
 
         try
         {
@@ -87,7 +89,7 @@ internal class OutboxEventManager : IOutboxEventManager
     {
         return StoreAsync(outboxEvent, eventProvider.ToString(), namingPolicyType);
     }
-    
+
     public Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent,
         NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
     {
@@ -105,8 +107,9 @@ internal class OutboxEventManager : IOutboxEventManager
     public async Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent[] outboxEvents) where TOutboxEvent : IOutboxEvent
     {
         if (_repository is null)
-            throw new EventStoreException("The system trying to store an events into the outbox table, but the outbox functionality is not enabled.");
-        
+            throw new EventStoreException(
+                "The system trying to store an events into the outbox table, but the outbox functionality is not enabled.");
+
         try
         {
             var outboxMessages = new List<OutboxMessage>();
@@ -119,15 +122,15 @@ internal class OutboxEventManager : IOutboxEventManager
                         outboxEvent.GetType().FullName);
                     continue;
                 }
-                
+
                 var outboxMessage = CreateOutboxMessage(outboxEvent, eventPublisherTypes, NamingPolicyType.PascalCase);
                 outboxMessages.Add(outboxMessage);
             }
-            
-            if(outboxMessages.Count == 0)
+
+            if (outboxMessages.Count == 0)
                 return false;
-            
-            var successfullyInserted= await _repository.BulkInsertEventsAsync(outboxMessages);
+
+            var successfullyInserted = await _repository.BulkInsertEventsAsync(outboxMessages);
             return successfullyInserted;
         }
         catch (Exception e)
@@ -142,8 +145,9 @@ internal class OutboxEventManager : IOutboxEventManager
         where TOutboxEvent : IOutboxEvent
     {
         if (_repository is null)
-            throw new EventStoreException("The system trying to store an event into the outbox table, but the outbox functionality is not enabled.");
-        
+            throw new EventStoreException(
+                "The system trying to store an event into the outbox table, but the outbox functionality is not enabled.");
+
         try
         {
             var outboxMessage = CreateOutboxMessage(outboxEvent, eventProvider, namingPolicyType);
@@ -161,22 +165,22 @@ internal class OutboxEventManager : IOutboxEventManager
 
     #endregion
 
-    #region PublishCollectedEvents
+    #region StoreCollectedEvents
 
     /// <summary>
     /// Store all collected events to the database and clear the memory.
     /// </summary>
-    private void PublishCollectedEvents()
+    private void StoreCollectedEvents()
     {
         _repository?.BulkInsertEvents(_eventsToSend.Values);
-        _eventsToSend.Clear();
+        CleanCollectedEvents();
     }
 
     #endregion
 
     #region CleanCollectedEvents
 
-    void IOutboxEventManager.CleanCollectedEvents()
+    public void CleanCollectedEvents()
     {
         _eventsToSend.Clear();
     }
@@ -185,6 +189,8 @@ internal class OutboxEventManager : IOutboxEventManager
 
     #region Dispose
 
+    private bool _disposed;
+
     public void Dispose()
     {
         Disposing();
@@ -192,13 +198,13 @@ internal class OutboxEventManager : IOutboxEventManager
     }
 
     /// <summary>
-    /// Add all collected activity logs to the activity log collector.
+    /// Store all collected events to the database and clear the memory.
     /// </summary>
     private void Disposing()
     {
         if (_disposed) return;
 
-        PublishCollectedEvents();
+        StoreCollectedEvents();
 
         _disposed = true;
     }
