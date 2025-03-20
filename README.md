@@ -129,7 +129,7 @@ public class DeletedUserPublisher : IWebHookEventPublisher<UserDeleted>
 The event provider support a few types: `MessageBroker`-for RabbitMQ message or any other message broker, `Sms`-for SMS message, `Http`-for Http requests, `WebHook`- for WebHook call, `Email` for sending email, `Unknown` for other unknown type messages.
 Depend on the event provider, the event subscriber must implement the necessary publisher interface: `IMessageBrokerEventPublisher`, `ISmsEventPublisher`, `IHttpEventPublisher`, `IWebHookEventPublisher`, `IEmailEventPublisher` and `IUnknownEventPublisher`- for `Unknown` provider type.
 
-Now you can inject the `IOutboxEventManager` interface from anywhere in your application, and use the `Store` method to publish your event.
+Now you can inject the `IOutboxEventManager` interface from anywhere in your application, and use the `StoreAsync` method to publish your event.
 
 ```
 public class UserController : ControllerBase
@@ -238,8 +238,9 @@ public class UserController(IOutboxEventManager outboxEventManager) : Controller
 }
 ```
 
-1. The `Collect` method is used to collect the event to the memory and then store it in the database while the scope/session/request is completed. It is useful if you want to collect multiple events and clear them if needed. You could use the `CleanCollectedEvents` method of the `IOutboxEventManager` to clear the collected events.
-2. The `StoreAsync` method is used to store the event in the database immediately. It is useful if you want to store the event immediately and don't need to collect multiple events. It provides array of the event types to store multiple events at once.
+The `IOutboxEventManager` interface has two main methods to publish an event:
+1. The `StoreAsync` method is used to store the event in the database immediately. With this one, we could store single or multiple events at the same time.
+2. The `Collect` method is used to collect the event to the memory and then store it in the database while the scope/session/request is completed. It is useful if you want to collect multiple events and clear them if needed. You could use the `CleanCollectedEvents` method of the `IOutboxEventManager` to clear the collected events.  By default, all collected events will be published automatically.
 
 Both methods provide two forms of the method, one is with the event and the other are with the event and the event publisher type. When you store an event without the event publisher type, the library will automatically find all event providers that are suitable for the event type and publish the event to all of them. If you want to publish the event to a specific event provider, you need to pass the event provider type.
 
