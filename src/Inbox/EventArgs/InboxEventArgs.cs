@@ -13,22 +13,15 @@ public class InboxEventArgs : EventArgs
     /// <summary>
     /// Executing event.
     /// </summary>
-    public IInboxEvent Event { get; }
+    public required IInboxEvent Event { get; init; }
     
     /// <summary>
     /// Type of event provider.
     /// </summary>
-    public EventProviderType ProviderType { get; }
+    public required EventProviderType ProviderType { get; init; }
     
     /// <summary>
     /// The <see cref="IServiceProvider"/> used to resolve dependencies from the scope.
     /// </summary>
-    public IServiceProvider ServiceProvider { get; }
-    
-    public InboxEventArgs(IInboxEvent @event, EventProviderType providerType, IServiceProvider serviceProvider)
-    {
-        Event = @event;
-        ProviderType = providerType;
-        ServiceProvider = serviceProvider;
-    }
+    public required IServiceProvider ServiceProvider { get; init; }
 }

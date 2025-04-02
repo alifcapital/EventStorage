@@ -29,10 +29,12 @@ public static class EventStoreExtensions
     /// <param name="configuration">Configuration to get config</param>
     /// <param name="options">Options to overwrite default settings of Inbox and Outbox.</param>
     /// <param name="assemblies">Assemblies to find and load publisher and subscribers</param>
+    /// <param name="disposingInboxEventHandlerScope">The event to be executed before disposing the inbox event handler scope.</param>
     /// <param name="executingReceivedEvents">Events for subscribing to the executing received event of Inbox</param>
     public static void AddEventStore(this IServiceCollection services, IConfiguration configuration,
         Assembly[] assemblies,
         Action<InboxAndOutboxOptions> options = null,
+        EventHandler<EventHandlerArgs> disposingInboxEventHandlerScope = null,
         params EventHandler<InboxEventArgs>[] executingReceivedEvents)
     {
         var settingsType = typeof(InboxAndOutboxSettings);
@@ -88,6 +90,7 @@ public static class EventStoreExtensions
                 foreach (var executingReceivedEvent in executingReceivedEvents)
                     InboxEventsExecutor.ExecutingInboxEvent += executingReceivedEvent;
             }
+            InboxEventsExecutor.DisposingEventHandlerScope += disposingInboxEventHandlerScope;
 
             RegisterAllEventsOfInboxToDependencyInjection(services, assemblies);
             services.AddSingleton<IInboxEventsExecutor>(serviceProvider =>

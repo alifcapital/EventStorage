@@ -103,7 +103,7 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
                 try
                 {
                     stoppingToken.ThrowIfCancellationRequested();
-                    await ExecuteEventPublisher(eventToPublish, scope);
+                    await ExecuteEventPublisher(eventToPublish, scope.ServiceProvider);
                 }
                 catch
                 {
@@ -125,7 +125,7 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
         }
     }
 
-    private async Task ExecuteEventPublisher(IOutboxMessage outboxMessage, IServiceScope serviceScope)
+    private async Task ExecuteEventPublisher(IOutboxMessage outboxMessage, IServiceProvider serviceProvider)
     {
         try
         {
@@ -157,8 +157,7 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
 
                 foreach (var publisherInformation in eventPublishersToExecute)
                 {
-                    var eventHandlerSubscriber =
-                        serviceScope.ServiceProvider.GetRequiredService(publisherInformation.EventPublisherType);
+                    var eventHandlerSubscriber = serviceProvider.GetRequiredService(publisherInformation.EventPublisherType);
 
                     await ((Task)publisherInformation.PublishMethod.Invoke(eventHandlerSubscriber, [eventToPublish]))!;
                 }
