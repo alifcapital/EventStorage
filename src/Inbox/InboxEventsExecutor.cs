@@ -23,6 +23,11 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     /// </summary>
     public static event EventHandler<InboxEventArgs> ExecutingInboxEvent;
 
+    /// <summary>
+    /// The event to be executed before disposing the inbox event handler scope.
+    /// </summary>
+    public static event EventHandler<EventHandlerArgs> DisposingEventHandlerScope;
+
     private readonly Dictionary<string, List<EventHandlerInformation>> _receivers;
 
     private const string HandleMethodName = nameof(IEventHandler<IInboxEvent>.HandleAsync);
@@ -80,8 +85,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         await _singleExecutionLock.WaitAsync(stoppingToken);
         try
         {
-            using var scope = _serviceProvider.CreateScope();
-            var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
+            var repository = _serviceProvider.GetRequiredService<IInboxRepository>();
             var eventsToReceive = await repository.GetUnprocessedEventsAsync();
             if (eventsToReceive.Length == 0)
                 return;
@@ -120,43 +124,47 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         try
         {
             var receiverKey = GetReceiverKey(message.EventName, message.Provider);
-            if (_receivers.TryGetValue(receiverKey, out var receiversInformation))
+            if (_receivers.TryGetValue(receiverKey, out var inboxEventsInformation))
             {
-                _logger.LogTrace("Executing the received {EventTypeName} event of inbox event with ID {EventId}.",
+                _logger.LogTrace("Executing an event handler of {EventTypeName} inbox event with ID {EventId}.",
                     message.EventName, message.Id);
 
                 //Create a new scope to execute the receiver service as a scoped service for each event
                 using var serviceScope = serviceProvider.CreateScope();
 
-                foreach (var receiverInformation in receiversInformation)
+                foreach (var inboxEventInformation in inboxEventsInformation)
                 {
-                    var receivedEvent = LoadReceivedEvent(message, receiverInformation);
-                    OnExecutingReceivedEvent(receivedEvent, receiverInformation.ProviderType,
+                    var inboxEvent = LoadInboxEvent(message, inboxEventInformation);
+                    OnExecutingInboxEvent(inboxEvent, inboxEventInformation.ProviderType,
                         serviceScope.ServiceProvider);
                     
-                    var eventReceiver = serviceScope.ServiceProvider.GetRequiredService(receiverInformation.EventHandlerType);
-                    await ((Task)receiverInformation.HandleMethod.Invoke(eventReceiver,
-                        [receivedEvent]))!;
+                    var eventReceiver = serviceScope.ServiceProvider.GetRequiredService(inboxEventInformation.EventHandlerType);
+                    await ((Task)inboxEventInformation.HandleMethod.Invoke(eventReceiver,
+                        [inboxEvent]))!;
                 }
 
+                OnEndingInboxEvent(message, serviceScope.ServiceProvider);
+                
                 message.Processed();
 
                 return;
             }
 
             _logger.LogError(
-                "No event receiver provider configured for the {EventTypeName} type name of inbox event with ID: {EventId}.",
+                "No event event handler configured for the {EventTypeName} type name of inbox event with ID: {EventId}.",
                 message.EventName, message.Id);
 
             message.Failed(0, _settings.TryAfterMinutesIfEventNotFound);
         }
         catch (Exception e)
         {
-            var exception = new EventStoreException(e, $"Error while receiving event with ID: {message.Id}");
+            var exception = new EventStoreException(e, $"Error while executing handler of inbox event with ID: {message.Id}");
             _logger.LogError(exception, exception.Message);
             throw exception;
         }
     }
+
+    #region Helper methods
 
     /// <summary>
     /// Invokes the ExecutingReceivedEvent event to be able to execute the event before the handler.
@@ -164,17 +172,39 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     /// <param name="event">Executing an event</param>
     /// <param name="providerType">The provider type of event</param>
     /// <param name="serviceProvider">The IServiceProvider used to resolve dependencies from the scope.</param>
-    private void OnExecutingReceivedEvent(IInboxEvent @event, EventProviderType providerType,
+    private void OnExecutingInboxEvent(IInboxEvent @event, EventProviderType providerType,
         IServiceProvider serviceProvider)
     {
         if (ExecutingInboxEvent is null)
             return;
 
-        var eventArgs = new InboxEventArgs(@event, providerType, serviceProvider);
+        var eventArgs = new InboxEventArgs
+        {
+            Event = @event,
+            ProviderType = providerType,
+            ServiceProvider = serviceProvider
+        };
         ExecutingInboxEvent.Invoke(this, eventArgs);
     }
 
-    #region Helper methods
+    /// <summary>
+    /// Invokes the DisposingEventHandlerScope event to be able to execute the event after the handler.
+    /// </summary>
+    /// <param name="message">Information of the inbox event</param>
+    /// <param name="serviceProvider">The IServiceProvider used to resolve dependencies from the scope.</param>
+    private void OnEndingInboxEvent(IInboxMessage message,  IServiceProvider serviceProvider)
+    {
+        if (DisposingEventHandlerScope is null)
+            return;
+
+        var eventArgs = new EventHandlerArgs
+        {
+            EventName = message.EventName,
+            EventProviderType = message.Provider,
+            ServiceProvider = serviceProvider
+        };
+        DisposingEventHandlerScope.Invoke(this, eventArgs);
+    }
 
     /// <summary>
     /// Get the key of the receiver by event name and provider name.
@@ -193,20 +223,20 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     /// <param name="message">The event of Inbox</param>
     /// <param name="eventHandlerInformation">The event receivers information</param>
     /// <returns>Loaded instance of event</returns>
-    private static IInboxEvent LoadReceivedEvent(IInboxMessage message, EventHandlerInformation eventHandlerInformation)
+    private static IInboxEvent LoadInboxEvent(IInboxMessage message, EventHandlerInformation eventHandlerInformation)
     {
         var jsonSerializerSetting = message.GetJsonSerializer();
-        var receivedEvent =
+        var inboxEvent =
             JsonSerializer.Deserialize(message.Payload, eventHandlerInformation.EventType, jsonSerializerSetting) as
                 IInboxEvent;
         if (eventHandlerInformation.HasHeaders && message.Headers is not null)
-            ((IHasHeaders)receivedEvent).Headers =
+            ((IHasHeaders)inboxEvent).Headers =
                 JsonSerializer.Deserialize<Dictionary<string, string>>(message.Headers);
 
         if (eventHandlerInformation.HasAdditionalData && message.AdditionalData is not null)
-            ((IHasAdditionalData)receivedEvent).AdditionalData =
+            ((IHasAdditionalData)inboxEvent).AdditionalData =
                 JsonSerializer.Deserialize<Dictionary<string, string>>(message!.AdditionalData);
-        return receivedEvent;
+        return inboxEvent;
     }
 
     #endregion
