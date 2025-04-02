@@ -39,9 +39,10 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
 
     public InboxEventsExecutor(IServiceProvider serviceProvider)
     {
-        _serviceProvider = serviceProvider;
-        _logger = serviceProvider.GetRequiredService<ILogger<InboxEventsExecutor>>();
-        _settings = serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Inbox;
+        var serviceScope = serviceProvider.CreateScope();
+        _serviceProvider = serviceScope.ServiceProvider;
+        _logger = _serviceProvider.GetRequiredService<ILogger<InboxEventsExecutor>>();
+        _settings = _serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Inbox;
         _receivers = new Dictionary<string, List<EventHandlerInformation>>();
         _semaphore = new SemaphoreSlim(_settings.MaxConcurrency);
     }
