@@ -204,12 +204,12 @@ public class OutboxEventManagerTests
         };
         var eventProviderType = EventProviderType.MessageBroker.ToString();
         _outboxEventsExecutor.GetEventPublisherTypes(Arg.Any<IOutboxEvent>()).Returns(eventProviderType);
-        _outboxRepository.BulkInsertEventsAsync(Arg.Any<IEnumerable<OutboxMessage>>()).Returns(true);
+        _outboxRepository.BulkInsertEventsAsync(Arg.Any<OutboxMessage[]>()).Returns(true);
 
         var result = await _outboxEventManager.StoreAsync(outboxEvents);
 
         Assert.That(result, Is.True);
-        await _outboxRepository.Received(1).BulkInsertEventsAsync(Arg.Is<IEnumerable<OutboxMessage>>(events =>
+        await _outboxRepository.Received(1).BulkInsertEventsAsync(Arg.Is<OutboxMessage[]>(events =>
             outboxEvents.All(e => events.Any(m => m.Id == e.EventId))));
     }
 
@@ -333,7 +333,7 @@ public class OutboxEventManagerTests
         );
         var eventsToSend = GetCollectedEvents();
         eventsToSend.Should().HaveCount(2);
-        _outboxRepository.BulkInsertEvents(Arg.Any<IEnumerable<OutboxMessage>>()).Returns(true);
+        _outboxRepository.BulkInsertEvents(Arg.Any<OutboxMessage[]>()).Returns(true);
 
         _outboxEventManager.Dispose();
 
@@ -369,7 +369,7 @@ public class OutboxEventManagerTests
 
         _outboxEventManager.Dispose();
 
-        _outboxRepository.Received(1).BulkInsertEvents(Arg.Any<IEnumerable<OutboxMessage>>());
+        _outboxRepository.Received(1).BulkInsertEvents(Arg.Any<OutboxMessage[]>());
     }
 
     #endregion
