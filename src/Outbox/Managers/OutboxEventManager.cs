@@ -176,7 +176,7 @@ internal class OutboxEventManager : IOutboxEventManager
         if (outboxMessages.Length == 0)
             return;
         
-        _repository?.BulkInsertEvents(_eventsToSend.Values.ToArray());
+        _repository?.BulkInsertEvents(outboxMessages);
         CleanCollectedEvents();
     }
 
