@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Text.Json;
 using EventStorage.Configurations;
 using EventStorage.Exceptions;
+using EventStorage.Instrumentation.Trace;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Providers;
@@ -97,13 +99,15 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
                 return;
 
             stoppingToken.ThrowIfCancellationRequested();
+            using var activity = CreateActivityForExecutingUnprocessedEventsIfEnabled(eventsToPublish.Length);
+            
             var tasks = eventsToPublish.Select(async eventToPublish =>
             {
                 await _semaphore.WaitAsync(stoppingToken);
                 try
                 {
                     stoppingToken.ThrowIfCancellationRequested();
-                    await ExecuteEventPublisher(eventToPublish, scope.ServiceProvider);
+                    await ExecuteEventPublisher(eventToPublish, scope.ServiceProvider, activity);
                 }
                 catch
                 {
@@ -125,7 +129,7 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
         }
     }
 
-    private async Task ExecuteEventPublisher(IOutboxMessage outboxMessage, IServiceProvider serviceProvider)
+    private async Task ExecuteEventPublisher(IOutboxMessage outboxMessage, IServiceProvider serviceProvider, Activity parentActivity)
     {
         try
         {
@@ -139,8 +143,7 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
                     return;
                 }
                 
-                _logger.LogTrace("Publishing the {EventType} outbox event with ID {EventId}.",
-                    outboxMessage.EventName, outboxMessage.Id);
+                using var activity = CreateActivityForExecutingPublishersIfEnabled(outboxMessage, parentActivity);
 
                 var firstEventInfo = publishers.First().Value;
                 var jsonSerializerSetting = outboxMessage.GetJsonSerializer();
@@ -187,7 +190,7 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
 
     #endregion
 
-    #region Register publisher type of event
+    #region Helper methods
 
     /// <summary>
     /// Cache the event publisher types.
@@ -199,10 +202,6 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
         _eventPublisherTypes[eventFullName] = string.Join(",", providerTypes.Select(x => x.ToString()));
     }
 
-    #endregion
-
-    #region Get publisher types of event
-
     public string GetEventPublisherTypes<TOutboxEvent>(TOutboxEvent outboxEvent)
         where TOutboxEvent : IOutboxEvent
     {
@@ -210,13 +209,42 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
         return _eventPublisherTypes.GetValueOrDefault(eventFullName);
     }
 
-    #endregion
-
-    #region Get publisher key
-
     internal string GetPublisherKey(string eventName, string eventNamespace)
     {
         return $"{eventNamespace}.{eventName}";
+    }
+
+    /// <summary>
+    /// Creates an activity for executing publishers of the outbox event if tracing is enabled.
+    /// </summary>
+    /// <param name="outboxMessage">The outbox message for which the activity is created.</param>
+    /// <param name="parentActivity">The parent activity to link to, if available.</param>
+    /// <returns>Newly created activity or null if tracing is not enabled.</returns>
+    private Activity CreateActivityForExecutingPublishersIfEnabled(IOutboxMessage outboxMessage, Activity parentActivity)
+    {
+        if (!EventStorageTraceInstrumentation.IsEnabled) return null;
+
+        var traceName = $"{EventStorageTraceInstrumentation.OutboxEventTag}: Executing a publisher(s) of the {outboxMessage.EventName} event";
+        var traceParentId = parentActivity?.Id;
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId);
+        activity?.SetTag(EventStorageTraceInstrumentation.EventIdTag, outboxMessage.Id);
+
+        return activity;
+    }
+
+    /// <summary>
+    /// Creates an activity for executing publishers of the unprocessed events if tracing is enabled.
+    /// </summary>
+    /// <param name="eventsCount">The count of unprocessed events being executed.</param>
+    /// <returns>Newly created activity or null if tracing is not enabled.</returns>
+    private Activity CreateActivityForExecutingUnprocessedEventsIfEnabled(int eventsCount)
+    {
+        if (!EventStorageTraceInstrumentation.IsEnabled) return null;
+
+        var traceName = $"{EventStorageTraceInstrumentation.OutboxEventTag}: Executing {eventsCount} unprocessed event(s)";
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server);
+
+        return activity;
     }
 
     #endregion

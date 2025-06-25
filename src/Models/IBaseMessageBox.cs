@@ -6,7 +6,7 @@ namespace EventStorage.Models;
 /// <summary>
 /// Represents an event type for storing and reading.
 /// </summary>
-internal interface IBaseMessageBox
+internal interface  IBaseMessageBox
 {
     /// <summary>
     /// Gets or sets the ID of the record.

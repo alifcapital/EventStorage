@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using Dapper;
 using EventStorage.Configurations;
 using EventStorage.Exceptions;
+using EventStorage.Instrumentation.Trace;
 using EventStorage.Models;
 using Npgsql;
 
@@ -11,6 +13,11 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
 {
     private readonly string _tableName = settings.TableName;
     private readonly string _connectionString = settings.ConnectionString;
+
+    /// <summary>
+    /// The tag/prefix of the trace message for logging purposes.
+    /// </summary>
+    protected abstract string TraceMessageTag { get; }
 
     public void CreateTableIfNotExists()
     {
@@ -59,6 +66,7 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
 
     public bool InsertEvent(TBaseMessage message)
     {
+        using var activity = CreateActivityIfEnabled(message);
         using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
@@ -79,6 +87,7 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
 
     public async Task<bool> InsertEventAsync(TBaseMessage message)
     {
+        using var activity = CreateActivityIfEnabled(message);
         await using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
@@ -97,12 +106,13 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
         }
     }
 
-    public async Task<bool> BulkInsertEventsAsync(IEnumerable<TBaseMessage> events)
+    public async Task<bool> BulkInsertEventsAsync(TBaseMessage[] events)
     {
+        using var activity = CreateActivityForBulkInsertIfEnabled(events);
         await using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
-           await dbConnection.OpenAsync();
+            await dbConnection.OpenAsync();
 
             var affectedRows = await dbConnection.ExecuteAsync(_sqlQueryToInsertEvent, events);
             return affectedRows > 0;
@@ -118,8 +128,9 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
         }
     }
 
-    public bool BulkInsertEvents(IEnumerable<TBaseMessage> events)
+    public bool BulkInsertEvents(TBaseMessage[] events)
     {
+        using var activity = CreateActivityForBulkInsertIfEnabled(events);
         using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
@@ -234,4 +245,45 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
             throw new EventStoreException(e, $"Error while deleting processed events from the {_tableName} table.");
         }
     }
+
+    #region Helper methods
+
+    /// <summary>
+    /// Creates an activity for tracing if the instrumentation is enabled. Also sets tags for event ID and provider.
+    /// </summary>
+    /// <param name="message">The message for which the activity is created.</param>
+    /// <returns>Newly created activity or null if tracing is not enabled.</returns>
+    private Activity CreateActivityIfEnabled(TBaseMessage message)
+    {
+        if (!EventStorageTraceInstrumentation.IsEnabled) return null;
+
+        var traceName = $"{TraceMessageTag}: Storing {message.EventName} event";
+        var traceParentId = Activity.Current?.Id;
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId);
+        activity?.SetTag(EventStorageTraceInstrumentation.EventIdTag, message.Id);
+        activity?.SetTag(EventStorageTraceInstrumentation.EventProviderTag, message.Provider);
+
+        return activity;
+    }
+
+    /// <summary>
+    /// Creates an activity for tracing if the instrumentation is enabled. Also sets tags for event names.
+    /// </summary>
+    /// <param name="messages">The array of messages which will be stored.</param>
+    /// <returns>Newly created activity or null if tracing is not enabled.</returns>
+    private Activity CreateActivityForBulkInsertIfEnabled(TBaseMessage[] messages)
+    {
+        if (!EventStorageTraceInstrumentation.IsEnabled) return null;
+
+        const string eventIdTag = "event.names";
+        const string nameSeparator = ", ";
+        var traceName = $"{TraceMessageTag}: Storing {messages.Length} event(s)";
+        var traceParentId = Activity.Current?.Id;
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId);
+        activity?.SetTag(eventIdTag, string.Join(nameSeparator, messages.Select(e => e.EventName)));
+
+        return activity;
+    }
+
+    #endregion
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using EventStorage.Configurations;
 using EventStorage.Exceptions;
@@ -5,6 +6,7 @@ using EventStorage.Inbox.EventArgs;
 using EventStorage.Inbox.Models;
 using EventStorage.Inbox.Providers;
 using EventStorage.Inbox.Repositories;
+using EventStorage.Instrumentation.Trace;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
 using Microsoft.Extensions.DependencyInjection;
@@ -39,8 +41,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
 
     public InboxEventsExecutor(IServiceProvider serviceProvider)
     {
-        var serviceScope = serviceProvider.CreateScope();
-        _serviceProvider = serviceScope.ServiceProvider;
+        _serviceProvider = serviceProvider;
         _logger = _serviceProvider.GetRequiredService<ILogger<InboxEventsExecutor>>();
         _settings = _serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Inbox;
         _receivers = new Dictionary<string, List<EventHandlerInformation>>();
@@ -48,34 +49,34 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     }
 
     /// <summary>
-    /// Registers a receiver 
+    /// Registers a handler 
     /// </summary>
-    /// <param name="typeOfReceiveEvent">Event type which we want to use to receive</param>
-    /// <param name="typeOfEventReceiver">Receiver type of the event which we want to receiver event</param>
+    /// <param name="typeOfHandlerEvent">Event type which we want to use to receive</param>
+    /// <param name="typeOfEventHandler">Handler type of the event which we want to handler event</param>
     /// <param name="providerType">Provider type of received event</param>
-    public void AddReceiver(Type typeOfReceiveEvent, Type typeOfEventReceiver, EventProviderType providerType)
+    public void AddHandler(Type typeOfHandlerEvent, Type typeOfEventHandler, EventProviderType providerType)
     {
-        var receiverKey = GetReceiverKey(typeOfReceiveEvent.Name, providerType.ToString());
-        if (!_receivers.TryGetValue(receiverKey, out var receiversInformation))
+        var receiverKey = GetHandlerKey(typeOfHandlerEvent.Name, providerType.ToString());
+        if (!_receivers.TryGetValue(receiverKey, out var handlersInformation))
         {
-            receiversInformation = [];
-            _receivers.Add(receiverKey, receiversInformation);
+            handlersInformation = [];
+            _receivers.Add(receiverKey, handlersInformation);
         }
         
-        var hasHeaders = HasHeadersType.IsAssignableFrom(typeOfReceiveEvent);
-        var hasAdditionalData = HasAdditionalDataType.IsAssignableFrom(typeOfReceiveEvent);
-        var handleMethod = typeOfEventReceiver.GetMethod(HandleMethodName);
+        var hasHeaders = HasHeadersType.IsAssignableFrom(typeOfHandlerEvent);
+        var hasAdditionalData = HasAdditionalDataType.IsAssignableFrom(typeOfHandlerEvent);
+        var handleMethod = typeOfEventHandler.GetMethod(HandleMethodName);
 
         var receiverInformation = new EventHandlerInformation
         {
-            EventType = typeOfReceiveEvent,
-            EventHandlerType = typeOfEventReceiver,
+            EventType = typeOfHandlerEvent,
+            EventHandlerType = typeOfEventHandler,
             HandleMethod = handleMethod,
             ProviderType = providerType,
             HasHeaders = hasHeaders,
             HasAdditionalData = hasAdditionalData
         };
-        receiversInformation.Add(receiverInformation);
+        handlersInformation.Add(receiverInformation);
     }
 
     /// <summary>
@@ -86,19 +87,22 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         await _singleExecutionLock.WaitAsync(stoppingToken);
         try
         {
-            var repository = _serviceProvider.GetRequiredService<IInboxRepository>();
-            var eventsToReceive = await repository.GetUnprocessedEventsAsync();
-            if (eventsToReceive.Length == 0)
+            using var scope = _serviceProvider.CreateScope();
+            var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
+            var eventsToHandle = await repository.GetUnprocessedEventsAsync();
+            if (eventsToHandle.Length == 0)
                 return;
 
             stoppingToken.ThrowIfCancellationRequested();
-            var tasks = eventsToReceive.Select(async eventToReceive =>
+            using var activity = CreateActivityForExecutingUnprocessedEventsIfEnabled(eventsToHandle.Length);
+            
+            var tasks = eventsToHandle.Select(async eventToReceive =>
             {
                 await _semaphore.WaitAsync(stoppingToken);
                 try
                 {
                     stoppingToken.ThrowIfCancellationRequested();
-                    await ExecuteEventReceiver(eventToReceive, _serviceProvider);
+                    await ExecuteEventHandlers(eventToReceive, _serviceProvider, activity);
                 }
                 catch
                 {
@@ -112,7 +116,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
 
             await Task.WhenAll(tasks);
 
-            await repository.UpdateEventsAsync(eventsToReceive);
+            await repository.UpdateEventsAsync(eventsToHandle);
         }
         finally
         {
@@ -120,15 +124,14 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         }
     }
 
-    private async Task ExecuteEventReceiver(IInboxMessage message, IServiceProvider serviceProvider)
+    private async Task ExecuteEventHandlers(IInboxMessage message, IServiceProvider serviceProvider, Activity parentActivity)
     {
         try
         {
-            var receiverKey = GetReceiverKey(message.EventName, message.Provider);
+            var receiverKey = GetHandlerKey(message.EventName, message.Provider);
             if (_receivers.TryGetValue(receiverKey, out var inboxEventsInformation))
             {
-                _logger.LogTrace("Executing an event handler of {EventTypeName} inbox event with ID {EventId}.",
-                    message.EventName, message.Id);
+                using var activity = CreateActivityForExecutingHandlersIfEnabled(message, parentActivity);
 
                 //Create a new scope to execute the receiver service as a scoped service for each event
                 using var serviceScope = serviceProvider.CreateScope();
@@ -213,7 +216,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     /// <param name="eventName">The name of event type</param>
     /// <param name="providerName">The name of event provider type</param>
     /// <returns>Based on the event name and provider name, it returns a unique key for the receiver.</returns>
-    internal static string GetReceiverKey(string eventName, string providerName)
+    internal static string GetHandlerKey(string eventName, string providerName)
     {
         return $"{eventName}_{providerName}";
     }
@@ -238,6 +241,39 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
             ((IHasAdditionalData)inboxEvent).AdditionalData =
                 JsonSerializer.Deserialize<Dictionary<string, string>>(message!.AdditionalData);
         return inboxEvent;
+    }
+
+    /// <summary>
+    /// Creates an activity for executing publishers of the outbox event if tracing is enabled.
+    /// </summary>
+    /// <param name="inboxMessage">The outbox message for which the activity is created.</param>
+    /// <param name="parentActivity">The parent activity to link to, if available.</param>
+    /// <returns>Newly created activity or null if tracing is not enabled.</returns>
+    private Activity CreateActivityForExecutingHandlersIfEnabled(IInboxMessage inboxMessage, Activity parentActivity)
+    {
+        if (!EventStorageTraceInstrumentation.IsEnabled) return null;
+
+        var traceName = $"{EventStorageTraceInstrumentation.InboxEventTag}: Executing a publisher(s) of the {inboxMessage.EventName} event";
+        var traceParentId = parentActivity?.Id;
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId);
+        activity?.SetTag(EventStorageTraceInstrumentation.EventIdTag, inboxMessage.Id);
+
+        return activity;
+    }
+
+    /// <summary>
+    /// Creates an activity for executing publishers of the unprocessed events if tracing is enabled.
+    /// </summary>
+    /// <param name="eventsCount">The count of unprocessed events being executed.</param>
+    /// <returns>Newly created activity or null if tracing is not enabled.</returns>
+    private Activity CreateActivityForExecutingUnprocessedEventsIfEnabled(int eventsCount)
+    {
+        if (!EventStorageTraceInstrumentation.IsEnabled) return null;
+
+        var traceName = $"{EventStorageTraceInstrumentation.InboxEventTag}: Executing {eventsCount} unprocessed event(s)";
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server);
+
+        return activity;
     }
 
     #endregion

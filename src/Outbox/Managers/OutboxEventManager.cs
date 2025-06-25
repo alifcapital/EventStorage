@@ -130,7 +130,7 @@ internal class OutboxEventManager : IOutboxEventManager
             if (outboxMessages.Count == 0)
                 return false;
 
-            var successfullyInserted = await _repository.BulkInsertEventsAsync(outboxMessages);
+            var successfullyInserted = await _repository.BulkInsertEventsAsync(outboxMessages.ToArray());
             return successfullyInserted;
         }
         catch (Exception e)
@@ -172,7 +172,7 @@ internal class OutboxEventManager : IOutboxEventManager
     /// </summary>
     private void StoreCollectedEvents()
     {
-        _repository?.BulkInsertEvents(_eventsToSend.Values);
+        _repository?.BulkInsertEvents(_eventsToSend.Values.ToArray());
         CleanCollectedEvents();
     }
 
