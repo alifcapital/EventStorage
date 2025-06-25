@@ -257,13 +257,11 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
     {
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
-        const string eventIdTag = "event.id";
-        const string providerTag = "provider";
         var traceName = $"{TraceMessageTag}: Storing {message.EventName} event";
         var traceParentId = Activity.Current?.Id;
         var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId);
-        activity?.SetTag(eventIdTag, message.Id);
-        activity?.SetTag(providerTag, message.Provider);
+        activity?.SetTag(EventStorageTraceInstrumentation.EventIdTag, message.Id);
+        activity?.SetTag(EventStorageTraceInstrumentation.EventProviderTag, message.Provider);
 
         return activity;
     }

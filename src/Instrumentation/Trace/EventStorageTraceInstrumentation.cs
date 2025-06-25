@@ -5,7 +5,7 @@ namespace EventStorage.Instrumentation.Trace;
 /// <summary>
 /// The EventStorage instrumentation to create a trace activity 
 /// </summary>
-internal class EventStorageTraceInstrumentation
+internal static class EventStorageTraceInstrumentation
 {
     /// <summary>
     /// The instrumentation name
@@ -26,6 +26,16 @@ internal class EventStorageTraceInstrumentation
     /// The tag to add the headers of event to a trace
     /// </summary>
     public const string OutboxEventTag = "Outbox";
+    
+    /// <summary>
+    /// The tag to add the event id to a trace
+    /// </summary>
+    public const string EventIdTag = "event.id";
+    
+    /// <summary>
+    /// The tag to add the provider name to a trace
+    /// </summary>
+    public const string EventProviderTag = "provider";
 
     /// <summary>
     /// The activity source to create a new activity
