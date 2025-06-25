@@ -41,8 +41,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
 
     public InboxEventsExecutor(IServiceProvider serviceProvider)
     {
-        var serviceScope = serviceProvider.CreateScope();
-        _serviceProvider = serviceScope.ServiceProvider;
+        _serviceProvider = serviceProvider;
         _logger = _serviceProvider.GetRequiredService<ILogger<InboxEventsExecutor>>();
         _settings = _serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Inbox;
         _receivers = new Dictionary<string, List<EventHandlerInformation>>();
@@ -88,7 +87,8 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         await _singleExecutionLock.WaitAsync(stoppingToken);
         try
         {
-            var repository = _serviceProvider.GetRequiredService<IInboxRepository>();
+            using var scope = _serviceProvider.CreateScope();
+            var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
             var eventsToHandle = await repository.GetUnprocessedEventsAsync();
             if (eventsToHandle.Length == 0)
                 return;
