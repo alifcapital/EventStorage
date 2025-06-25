@@ -172,6 +172,10 @@ internal class OutboxEventManager : IOutboxEventManager
     /// </summary>
     private void StoreCollectedEvents()
     {
+        var outboxMessages = _eventsToSend.Values.ToArray();
+        if (outboxMessages.Length == 0)
+            return;
+        
         _repository?.BulkInsertEvents(_eventsToSend.Values.ToArray());
         CleanCollectedEvents();
     }
