@@ -50,34 +50,34 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     }
 
     /// <summary>
-    /// Registers a receiver 
+    /// Registers a handler 
     /// </summary>
-    /// <param name="typeOfReceiveEvent">Event type which we want to use to receive</param>
-    /// <param name="typeOfEventReceiver">Receiver type of the event which we want to receiver event</param>
+    /// <param name="typeOfHandlerEvent">Event type which we want to use to receive</param>
+    /// <param name="typeOfEventHandler">Handler type of the event which we want to handler event</param>
     /// <param name="providerType">Provider type of received event</param>
-    public void AddReceiver(Type typeOfReceiveEvent, Type typeOfEventReceiver, EventProviderType providerType)
+    public void AddHandler(Type typeOfHandlerEvent, Type typeOfEventHandler, EventProviderType providerType)
     {
-        var receiverKey = GetReceiverKey(typeOfReceiveEvent.Name, providerType.ToString());
-        if (!_receivers.TryGetValue(receiverKey, out var receiversInformation))
+        var receiverKey = GetHandlerKey(typeOfHandlerEvent.Name, providerType.ToString());
+        if (!_receivers.TryGetValue(receiverKey, out var handlersInformation))
         {
-            receiversInformation = [];
-            _receivers.Add(receiverKey, receiversInformation);
+            handlersInformation = [];
+            _receivers.Add(receiverKey, handlersInformation);
         }
         
-        var hasHeaders = HasHeadersType.IsAssignableFrom(typeOfReceiveEvent);
-        var hasAdditionalData = HasAdditionalDataType.IsAssignableFrom(typeOfReceiveEvent);
-        var handleMethod = typeOfEventReceiver.GetMethod(HandleMethodName);
+        var hasHeaders = HasHeadersType.IsAssignableFrom(typeOfHandlerEvent);
+        var hasAdditionalData = HasAdditionalDataType.IsAssignableFrom(typeOfHandlerEvent);
+        var handleMethod = typeOfEventHandler.GetMethod(HandleMethodName);
 
         var receiverInformation = new EventHandlerInformation
         {
-            EventType = typeOfReceiveEvent,
-            EventHandlerType = typeOfEventReceiver,
+            EventType = typeOfHandlerEvent,
+            EventHandlerType = typeOfEventHandler,
             HandleMethod = handleMethod,
             ProviderType = providerType,
             HasHeaders = hasHeaders,
             HasAdditionalData = hasAdditionalData
         };
-        receiversInformation.Add(receiverInformation);
+        handlersInformation.Add(receiverInformation);
     }
 
     /// <summary>
@@ -128,7 +128,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     {
         try
         {
-            var receiverKey = GetReceiverKey(message.EventName, message.Provider);
+            var receiverKey = GetHandlerKey(message.EventName, message.Provider);
             if (_receivers.TryGetValue(receiverKey, out var inboxEventsInformation))
             {
                 using var activity = CreateActivityForExecutingHandlersIfEnabled(message, parentActivity);
@@ -216,7 +216,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     /// <param name="eventName">The name of event type</param>
     /// <param name="providerName">The name of event provider type</param>
     /// <returns>Based on the event name and provider name, it returns a unique key for the receiver.</returns>
-    internal static string GetReceiverKey(string eventName, string providerName)
+    internal static string GetHandlerKey(string eventName, string providerName)
     {
         return $"{eventName}_{providerName}";
     }
