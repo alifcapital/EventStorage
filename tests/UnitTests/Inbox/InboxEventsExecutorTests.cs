@@ -6,7 +6,6 @@ using EventStorage.Inbox.Repositories;
 using EventStorage.Models;
 using EventStorage.Tests.Domain;
 using EventStorage.Tests.Domain.Module1;
-using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -58,9 +57,9 @@ internal class InboxEventsExecutorTests
 
         var handlersInformation = handlers[handlerKey];
         Assert.That(handlersInformation.Count, Is.EqualTo(1));
-        Assert.That(
-            handlersInformation.Any(r =>
-                r.EventType == typeOfReceiveEvent && r.EventHandlerType == typeOfEventReceiver), Is.True);
+        Assert.That(handlersInformation.Any(r =>
+                r.EventType == typeOfReceiveEvent && r.EventHandlerType == typeOfEventReceiver),
+            Is.True);
     }
 
     [Test]
@@ -81,8 +80,10 @@ internal class InboxEventsExecutorTests
 
         var receiversInformation = receivers[receiverKey];
         Assert.That(receiversInformation.Count, Is.EqualTo(2));
-        Assert.That(receiversInformation.Any(r => r.EventType == typeOfReceiveEvent1 && r.EventHandlerType == typeOfEventHandler1), Is.True);
-        Assert.That(receiversInformation.Any(r => r.EventType == typeOfReceiveEvent2 && r.EventHandlerType == typeOfEventHandler2), Is.True);
+        Assert.That(receiversInformation.Any(r =>
+            r.EventType == typeOfReceiveEvent1 && r.EventHandlerType == typeOfEventHandler1), Is.True);
+        Assert.That(receiversInformation.Any(r =>
+            r.EventType == typeOfReceiveEvent2 && r.EventHandlerType == typeOfEventHandler2), Is.True);
     }
 
     #region ExecuteUnprocessedEvents
@@ -99,7 +100,7 @@ internal class InboxEventsExecutorTests
             Payload = "{}",
             Headers = null,
             AdditionalData = null,
-            NamingPolicyType = NamingPolicyType.PascalCase.ToString(),
+            NamingPolicyType = nameof(NamingPolicyType.PascalCase),
             TryCount = 0,
             TryAfterAt = DateTime.UtcNow.AddMinutes(-1),
             ProcessedAt = null
@@ -124,7 +125,9 @@ internal class InboxEventsExecutorTests
         await _inboxRepository
             .Received(1)
             .UpdateEventsAsync(Arg.Is<IEnumerable<InboxMessage>>(x =>
-                x.Count() == 1 && x.First().TryCount == 0 && x.First().ProcessedAt != null)
+                x.Count() == 1 &&
+                x.First().TryCount == 0 &&
+                x.First().ProcessedAt != null)
             );
     }
 
@@ -158,7 +161,9 @@ internal class InboxEventsExecutorTests
         await _inboxRepository
             .Received(1)
             .UpdateEventsAsync(Arg.Is<IEnumerable<InboxMessage>>(x =>
-                x.Count() == 1 && x.First().TryCount == 1 && x.First().ProcessedAt == null)
+                x.Count() == 1 &&
+                x.First().TryCount == 1 &&
+                x.First().ProcessedAt == null)
             );
     }
 
@@ -166,15 +171,12 @@ internal class InboxEventsExecutorTests
 
     #region Helper methods
 
-    /// <summary>
-    /// Get the receivers information from the ReceivedEventExecutor
-    /// </summary>
     private Dictionary<string, List<EventHandlerInformation>> GetHandlersInformation()
     {
         const string receiversFieldName = "_receivers";
         var field = _inboxEventsExecutor.GetType().GetField(receiversFieldName,
             BindingFlags.NonPublic | BindingFlags.Instance);
-        field.Should().NotBeNull();
+        Assert.That(field, Is.Not.Null, "_receivers field not found via reflection");
 
         var receivers = (Dictionary<string, List<EventHandlerInformation>>)field!.GetValue(_inboxEventsExecutor);
         return receivers;

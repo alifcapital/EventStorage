@@ -4,7 +4,6 @@ using EventStorage.Inbox.Models;
 using EventStorage.Inbox.Repositories;
 using EventStorage.Models;
 using EventStorage.Tests.Domain;
-using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using NSubstitute;
@@ -40,7 +39,7 @@ public class InboxEventManagerTests
 
         var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
 
-        result.Should().BeTrue();
+        Assert.That(result, Is.True);
 
         _inboxRepository.Received(1)
             .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
@@ -72,7 +71,7 @@ public class InboxEventManagerTests
 
         var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
 
-        result.Should().BeTrue();
+        Assert.That(result, Is.True);
 
         var headerAsJson = JsonSerializer.Serialize(headers);
         _inboxRepository.Received(1)
@@ -105,7 +104,7 @@ public class InboxEventManagerTests
 
         var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
 
-        result.Should().BeTrue();
+        Assert.That(result, Is.True);
 
         var additionalDataAsJson = JsonSerializer.Serialize(additionalData);
         _inboxRepository.Received(1)
@@ -143,7 +142,7 @@ public class InboxEventManagerTests
 
         var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
 
-        result.Should().BeTrue();
+        Assert.That(result, Is.True);
 
         var headerAsJson = JsonSerializer.Serialize(headers);
         var additionalDataAsJson = JsonSerializer.Serialize(additionalData);
@@ -177,7 +176,7 @@ public class InboxEventManagerTests
 
         var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
 
-        result.Should().BeTrue();
+        Assert.That(result, Is.True);
 
         _inboxRepository.Received(1)
             .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
@@ -203,7 +202,7 @@ public class InboxEventManagerTests
 
         var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
 
-        result.Should().BeTrue();
+        Assert.That(result, Is.True);
 
         _inboxRepository.Received(1)
             .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
