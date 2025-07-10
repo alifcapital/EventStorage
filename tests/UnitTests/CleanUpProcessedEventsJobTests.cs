@@ -30,7 +30,6 @@ internal class CleanUpProcessedEventsJobTests<TEventRepository, TEventBox>
     [Test]
     public async Task StartAsync_SettingsDaysToCleanIsOne_ShouldDelete()
     {
-        // Arrange
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
         _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);
@@ -43,11 +42,9 @@ internal class CleanUpProcessedEventsJobTests<TEventRepository, TEventBox>
             logger: _logger
         );
         var cancellationToken = CancellationToken.None;
-
-        // Act
+        
         await cleanUpProcessedEventsService.StartAsync(cancellationToken);
-
-        // Assert
+        
         await _eventRepository.Received().DeleteProcessedEventsAsync(
             Arg.Is<DateTime>(d => d.Day == DateTime.Now.AddDays(-1).Day)
         );
@@ -56,7 +53,6 @@ internal class CleanUpProcessedEventsJobTests<TEventRepository, TEventBox>
     [Test]
     public async Task StartAsync_SettingsDaysToCleanIsZero_ShouldNotDelete()
     {
-        // Arrange
         _settings.DaysToCleanUpEvents = 0;
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
@@ -70,18 +66,15 @@ internal class CleanUpProcessedEventsJobTests<TEventRepository, TEventBox>
             logger: _logger
         );
         var cancellationToken = CancellationToken.None;
-
-        // Act
+        
         await cleanUpProcessedEventsService.StartAsync(cancellationToken);
-
-        // Assert
+        
         await _eventRepository.DidNotReceive().DeleteProcessedEventsAsync(Arg.Any<DateTime>());
     }
     
     [Test]
     public async Task StartAsync_WhenReceiveExceptionWhileDeleting_ShouldLogException()
     {
-        // Arrange
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
         _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);
@@ -101,11 +94,9 @@ internal class CleanUpProcessedEventsJobTests<TEventRepository, TEventBox>
         _eventRepository
             .When(x => x.DeleteProcessedEventsAsync(Arg.Any<DateTime>()))
             .Throw(new Exception("Simulated exception"));
-
-        // Act
+        
         await cleanUpProcessedEventsService.StartAsync(stoppingToken.Token);
-
-        // Assert
+        
         _logger.Received(1).Log(
             LogLevel.Critical,
             Arg.Any<EventId>(),

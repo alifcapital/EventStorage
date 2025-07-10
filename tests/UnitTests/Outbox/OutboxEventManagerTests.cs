@@ -7,7 +7,6 @@ using EventStorage.Outbox.Managers;
 using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Repositories;
 using EventStorage.Tests.Domain;
-using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 
@@ -82,8 +81,8 @@ public class OutboxEventManagerTests
         );
 
         var collectedEvents = GetCollectedEvents();
-        Assert.That(collectedEvents.Any(m => m.Provider == EventProviderType.MessageBroker.ToString()), Is.True);
-        result.Should().BeTrue();
+        Assert.That(collectedEvents.Any(m => m.Provider == nameof(EventProviderType.MessageBroker)), Is.True);
+        Assert.That(result, Is.True);
     }
 
     [Test]
@@ -332,13 +331,13 @@ public class OutboxEventManagerTests
             EventProviderType.MessageBroker
         );
         var eventsToSend = GetCollectedEvents();
-        eventsToSend.Should().HaveCount(2);
+        Assert.That(eventsToSend, Has.Count.EqualTo(2));
         _outboxRepository.BulkInsertEvents(Arg.Any<OutboxMessage[]>()).Returns(true);
 
         _outboxEventManager.Dispose();
 
         eventsToSend = GetCollectedEvents();
-        eventsToSend.Should().HaveCount(0);
+        Assert.That(eventsToSend, Has.Count.EqualTo(0));
     }
 
     [Test]

@@ -37,7 +37,6 @@ public class OutboxEventsExecutorJobTests
     [Test]
     public async Task StartAsync_WithDefaultSettings_ShouldWork()
     {
-        // Arrange
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
         _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);
@@ -52,11 +51,9 @@ public class OutboxEventsExecutorJobTests
             logger: _logger
         );
         var cancellationToken = CancellationToken.None;
-
-        // Act
+        
         await eventsReceiverService.StartAsync(cancellationToken);
-
-        // Assert
+        
         inboxRepository.Received(1).CreateTableIfNotExists();
 
         //We cannot test this because it is an asynchronous method
@@ -66,7 +63,6 @@ public class OutboxEventsExecutorJobTests
     [Test]
     public async Task StartAsync_ThrowingExceptionOnExecutingUnprocessedEvents_ShouldLogException()
     {
-        // Arrange
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
         _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);
@@ -88,11 +84,9 @@ public class OutboxEventsExecutorJobTests
         _outboxEventsExecutor
             .When(x => x.ExecuteUnprocessedEvents(Arg.Any<CancellationToken>()))
             .Do(_ => throw new Exception("Test exception"));
-
-        // Act
+        
         await eventsPublisherService.StartAsync(CancellationToken.None);
-
-        // Assert
+        
         _logger.Received(1).Log(
             LogLevel.Critical,
             Arg.Any<EventId>(),
@@ -105,7 +99,6 @@ public class OutboxEventsExecutorJobTests
     [Test]
     public async Task StartAsync_CancellationRequested_ShouldStopWithCancellationRequestTrue()
     {
-        // Arrange
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
         _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);
@@ -126,12 +119,10 @@ public class OutboxEventsExecutorJobTests
             settings: _settings,
             logger: _logger
         );
-
-        // Act
+        
         _ = eventsPublisherService.StartAsync(cancellationToken);
         await stoppingToken.CancelAsync();
         
-        // Assert
         await _outboxEventsExecutor.Received().ExecuteUnprocessedEvents(
             Arg.Is<CancellationToken>(ct => ct.IsCancellationRequested == true)
         );
