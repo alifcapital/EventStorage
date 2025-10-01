@@ -62,7 +62,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
             handlersInformation = [];
             _receivers.Add(receiverKey, handlersInformation);
         }
-        
+
         var hasHeaders = HasHeadersType.IsAssignableFrom(typeOfHandlerEvent);
         var hasAdditionalData = HasAdditionalDataType.IsAssignableFrom(typeOfHandlerEvent);
         var handleMethod = typeOfEventHandler.GetMethod(HandleMethodName);
@@ -95,7 +95,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
 
             stoppingToken.ThrowIfCancellationRequested();
             using var activity = CreateActivityForExecutingUnprocessedEventsIfEnabled(eventsToHandle.Length);
-            
+
             var tasks = eventsToHandle.Select(async eventToReceive =>
             {
                 await _semaphore.WaitAsync(stoppingToken);
@@ -124,47 +124,62 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         }
     }
 
-    private async Task ExecuteEventHandlers(IInboxMessage message, IServiceProvider serviceProvider, Activity parentActivity)
+    private async Task ExecuteEventHandlers(IInboxMessage inboxMessage, IServiceProvider serviceProvider,
+        Activity parentActivity)
     {
         try
         {
-            var receiverKey = GetHandlerKey(message.EventName, message.Provider);
+            var receiverKey = GetHandlerKey(inboxMessage.EventName, inboxMessage.Provider);
             if (_receivers.TryGetValue(receiverKey, out var inboxEventsInformation))
             {
-                using var activity = CreateActivityForExecutingHandlersIfEnabled(message, parentActivity);
+                using var activity = CreateActivityForExecutingHandlersIfEnabled(inboxMessage, parentActivity);
 
-                //Create a new scope to execute the receiver service as a scoped service for each event
+                // Create a new scope to execute the receiver services of the event as a scoped service
+                // because each event's handlers must be executed in a separate scope to avoid conflicts in scoped services like DbContext.
                 using var serviceScope = serviceProvider.CreateScope();
+                var isOnExecutingEventInvoked = false;
 
                 foreach (var inboxEventInformation in inboxEventsInformation)
                 {
-                    var inboxEvent = LoadInboxEvent(message, inboxEventInformation);
-                    OnExecutingInboxEvent(inboxEvent, inboxEventInformation.ProviderType,
-                        serviceScope.ServiceProvider);
-                    
-                    var eventReceiver = serviceScope.ServiceProvider.GetRequiredService(inboxEventInformation.EventHandlerType);
+                    var inboxEvent = LoadInboxEvent(inboxMessage, inboxEventInformation);
+                    if (!isOnExecutingEventInvoked)
+                    {
+                        OnExecutingInboxEvent(inboxEvent, inboxEventInformation.ProviderType,
+                            serviceScope.ServiceProvider);
+                        isOnExecutingEventInvoked = true;
+                    }
+
+                    var eventReceiver =
+                        serviceScope.ServiceProvider.GetRequiredService(inboxEventInformation.EventHandlerType);
                     await ((Task)inboxEventInformation.HandleMethod.Invoke(eventReceiver,
                         [inboxEvent]))!;
                 }
 
-                OnEndingInboxEvent(message, serviceScope.ServiceProvider);
-                
-                message.Processed();
+                OnEndingInboxEvent(inboxMessage, serviceScope.ServiceProvider);
+
+                inboxMessage.Processed();
 
                 return;
             }
 
-            _logger.LogError(
-                "No event event handler configured for the {EventTypeName} type name of inbox event with ID: {EventId}.",
-                message.EventName, message.Id);
-
-            message.Failed(0, _settings.TryAfterMinutesIfEventNotFound);
+            MarkEventAsFailedWhenThereIsNoPublisher();
         }
         catch (Exception e)
         {
-            var exception = new EventStoreException(e, $"Error while executing handler of inbox event with ID: {message.Id}");
+            var exception =
+                new EventStoreException(e, $"Error while executing handler of inbox event with ID: {inboxMessage.Id}");
             _logger.LogError(exception, exception.Message);
             throw exception;
+        }
+
+        return;
+
+        void MarkEventAsFailedWhenThereIsNoPublisher()
+        {
+            inboxMessage.Failed(0, _settings.TryAfterMinutesIfEventNotFound);
+            _logger.LogError(
+                "No event handler configured for the {EventType} type name of inbox event with id {EventId} which is {ProviderType} provider(s).",
+                inboxMessage.EventName, inboxMessage.Id, inboxMessage.Provider);
         }
     }
 
@@ -196,7 +211,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     /// </summary>
     /// <param name="message">Information of the inbox event</param>
     /// <param name="serviceProvider">The IServiceProvider used to resolve dependencies from the scope.</param>
-    private void OnEndingInboxEvent(IInboxMessage message,  IServiceProvider serviceProvider)
+    private void OnEndingInboxEvent(IInboxMessage message, IServiceProvider serviceProvider)
     {
         if (DisposingEventHandlerScope is null)
             return;
@@ -253,7 +268,8 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     {
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
-        var traceName = $"{EventStorageTraceInstrumentation.InboxEventTag}: Executing a publisher(s) of the {inboxMessage.EventName} event";
+        var traceName =
+            $"{EventStorageTraceInstrumentation.InboxEventTag}: Executing a publisher(s) of the {inboxMessage.EventName} event";
         var traceParentId = parentActivity?.Id;
         var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId);
         activity?.SetTag(EventStorageTraceInstrumentation.EventIdTag, inboxMessage.Id);
@@ -270,7 +286,8 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     {
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
-        var traceName = $"{EventStorageTraceInstrumentation.InboxEventTag}: Executing {eventsCount} unprocessed event(s)";
+        var traceName =
+            $"{EventStorageTraceInstrumentation.InboxEventTag}: Executing {eventsCount} unprocessed event(s)";
         var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server);
 
         return activity;

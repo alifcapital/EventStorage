@@ -1,6 +1,4 @@
 using EventStorage.Configurations;
-using EventStorage.Extensions;
-using EventStorage.Inbox.EventArgs;
 using EventStorage.Inbox.Repositories;
 using EventStorage.Outbox.Repositories;
 using EventStorage.Tests.Infrastructure;

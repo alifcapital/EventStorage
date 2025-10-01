@@ -9,4 +9,4 @@ namespace EventStorage.Tests.UnitTests.Outbox;
 /// </summary>
 [TestFixture]
 internal class CleanUpProcessedOutboxEventsJobTests : 
-    CleanUpProcessedEventsJobTests<IOutboxRepository, OutboxMessage>;
+    BaseCleanUpProcessedEventsJobTests<IOutboxRepository, OutboxMessage>;
