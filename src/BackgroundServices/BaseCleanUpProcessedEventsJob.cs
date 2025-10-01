@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace EventStorage.BackgroundServices;
 
-internal class CleanUpProcessedEventsJob<TEventRepository, TEventBox> : BackgroundService
+internal abstract class BaseCleanUpProcessedEventsJob<TEventRepository, TEventBox> : BackgroundService
     where TEventBox : class, IBaseMessageBox
     where TEventRepository : IEventRepository<TEventBox>
 {
@@ -15,7 +15,7 @@ internal class CleanUpProcessedEventsJob<TEventRepository, TEventBox> : Backgrou
     private readonly ILogger _logger;
     private readonly InboxOrOutboxStructure _settings;
 
-    public CleanUpProcessedEventsJob(IServiceProvider services,
+    protected BaseCleanUpProcessedEventsJob(IServiceProvider services,
         InboxOrOutboxStructure settings, ILogger logger)
     {
         _services = services;

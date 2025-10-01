@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
 

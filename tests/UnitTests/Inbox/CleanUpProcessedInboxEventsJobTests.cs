@@ -5,4 +5,4 @@ namespace EventStorage.Tests.UnitTests.Inbox;
 
 [TestFixture]
 internal class CleanUpProcessedInboxEventsJobTests : 
-    CleanUpProcessedEventsJobTests<IInboxRepository, InboxMessage>;
+    BaseCleanUpProcessedEventsJobTests<IInboxRepository, InboxMessage>;

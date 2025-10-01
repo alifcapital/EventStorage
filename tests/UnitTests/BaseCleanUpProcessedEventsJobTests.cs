@@ -2,13 +2,14 @@ using EventStorage.BackgroundServices;
 using EventStorage.Configurations;
 using EventStorage.Models;
 using EventStorage.Repositories;
+using EventStorage.Tests.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 
 namespace EventStorage.Tests.UnitTests;
 
-internal class CleanUpProcessedEventsJobTests<TEventRepository, TEventBox>
+internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEventBox>
     where TEventBox : class, IBaseMessageBox
     where TEventRepository : class, IEventRepository<TEventBox>
 {
@@ -27,6 +28,7 @@ internal class CleanUpProcessedEventsJobTests<TEventRepository, TEventBox>
     }
 
     #region StartAsync
+    
     [Test]
     public async Task StartAsync_SettingsDaysToCleanIsOne_ShouldDelete()
     {
