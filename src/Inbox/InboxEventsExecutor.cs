@@ -271,7 +271,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         var traceName =
             $"{EventStorageTraceInstrumentation.InboxEventTag}: Executing a publisher(s) of the {inboxMessage.EventName} event";
         var traceParentId = parentActivity?.Id;
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId);
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId, spanType: EventStorageTraceInstrumentation.InboxEventTag);
         activity?.SetTag(EventStorageTraceInstrumentation.EventIdTag, inboxMessage.Id);
 
         return activity;
@@ -288,7 +288,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
 
         var traceName =
             $"{EventStorageTraceInstrumentation.InboxEventTag}: Executing {eventsCount} unprocessed event(s)";
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server);
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, spanType: EventStorageTraceInstrumentation.InboxEventTag);
 
         return activity;
     }

@@ -259,7 +259,7 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
 
         var traceName = $"{TraceMessageTag}: Storing {message.EventName} event";
         var traceParentId = Activity.Current?.Id;
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId);
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId, spanType: TraceMessageTag);
         activity?.SetTag(EventStorageTraceInstrumentation.EventIdTag, message.Id);
         activity?.SetTag(EventStorageTraceInstrumentation.EventProviderTag, message.Provider);
 
@@ -279,7 +279,7 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
         const string nameSeparator = ", ";
         var traceName = $"{TraceMessageTag}: Storing {messages.Length} event(s)";
         var traceParentId = Activity.Current?.Id;
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId);
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId, spanType: TraceMessageTag);
         activity?.SetTag(eventIdTag, string.Join(nameSeparator, messages.Select(e => e.EventName)));
 
         return activity;

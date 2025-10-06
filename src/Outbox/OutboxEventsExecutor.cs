@@ -226,7 +226,7 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
 
         var traceName = $"{EventStorageTraceInstrumentation.OutboxEventTag}: Executing a publisher(s) of the {outboxMessage.EventName} event";
         var traceParentId = parentActivity?.Id;
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId);
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId, spanType: EventStorageTraceInstrumentation.OutboxEventTag);
         activity?.SetTag(EventStorageTraceInstrumentation.EventIdTag, outboxMessage.Id);
 
         return activity;
@@ -242,7 +242,7 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
         var traceName = $"{EventStorageTraceInstrumentation.OutboxEventTag}: Executing {eventsCount} unprocessed event(s)";
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server);
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, spanType: EventStorageTraceInstrumentation.OutboxEventTag);
 
         return activity;
     }
