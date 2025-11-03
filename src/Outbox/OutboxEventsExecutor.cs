@@ -147,10 +147,9 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
                     return;
                 }
                 
-                var logDisplayTitle =
-                    $"{EventStorageInvestigationTagNames.OutboxEventTag}: Executing a publisher(s) of the {outboxMessage.EventName} event";
-                using var logScope = _logger.CreateScopeAndAttachEventInfo(outboxMessage, logDisplayTitle);
-                using var activity = CreateActivityForExecutingPublishersIfEnabled(outboxMessage, parentActivity, logDisplayTitle);
+                _logger.LogDebug("{StorageType}: Executing publishers of the event '{EventName}' (ID: {MessageId})", 
+                    EventStorageInvestigationTagNames.OutboxEventTag, outboxMessage.EventName, outboxMessage.Id);
+                using var activity = CreateActivityForExecutingPublishersIfEnabled(outboxMessage, parentActivity);
                 
                 var firstEventInfo = publishers.First().Value;
                 var jsonSerializerSetting = outboxMessage.GetJsonSerializer();
@@ -229,15 +228,16 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
     /// </summary>
     /// <param name="outboxMessage">The outbox message for which the activity is created.</param>
     /// <param name="parentActivity">The parent activity to link to, if available.</param>
-    /// <param name="logDisplayTitle">The display title for logging purposes.</param>
     /// <returns>Newly created activity or null if tracing is not enabled.</returns>
     private Activity CreateActivityForExecutingPublishersIfEnabled(IOutboxMessage outboxMessage,
-        Activity parentActivity, string logDisplayTitle)
+        Activity parentActivity)
     {
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
+        var traceName =
+            $"{EventStorageInvestigationTagNames.InboxEventTag}: Executing publishers of the {outboxMessage.EventName} event";
         var traceParentId = parentActivity?.Id;
-        var activity = EventStorageTraceInstrumentation.StartActivity(logDisplayTitle, ActivityKind.Server, traceParentId,
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId,
             spanType: EventStorageInvestigationTagNames.OutboxEventTag);
         activity?.AttachEventInfo(outboxMessage);
 

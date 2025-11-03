@@ -134,10 +134,9 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
             var receiverKey = GetHandlerKey(inboxMessage.EventName, inboxMessage.Provider);
             if (_receivers.TryGetValue(receiverKey, out var inboxEventsInformation))
             {
-                var logDisplayTitle =
-                    $"{EventStorageInvestigationTagNames.InboxEventTag}: Executing a subscriber(s) of the {inboxMessage.EventName} event";
-                using var logScope = _logger.CreateScopeAndAttachEventInfo(inboxMessage, logDisplayTitle);
-                using var activity = CreateActivityForExecutingHandlersIfEnabled(inboxMessage, parentActivity, logDisplayTitle);
+                _logger.LogDebug("{StorageType}: Executing subscribers of the event '{EventName}'(ID: {MessageId})", 
+                    EventStorageInvestigationTagNames.InboxEventTag, inboxMessage.EventName, inboxMessage.Id);
+                using var activity = CreateActivityForExecutingHandlersIfEnabled(inboxMessage, parentActivity);
 
                 // Create a new scope to execute the receiver services of the event as a scoped service
                 // because each event's handlers must be executed in a separate scope to avoid conflicts in scoped services like DbContext.
@@ -268,14 +267,15 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     /// </summary>
     /// <param name="inboxMessage">The outbox message for which the activity is created.</param>
     /// <param name="parentActivity">The parent activity to link to, if available.</param>
-    /// <param name="logDisplayTitle">The display title for logging purposes.</param>
     /// <returns>Newly created activity or null if tracing is not enabled.</returns>
-    private Activity CreateActivityForExecutingHandlersIfEnabled(IInboxMessage inboxMessage, Activity parentActivity, string logDisplayTitle)
+    private Activity CreateActivityForExecutingHandlersIfEnabled(IInboxMessage inboxMessage, Activity parentActivity)
     {
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
+        var traceName =
+            $"{EventStorageInvestigationTagNames.InboxEventTag}: Executing publishers of the {inboxMessage.EventName} event";
         var traceParentId = parentActivity?.Id;
-        var activity = EventStorageTraceInstrumentation.StartActivity(logDisplayTitle, ActivityKind.Server, traceParentId, spanType: EventStorageInvestigationTagNames.InboxEventTag);
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId, spanType: EventStorageInvestigationTagNames.InboxEventTag);
         activity?.AttachEventInfo(inboxMessage);
 
         return activity;
