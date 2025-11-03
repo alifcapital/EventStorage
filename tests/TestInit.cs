@@ -4,6 +4,7 @@ using EventStorage.Outbox.Repositories;
 using EventStorage.Tests.Infrastructure;
 using EventStorage.Tests.Infrastructure.Config;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EventStorage.Tests;
 
@@ -44,10 +45,10 @@ public class TestInit
             using var context = new EventStorageContext();
             context.Database.EnsureCreated();
             
-            var inboxRepository = new InboxRepository(inboxAndOutboxSettings.Inbox);
+            var inboxRepository = new InboxRepository(NullLogger<InboxRepository>.Instance, inboxAndOutboxSettings);
             inboxRepository.CreateTableIfNotExists();
             
-            var outboxRepository = new OutboxRepository(inboxAndOutboxSettings.Outbox);
+            var outboxRepository = new OutboxRepository(NullLogger<OutboxRepository>.Instance, inboxAndOutboxSettings);
             outboxRepository.CreateTableIfNotExists();
         }
 
