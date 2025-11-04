@@ -400,5 +400,5 @@ Yes, we can. The library is designed to work with multiple event receivers for t
 ### Is there any way to investigate the event storage process?
 Yes, we can investigate the event storage process by enabling `logging` or the `open telemetry` in our application.
 The library uses the standard logging and open telemetry mechanism of .NET, so we can use them to investigate purposes.
-Make sure to set the logging level to `Information` or `Debug` to see detailed logs related to event storage.
+Make sure you set the logging level to `Information` or `Debug` to see detailed logs related to processing event.
 
