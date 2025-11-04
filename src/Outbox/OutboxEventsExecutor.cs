@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Text.Json;
 using EventStorage.Configurations;
 using EventStorage.Exceptions;
+using EventStorage.Extensions;
+using EventStorage.Instrumentation;
 using EventStorage.Instrumentation.Trace;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
@@ -100,7 +102,7 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
 
             stoppingToken.ThrowIfCancellationRequested();
             using var activity = CreateActivityForExecutingUnprocessedEventsIfEnabled(eventsToPublish.Length);
-            
+
             var tasks = eventsToPublish.Select(async eventToPublish =>
             {
                 await _semaphore.WaitAsync(stoppingToken);
@@ -129,22 +131,26 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
         }
     }
 
-    private async Task ExecuteEventPublisher(IOutboxMessage outboxMessage, IServiceProvider serviceProvider, Activity parentActivity)
+    private async Task ExecuteEventPublisher(IOutboxMessage outboxMessage, IServiceProvider serviceProvider,
+        Activity parentActivity)
     {
         try
         {
             var publisherKey = GetPublisherKey(outboxMessage.EventName, outboxMessage.EventPath);
             if (_allPublishers.TryGetValue(publisherKey, out var publishers))
             {
-                var eventPublishersToExecute = publishers.Values.Where(x => outboxMessage.Provider.Contains(x.ProviderType)).ToArray();
+                var eventPublishersToExecute =
+                    publishers.Values.Where(x => outboxMessage.Provider.Contains(x.ProviderType)).ToArray();
                 if (eventPublishersToExecute.Length == 0)
                 {
                     MarkEventAsFailedWhenThereIsNoPublisher();
                     return;
                 }
                 
+                _logger.LogDebug("{StorageType}: Executing publishers of the event '{EventName}' (ID: {MessageId})", 
+                    EventStorageInvestigationTagNames.OutboxEventTag, outboxMessage.EventName, outboxMessage.Id);
                 using var activity = CreateActivityForExecutingPublishersIfEnabled(outboxMessage, parentActivity);
-
+                
                 var firstEventInfo = publishers.First().Value;
                 var jsonSerializerSetting = outboxMessage.GetJsonSerializer();
                 var eventToPublish =
@@ -160,10 +166,12 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
 
                 foreach (var publisherInformation in eventPublishersToExecute)
                 {
-                    var eventHandlerSubscriber = serviceProvider.GetRequiredService(publisherInformation.EventPublisherType);
+                    var eventHandlerSubscriber =
+                        serviceProvider.GetRequiredService(publisherInformation.EventPublisherType);
 
                     await ((Task)publisherInformation.PublishMethod.Invoke(eventHandlerSubscriber, [eventToPublish]))!;
                 }
+
                 outboxMessage.Processed();
 
                 return;
@@ -177,6 +185,7 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
             _logger.LogError(exception, exception.Message);
             throw exception;
         }
+
         return;
 
         void MarkEventAsFailedWhenThereIsNoPublisher()
@@ -220,14 +229,17 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
     /// <param name="outboxMessage">The outbox message for which the activity is created.</param>
     /// <param name="parentActivity">The parent activity to link to, if available.</param>
     /// <returns>Newly created activity or null if tracing is not enabled.</returns>
-    private Activity CreateActivityForExecutingPublishersIfEnabled(IOutboxMessage outboxMessage, Activity parentActivity)
+    private Activity CreateActivityForExecutingPublishersIfEnabled(IOutboxMessage outboxMessage,
+        Activity parentActivity)
     {
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
-        var traceName = $"{EventStorageTraceInstrumentation.OutboxEventTag}: Executing a publisher(s) of the {outboxMessage.EventName} event";
+        var traceName =
+            $"{EventStorageInvestigationTagNames.InboxEventTag}: Executing publishers of the {outboxMessage.EventName} event";
         var traceParentId = parentActivity?.Id;
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId, spanType: EventStorageTraceInstrumentation.OutboxEventTag);
-        activity?.SetTag(EventStorageTraceInstrumentation.EventIdTag, outboxMessage.Id);
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId,
+            spanType: EventStorageInvestigationTagNames.OutboxEventTag);
+        activity?.AttachEventInfo(outboxMessage);
 
         return activity;
     }
@@ -241,8 +253,10 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
     {
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
-        var traceName = $"{EventStorageTraceInstrumentation.OutboxEventTag}: Executing {eventsCount} unprocessed event(s)";
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, spanType: EventStorageTraceInstrumentation.OutboxEventTag);
+        var traceName =
+            $"{EventStorageInvestigationTagNames.OutboxEventTag}: Executing {eventsCount} unprocessed event(s)";
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server,
+            spanType: EventStorageInvestigationTagNames.OutboxEventTag);
 
         return activity;
     }

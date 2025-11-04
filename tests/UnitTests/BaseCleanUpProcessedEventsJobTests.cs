@@ -1,4 +1,3 @@
-using EventStorage.BackgroundServices;
 using EventStorage.Configurations;
 using EventStorage.Models;
 using EventStorage.Repositories;

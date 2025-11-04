@@ -2,13 +2,16 @@ using System.Diagnostics;
 using Dapper;
 using EventStorage.Configurations;
 using EventStorage.Exceptions;
+using EventStorage.Extensions;
 using EventStorage.Instrumentation.Trace;
 using EventStorage.Models;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace EventStorage.Repositories;
 
-internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure settings) : IEventRepository<TBaseMessage>
+internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOutboxStructure settings)
+    : IEventRepository<TBaseMessage>
     where TBaseMessage : class, IBaseMessageBox
 {
     private readonly string _tableName = settings.TableName;
@@ -66,7 +69,7 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
 
     public bool InsertEvent(TBaseMessage message)
     {
-        using var activity = CreateActivityIfEnabled(message);
+        using var activity = CreateLogsForInvestigation(message);
         using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
@@ -87,7 +90,7 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
 
     public async Task<bool> InsertEventAsync(TBaseMessage message)
     {
-        using var activity = CreateActivityIfEnabled(message);
+        using var activity = CreateLogsForInvestigation(message);
         await using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
@@ -108,7 +111,7 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
 
     public async Task<bool> BulkInsertEventsAsync(TBaseMessage[] events)
     {
-        using var activity = CreateActivityForBulkInsertIfEnabled(events);
+        using var activity = CreateActivityAndAddLogForBulkInsertIfEnabled(events);
         await using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
@@ -130,7 +133,7 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
 
     public bool BulkInsertEvents(TBaseMessage[] events)
     {
-        using var activity = CreateActivityForBulkInsertIfEnabled(events);
+        using var activity = CreateActivityAndAddLogForBulkInsertIfEnabled(events);
         using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
@@ -249,38 +252,45 @@ internal abstract class EventRepository<TBaseMessage>(InboxOrOutboxStructure set
     #region Helper methods
 
     /// <summary>
-    /// Creates an activity for tracing if the instrumentation is enabled. Also sets tags for event ID and provider.
+    /// Creates an activity for tracing if the instrumentation is enabled. Also add logging scope with event info.
     /// </summary>
     /// <param name="message">The message for which the activity is created.</param>
     /// <returns>Newly created activity or null if tracing is not enabled.</returns>
-    private Activity CreateActivityIfEnabled(TBaseMessage message)
+    private Activity CreateLogsForInvestigation(TBaseMessage message)
     {
+        logger.LogDebug("{StorageType}: Storing event '{EventName}' with ID {MessageId}", TraceMessageTag, message.EventName, message.Id);
+
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
-        var traceName = $"{TraceMessageTag}: Storing {message.EventName} event";
         var traceParentId = Activity.Current?.Id;
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId, spanType: TraceMessageTag);
-        activity?.SetTag(EventStorageTraceInstrumentation.EventIdTag, message.Id);
-        activity?.SetTag(EventStorageTraceInstrumentation.EventProviderTag, message.Provider);
+        var spanName = $"{TraceMessageTag}: Storing {message.EventName} event";
+        var activity = EventStorageTraceInstrumentation.StartActivity(spanName, ActivityKind.Server,
+            traceParentId, spanType: TraceMessageTag);
+        activity?.AttachEventInfo(message);
 
         return activity;
     }
 
     /// <summary>
     /// Creates an activity for tracing if the instrumentation is enabled. Also sets tags for event names.
+    /// Also adds a debug log about the bulk insert operation.
     /// </summary>
     /// <param name="messages">The array of messages which will be stored.</param>
     /// <returns>Newly created activity or null if tracing is not enabled.</returns>
-    private Activity CreateActivityForBulkInsertIfEnabled(TBaseMessage[] messages)
+    private Activity CreateActivityAndAddLogForBulkInsertIfEnabled(TBaseMessage[] messages)
     {
+        logger.LogDebug("{StorageType}: Storing {MessagesCount} event(s)", TraceMessageTag, messages.Length);
+        
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
         const string eventIdTag = "event.names";
         const string nameSeparator = ", ";
-        var traceName = $"{TraceMessageTag}: Storing {messages.Length} event(s)";
         var traceParentId = Activity.Current?.Id;
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId, spanType: TraceMessageTag);
-        activity?.SetTag(eventIdTag, string.Join(nameSeparator, messages.Select(e => e.EventName)));
+        var spanName = $"{TraceMessageTag}: Storing {messages.Length} event(s)";
+        var insertingEventIds = string.Join(nameSeparator, messages.Select(e => e.EventName));
+        var activity = EventStorageTraceInstrumentation.StartActivity(spanName, ActivityKind.Server, traceParentId,
+            spanType: TraceMessageTag);
+        activity?.SetTag(eventIdTag, insertingEventIds);
 
         return activity;
     }

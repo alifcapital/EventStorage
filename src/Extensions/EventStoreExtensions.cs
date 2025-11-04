@@ -53,14 +53,7 @@ public static class EventStoreExtensions
 
         if (settings.Outbox.IsEnabled)
         {
-            services.AddScoped<IOutboxRepository>(serviceProvider =>
-            {
-                var defaultSettings = serviceProvider.GetRequiredService<InboxAndOutboxSettings>();
-                var reporitory = new OutboxRepository(defaultSettings.Outbox);
-
-                return reporitory;
-            });
-
+            services.AddScoped<IOutboxRepository, OutboxRepository>();
             RegisterAllEventsOfOutboxToDependencyInjection(services, assemblies);
             services.AddSingleton<IOutboxEventsExecutor>(serviceProvider =>
             {
@@ -77,13 +70,7 @@ public static class EventStoreExtensions
         if (settings.Inbox.IsEnabled)
         {
             services.AddScoped<IInboxEventManager, InboxEventManager>();
-            services.AddScoped<IInboxRepository>(serviceProvider =>
-            {
-                var defaultSettings = serviceProvider.GetRequiredService<InboxAndOutboxSettings>();
-                var reporitory = new InboxRepository(defaultSettings.Inbox);
-
-                return reporitory;
-            });
+            services.AddScoped<IInboxRepository, InboxRepository>();
 
             if (executingReceivedEvents != null)
             {
