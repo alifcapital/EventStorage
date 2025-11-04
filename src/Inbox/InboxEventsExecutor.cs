@@ -2,10 +2,12 @@ using System.Diagnostics;
 using System.Text.Json;
 using EventStorage.Configurations;
 using EventStorage.Exceptions;
+using EventStorage.Extensions;
 using EventStorage.Inbox.EventArgs;
 using EventStorage.Inbox.Models;
 using EventStorage.Inbox.Providers;
 using EventStorage.Inbox.Repositories;
+using EventStorage.Instrumentation;
 using EventStorage.Instrumentation.Trace;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
@@ -132,6 +134,8 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
             var receiverKey = GetHandlerKey(inboxMessage.EventName, inboxMessage.Provider);
             if (_receivers.TryGetValue(receiverKey, out var inboxEventsInformation))
             {
+                _logger.LogDebug("{StorageType}: Executing subscribers of the event '{EventName}'(ID: {MessageId})", 
+                    EventStorageInvestigationTagNames.InboxEventTag, inboxMessage.EventName, inboxMessage.Id);
                 using var activity = CreateActivityForExecutingHandlersIfEnabled(inboxMessage, parentActivity);
 
                 // Create a new scope to execute the receiver services of the event as a scoped service
@@ -269,10 +273,10 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
         var traceName =
-            $"{EventStorageTraceInstrumentation.InboxEventTag}: Executing a publisher(s) of the {inboxMessage.EventName} event";
+            $"{EventStorageInvestigationTagNames.InboxEventTag}: Executing publishers of the {inboxMessage.EventName} event";
         var traceParentId = parentActivity?.Id;
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId, spanType: EventStorageTraceInstrumentation.InboxEventTag);
-        activity?.SetTag(EventStorageTraceInstrumentation.EventIdTag, inboxMessage.Id);
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId, spanType: EventStorageInvestigationTagNames.InboxEventTag);
+        activity?.AttachEventInfo(inboxMessage);
 
         return activity;
     }
@@ -287,8 +291,8 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
         var traceName =
-            $"{EventStorageTraceInstrumentation.InboxEventTag}: Executing {eventsCount} unprocessed event(s)";
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, spanType: EventStorageTraceInstrumentation.InboxEventTag);
+            $"{EventStorageInvestigationTagNames.InboxEventTag}: Executing {eventsCount} unprocessed event(s)";
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, spanType: EventStorageInvestigationTagNames.InboxEventTag);
 
         return activity;
     }

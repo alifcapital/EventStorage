@@ -1,6 +1,7 @@
 using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Repositories;
 using EventStorage.Tests.Infrastructure;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EventStorage.Tests.UnitTests.Outbox
 {
@@ -9,8 +10,8 @@ namespace EventStorage.Tests.UnitTests.Outbox
     /// written for the generic type.
     /// </summary>
     [TestFixture]
-    internal class OutboxRepositoryTestses() : EventRepositoryTests<OutboxMessage>(
-        eventRepository: new OutboxRepository(InboxAndOutboxSettings.Outbox),
+    internal class OutboxRepositoryTests() : EventRepositoryTests<OutboxMessage>(
+        eventRepository: new OutboxRepository(NullLogger<OutboxRepository>.Instance, InboxAndOutboxSettings),
         dataContext: new DataContext<OutboxMessage>(
             InboxAndOutboxSettings.Outbox.ConnectionString,
             InboxAndOutboxSettings.Outbox.TableName

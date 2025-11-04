@@ -1,12 +1,14 @@
 using EventStorage.Configurations;
+using EventStorage.Instrumentation;
 using EventStorage.Instrumentation.Trace;
 using EventStorage.Outbox.Models;
 using EventStorage.Repositories;
+using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Outbox.Repositories;
 
-internal class OutboxRepository(InboxOrOutboxStructure settings)
-    : EventRepository<OutboxMessage>(settings), IOutboxRepository
+internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutboxSettings settings)
+    : EventRepository<OutboxMessage>(logger, settings.Outbox), IOutboxRepository
 {
-    protected override string TraceMessageTag => EventStorageTraceInstrumentation.OutboxEventTag;
+    protected override string TraceMessageTag => EventStorageInvestigationTagNames.OutboxEventTag;
 }
