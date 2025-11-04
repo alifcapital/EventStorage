@@ -3,8 +3,8 @@ name: Event storage tests
 on:
   pull_request:
     branches: [ main ]
-    
-  workflow_call:
+      
+  workflow_dispatch:  # Allows the workflow to be triggered manually
 
 jobs:
   Testing:
