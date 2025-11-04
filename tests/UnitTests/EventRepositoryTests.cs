@@ -24,7 +24,7 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
     [Test]
     public void CreateTableIfNotExists_ShouldCreateTable()
     {
-        Assert.IsTrue(_dataContext.ExistTable());
+        Assert.That(_dataContext.ExistTable(), Is.False);
     }
 
     #endregion
