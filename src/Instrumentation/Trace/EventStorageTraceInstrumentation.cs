@@ -37,8 +37,7 @@ internal static class EventStorageTraceInstrumentation
         var activity = ActivitySource.StartActivity(name, kind, parentContext);
         if (activity == null) return null;
         
-        const string spanTypeTagName = "messaging.system";
-        activity.AddTag(spanTypeTagName, spanType);
+        activity.AddTag(EventStorageInvestigationTagNames.TraceMessagingTagName, spanType);
 
         return activity;
     }

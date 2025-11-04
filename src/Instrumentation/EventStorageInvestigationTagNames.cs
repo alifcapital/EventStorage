@@ -7,6 +7,11 @@
 public class EventStorageInvestigationTagNames
 {
     /// <summary>
+    /// The tag to add the messaging system name to a trace for being able to filter the spans from the tracing system.
+    /// </summary>
+    public const string TraceMessagingTagName = "messaging.system";
+    
+    /// <summary>
     /// The tag to add the payload of event to a trace
     /// </summary>
     internal const string InboxEventTag = "Inbox";
