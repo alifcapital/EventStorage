@@ -1,7 +1,8 @@
+using EventStorage.BackgroundServices;
 using EventStorage.Configurations;
 using EventStorage.Inbox.Repositories;
+using EventStorage.Services;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Inbox.BackgroundServices;
@@ -11,37 +12,10 @@ internal class InboxEventsExecutorJob(
     IInboxEventsExecutor inboxEventsExecutor,
     InboxAndOutboxSettings settings,
     ILogger<InboxEventsExecutorJob> logger)
-    : BackgroundService
+    : BaseEventsExecutorJob(services, inboxEventsExecutor, settings.Inbox, logger)
 {
-    private readonly TimeSpan _timeToDelay = TimeSpan.FromSeconds(settings.Inbox.SecondsToDelayProcessEvents);
-
-    public override Task StartAsync(CancellationToken cancellationToken)
+    protected override ITableCreator GetTableCreatorService(IServiceProvider serviceProvider)
     {
-        using var scope = services.CreateScope();
-        var inboxRepository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
-        inboxRepository.CreateTableIfNotExists();
-
-        return base.StartAsync(cancellationToken);
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                await inboxEventsExecutor.ExecuteUnprocessedEvents(stoppingToken);
-            }
-            catch (Exception e)
-            {
-                logger.LogCritical(e, "Something is wrong while receiving/updating an inbox events. Happened at: {time}",
-                    DateTimeOffset.Now);
-                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
-            }
-            finally
-            {
-                await Task.Delay(_timeToDelay, stoppingToken);
-            }
-        }
+        return serviceProvider.GetRequiredService<IInboxRepository>();
     }
 }

@@ -1,17 +1,13 @@
 using EventStorage.Outbox.Models;
+using EventStorage.Services;
 
 namespace EventStorage.Outbox;
 
 /// <summary>
 /// Service for executing event handlers of outbox events.
 /// </summary>
-internal interface IOutboxEventsExecutor
+internal interface IOutboxEventsExecutor : IEventsExecutor
 {
-    /// <summary>
-    /// For publishing unprocessed events
-    /// </summary>
-    Task ExecuteUnprocessedEvents(CancellationToken stoppingToken);
-
     /// <summary>
     /// Get the publisher types of the event as combined string.
     /// </summary>

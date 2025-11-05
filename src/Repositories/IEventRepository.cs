@@ -1,14 +1,11 @@
 using EventStorage.Models;
+using EventStorage.Services;
 
 namespace EventStorage.Repositories;
 
-internal interface IEventRepository<TBaseMessage> where TBaseMessage : IBaseMessageBox
+internal interface IEventRepository<TBaseMessage> : ITableCreator
+    where TBaseMessage : IBaseMessageBox
 {
-    /// <summary>
-    /// Creates the table if it does not exist.
-    /// </summary>
-    void CreateTableIfNotExists();
-
     /// <summary>
     /// Inserts a new event into the database.
     /// </summary>
@@ -28,7 +25,7 @@ internal interface IEventRepository<TBaseMessage> where TBaseMessage : IBaseMess
     /// </summary>
     /// <param name="events">Events to insert.</param>
     /// <returns>Returns true if it was entered successfully or false if the value is duplicated. It can throw an exception if something goes wrong.</returns>
-    Task<bool>  BulkInsertEventsAsync(TBaseMessage[] events);
+    Task<bool> BulkInsertEventsAsync(TBaseMessage[] events);
 
     /// <summary>
     /// Inserts one or more new events into the database.

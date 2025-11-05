@@ -1,6 +1,5 @@
 using EventStorage.Configurations;
 using EventStorage.Instrumentation;
-using EventStorage.Instrumentation.Trace;
 using EventStorage.Outbox.Models;
 using EventStorage.Repositories;
 using Microsoft.Extensions.Logging;
