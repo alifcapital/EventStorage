@@ -1,4 +1,6 @@
-﻿namespace EventStorage.Instrumentation;
+﻿using EventStorage.Constants;
+
+namespace EventStorage.Instrumentation;
 
 /// <summary>
 /// This struct defines a set of investigation tag names as constants to avoid hardcoding strings while attaching tags to the open telemetry.
@@ -14,12 +16,12 @@ public class EventStorageInvestigationTagNames
     /// <summary>
     /// The tag to add the payload of event to a trace
     /// </summary>
-    internal const string InboxEventTag = "Inbox";
+    internal const string InboxEventTag = FunctionalityNames.Inbox;
     
     /// <summary>
     /// The tag to add the headers of event to a trace
     /// </summary>
-    internal const string OutboxEventTag = "Outbox";
+    internal const string OutboxEventTag = FunctionalityNames.Outbox;
     
     /// <summary>
     /// The tag to add the event id to a trace

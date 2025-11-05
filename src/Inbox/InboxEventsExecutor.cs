@@ -50,6 +50,8 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         _semaphore = new SemaphoreSlim(_settings.MaxConcurrency);
     }
 
+    #region AddHandler
+
     /// <summary>
     /// Registers a handler 
     /// </summary>
@@ -81,6 +83,10 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         handlersInformation.Add(receiverInformation);
     }
 
+    #endregion
+
+    #region ExecuteUnprocessedEvents
+    
     /// <summary>
     /// The method to execute unprocessed events. We are locking the logic to prevent re-entry into the method while processing is ongoing.
     /// </summary>
@@ -125,7 +131,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
             _singleExecutionLock.Release();
         }
     }
-
+    
     private async Task ExecuteEventHandlers(IInboxMessage inboxMessage, IServiceProvider serviceProvider,
         Activity parentActivity)
     {
@@ -186,6 +192,8 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
                 inboxMessage.EventName, inboxMessage.Id, inboxMessage.Provider);
         }
     }
+
+    #endregion
 
     #region Helper methods
 

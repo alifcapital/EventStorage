@@ -1,5 +1,6 @@
 using System.Reflection;
 using EventStorage.Configurations;
+using EventStorage.Constants;
 using EventStorage.Exceptions;
 using EventStorage.Inbox;
 using EventStorage.Inbox.BackgroundServices;
@@ -15,6 +16,8 @@ using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Providers;
 using EventStorage.Outbox.Providers.EventProviders;
 using EventStorage.Outbox.Repositories;
+using Medallion.Threading;
+using Medallion.Threading.SqlServer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -30,12 +33,12 @@ public static class EventStoreExtensions
     /// <param name="options">Options to overwrite default settings of Inbox and Outbox.</param>
     /// <param name="assemblies">Assemblies to find and load publisher and subscribers</param>
     /// <param name="disposingInboxEventHandlerScope">The event to be executed before disposing the inbox event handler scope.</param>
-    /// <param name="executingReceivedEvents">Events for subscribing to the executing received event of Inbox</param>
+    /// <param name="executingInboxEvents">Events for subscribing to the executing event of Inbox</param>
     public static void AddEventStore(this IServiceCollection services, IConfiguration configuration,
         Assembly[] assemblies,
         Action<InboxAndOutboxOptions> options = null,
         EventHandler<EventHandlerArgs> disposingInboxEventHandlerScope = null,
-        params EventHandler<InboxEventArgs>[] executingReceivedEvents)
+        params EventHandler<InboxEventArgs>[] executingInboxEvents)
     {
         var settingsType = typeof(InboxAndOutboxSettings);
         var isAlreadyRegistered = services.Any(serviceDescriptor =>
@@ -65,6 +68,8 @@ public static class EventStoreExtensions
 
             services.AddHostedService<OutboxEventsExecutorJob>();
             services.AddHostedService<CleanUpProcessedOutboxEventsJob>();
+            services.AddKeyedSingleton<IDistributedLockProvider>(FunctionalityNames.Inbox,
+                new SqlDistributedSynchronizationProvider(settings.Outbox.ConnectionString));
         }
 
         if (settings.Inbox.IsEnabled)
@@ -72,11 +77,12 @@ public static class EventStoreExtensions
             services.AddScoped<IInboxEventManager, InboxEventManager>();
             services.AddScoped<IInboxRepository, InboxRepository>();
 
-            if (executingReceivedEvents != null)
+            if (executingInboxEvents != null)
             {
-                foreach (var executingReceivedEvent in executingReceivedEvents)
+                foreach (var executingReceivedEvent in executingInboxEvents)
                     InboxEventsExecutor.ExecutingInboxEvent += executingReceivedEvent;
             }
+
             InboxEventsExecutor.DisposingEventHandlerScope += disposingInboxEventHandlerScope;
 
             RegisterAllEventsOfInboxToDependencyInjection(services, assemblies);
@@ -90,6 +96,8 @@ public static class EventStoreExtensions
 
             services.AddHostedService<InboxEventsExecutorJob>();
             services.AddHostedService<CleanUpProcessedInboxEventsJob>();
+            services.AddKeyedSingleton<IDistributedLockProvider>(FunctionalityNames.Inbox,
+               new SqlDistributedSynchronizationProvider(settings.Inbox.ConnectionString));
         }
 
         InboxAndOutboxSettings GetDefaultSettings()
@@ -98,11 +106,11 @@ public static class EventStoreExtensions
 
             defaultSettings.Inbox ??= new InboxOrOutboxStructure();
             if (string.IsNullOrEmpty(defaultSettings.Inbox.TableName))
-                defaultSettings.Inbox.TableName = nameof(defaultSettings.Inbox);
+                defaultSettings.Inbox.TableName = FunctionalityNames.Inbox;
 
             defaultSettings.Outbox ??= new InboxOrOutboxStructure();
             if (string.IsNullOrEmpty(defaultSettings.Outbox.TableName))
-                defaultSettings.Outbox.TableName = nameof(defaultSettings.Outbox);
+                defaultSettings.Outbox.TableName = FunctionalityNames.Outbox;
 
             var inboxAndOutboxOptions = new InboxAndOutboxOptions(defaultSettings);
             options?.Invoke(inboxAndOutboxOptions);
@@ -221,8 +229,9 @@ public static class EventStoreExtensions
                         {
                             var eventType = implementedInterface.GetGenericArguments().Single();
                             if (publisherHandlerTypes.TryGetValue(eventType.Name, out var registeredType))
-                                throw new EventStoreException($"The {eventType.Name} event type already has a publisher named {registeredType.publisherType.Name}, but there is another type {publisherType.Name} that wants to register with the same event type. So it is not allowed to register more than one type with the same event type.");
-                            
+                                throw new EventStoreException(
+                                    $"The {eventType.Name} event type already has a publisher named {registeredType.publisherType.Name}, but there is another type {publisherType.Name} that wants to register with the same event type. So it is not allowed to register more than one type with the same event type.");
+
                             publisherHandlerTypes.Add(eventType.Name, (publisherType, provider));
 
                             break;
@@ -231,8 +240,9 @@ public static class EventStoreExtensions
                     else if (GlobalEventProviderTypes.TryGetValue(implementedInterface, out var provider))
                     {
                         if (globalPublisherHandlerTypes.TryGetValue(provider, out Type registeredType))
-                            throw new EventStoreException($"The {provider} event provider type already registered with the {registeredType} type, but there is another type {publisherType} that wants to register with the same provider. So it is not allowed to register more than one type with the same provider.");
-                        
+                            throw new EventStoreException(
+                                $"The {provider} event provider type already registered with the {registeredType} type, but there is another type {publisherType} that wants to register with the same provider. So it is not allowed to register more than one type with the same provider.");
+
                         globalPublisherHandlerTypes.Add(provider, publisherType);
                     }
                 }
