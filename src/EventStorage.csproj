@@ -14,11 +14,11 @@
         <NeutralLanguage>en</NeutralLanguage>
         <PackageId>AlifCapital.EventStorage</PackageId>
         <AssemblyName>AlifCapital.EventStorage</AssemblyName>
-        <Version>9.0.38</Version>
+        <Version>9.0.39</Version>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="AlifCapital.InMemoryMessaging" Version="1.0.12" />
+        <PackageReference Include="AlifCapital.InMemoryMessaging" Version="1.0.13" />
         <PackageReference Include="Dapper" Version="2.1.66" />
         <PackageReference Include="DistributedLock.SqlServer" Version="1.0.6" />
         <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.10" />
