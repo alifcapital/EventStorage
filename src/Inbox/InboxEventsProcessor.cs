@@ -128,7 +128,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
                     var isEventProcessed = await repository.IsEventProcessedAsync(eventToReceive.Id);
                     if (isEventProcessed)
                     {
-                        _logger.LogDebug("The outbox event with id {EventId} is already processed. Skipping execution.",
+                        _logger.LogDebug("The inbox event with id {EventId} is already processed. Skipping execution.",
                             eventToReceive.Id);
                         return;
                     }
