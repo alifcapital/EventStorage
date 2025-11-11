@@ -110,10 +110,29 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
 
             var tasks = eventsToHandle.Select(async eventToReceive =>
             {
-                await _semaphore.WaitAsync(stoppingToken);
+                var lockName = $"ProcessingEvent_{eventToReceive.Id}";
+                await using var distributedLock =
+                    await _lockProvider.TryAcquireLockAsync(lockName, cancellationToken: stoppingToken);
+                if (distributedLock is null)
+                {
+                    _logger.LogDebug(
+                        "Could not open distributed lock for processing inbox event with ID: {EventId}. It may be processing by another instance.",
+                        eventToReceive.Id);
+                    return;
+                }
+
                 try
                 {
+                    await _semaphore.WaitAsync(stoppingToken);
                     stoppingToken.ThrowIfCancellationRequested();
+                    var isEventProcessed = await repository.IsEventProcessedAsync(eventToReceive.Id);
+                    if (isEventProcessed)
+                    {
+                        _logger.LogDebug("The outbox event with id {EventId} is already processed. Skipping execution.",
+                            eventToReceive.Id);
+                        return;
+                    }
+                    
                     await ExecuteEventHandlers(eventToReceive, _serviceProvider, activity);
                 }
                 catch
@@ -122,13 +141,12 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
                 }
                 finally
                 {
+                    await repository.UpdateEventAsync(eventToReceive);
                     _semaphore.Release();
                 }
             }).ToArray();
 
             await Task.WhenAll(tasks);
-
-            await repository.UpdateEventsAsync(eventsToHandle);
         }
         finally
         {

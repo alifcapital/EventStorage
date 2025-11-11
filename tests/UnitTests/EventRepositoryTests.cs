@@ -207,16 +207,29 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
             Headers = "TestHeaders2",
             AdditionalData = "TestAdditionalData2",
             TryCount = 0,
-            TryAfterAt = DateTime.Now.AddMinutes(-1)
+            TryAfterAt = DateTime.Now.AddMinutes(5)
+        };
+        
+        var baseEventBox3 = new TEvent
+        {
+            Id = Guid.NewGuid(),
+            Provider = "TestProvider3",
+            EventName = "TestEvent3" + typeof(TEvent).FullName,
+            EventPath = "/test/path2",
+            Payload = "TestPayload2",
+            Headers = "TestHeaders2",
+            AdditionalData = "TestAdditionalData2",
+            TryCount = 0,
+            TryAfterAt = DateTime.Now.AddMinutes(-3)
         };
 
-        await _repository.BulkInsertEventsAsync([baseEventBox1, baseEventBox2]);
+        await _repository.BulkInsertEventsAsync([baseEventBox1, baseEventBox2, baseEventBox3]);
 
-        var result = await _repository.GetUnprocessedEventsAsync(2);
+        var result = await _repository.GetUnprocessedEventsAsync(5);
 
-        Assert.That(result.Any(e => e.Id == baseEventBox2.Id), Is.True);
+        Assert.That(result.Length, Is.EqualTo(2));
 
-        var firstEvent = result.FirstOrDefault(e => e.Id == baseEventBox1.Id);
+        var firstEvent = result.Single(e => e.Id == baseEventBox1.Id);
         Assert.That(firstEvent, Is.Not.Null);
         Assert.That(firstEvent,
             IsClass.EquivalentTo(baseEventBox1, nameof(baseEventBox1.CreatedAt), nameof(baseEventBox1.TryAfterAt)));

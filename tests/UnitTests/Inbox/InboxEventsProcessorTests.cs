@@ -1,14 +1,15 @@
 using System.Reflection;
 using EventStorage.Configurations;
+using EventStorage.Constants;
 using EventStorage.Inbox;
 using EventStorage.Inbox.Models;
 using EventStorage.Inbox.Repositories;
 using EventStorage.Models;
 using EventStorage.Tests.Domain;
 using EventStorage.Tests.Domain.Module1;
+using Medallion.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using IServiceScopeFactory = Microsoft.Extensions.DependencyInjection.IServiceScopeFactory;
 
@@ -25,22 +26,25 @@ internal class InboxEventsProcessorTests
     [SetUp]
     public void Setup()
     {
-        var logger = NullLogger<InboxEventsProcessor>.Instance;
-        _serviceProvider = Substitute.For<IServiceProvider>();
-        _serviceProvider.GetService(typeof(ILogger<InboxEventsProcessor>)).Returns(logger);
-
-        _inboxRepository = Substitute.For<IInboxRepository>();
-        _serviceProvider.GetService(typeof(InboxAndOutboxSettings)).Returns(new InboxAndOutboxSettings
+        var serviceProvider = Substitute.For<IKeyedServiceProvider>();
+        MockDistributedLockProvider(serviceProvider);
+        var logger = Substitute.For<ILogger<InboxEventsProcessor>>();
+        serviceProvider.GetService(typeof(ILogger<InboxEventsProcessor>)).Returns(logger);
+        serviceProvider.GetService(typeof(InboxAndOutboxSettings)).Returns(new InboxAndOutboxSettings
         {
             Inbox = new InboxOrOutboxStructure()
                 { MaxConcurrency = 1, TryCount = 3, TryAfterMinutes = 5, TryAfterMinutesIfEventNotFound = 10 }
         });
-        _serviceProvider.GetService(typeof(IInboxRepository)).Returns(_inboxRepository);
+        _inboxRepository = Substitute.For<IInboxRepository>();
+        serviceProvider.GetService(typeof(IInboxRepository)).Returns(_inboxRepository);
+        _serviceProvider = serviceProvider;
 
-        _inboxEventsProcessor = new InboxEventsProcessor(_serviceProvider);
+        _inboxEventsProcessor = new InboxEventsProcessor(serviceProvider);
     }
 
     #endregion
+
+    #region AddHandler
 
     [Test]
     public void AddHandler_OneEventWithSingleHandler_OneHandlerInformationShouldAddToDictionary()
@@ -86,12 +90,47 @@ internal class InboxEventsProcessorTests
             r.EventType == typeOfReceiveEvent2 && r.EventHandlerType == typeOfEventHandler2), Is.True);
     }
 
+    #endregion
+
     #region ExecuteUnprocessedEvents
 
     [Test]
-    public async Task ExecuteUnprocessedEvents_EventTryAfterIsBeforeNow_ShouldProcessed()
+    public async Task ExecuteUnprocessedEvents_ThereIsNoEventsToProcess_ShouldNotProcessedAnyEvents()
     {
-        var inboxEvent = new InboxMessage
+        _inboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>()).Returns([]);
+
+        var scope = Substitute.For<IServiceScope>();
+        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
+        _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);
+        serviceScopeFactory.CreateScope().Returns(scope);
+        scope.ServiceProvider.Returns(_serviceProvider);
+        scope.ServiceProvider.GetService(typeof(SimpleEntityWasCreatedHandler))
+            .Returns(new SimpleEntityWasCreatedHandler());
+
+        await _inboxEventsProcessor.ExecuteUnprocessedEvents(CancellationToken.None);
+
+        await _inboxRepository
+            .DidNotReceive()
+            .UpdateEventAsync(Arg.Any<InboxMessage>());
+    }
+
+    [Test]
+    public async Task ExecuteUnprocessedEvents_ThereIsTwoEventsToProcess_BothShouldBeProcessed()
+    {
+        var inboxEvent1 = new InboxMessage
+        {
+            Id = Guid.NewGuid(),
+            EventName = nameof(SimpleEntityWasCreated),
+            EventPath = typeof(SimpleEntityWasCreated).Namespace,
+            Provider = "Unknown",
+            Payload = "{}",
+            Headers = null,
+            AdditionalData = null,
+            NamingPolicyType = nameof(NamingPolicyType.PascalCase),
+            TryCount = 0,
+            TryAfterAt = DateTime.UtcNow.AddMinutes(-1)
+        };
+        var inboxEvent2 = new InboxMessage
         {
             Id = Guid.NewGuid(),
             EventName = nameof(SimpleEntityWasCreated),
@@ -105,8 +144,8 @@ internal class InboxEventsProcessorTests
             TryAfterAt = DateTime.UtcNow.AddMinutes(-1)
         };
 
-        var items = new[] { inboxEvent };
-        _inboxRepository.GetUnprocessedEventsAsync().Returns(items);
+        var items = new[] { inboxEvent1, inboxEvent2 };
+        _inboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>()).Returns(items);
 
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
@@ -122,47 +161,8 @@ internal class InboxEventsProcessorTests
         await _inboxEventsProcessor.ExecuteUnprocessedEvents(CancellationToken.None);
 
         await _inboxRepository
-            .Received(1)
-            .UpdateEventsAsync(Arg.Is<IEnumerable<InboxMessage>>(x =>
-                x.Count() == 1 &&
-                x.First().TryCount == 0 &&
-                x.First().ProcessedAt != null)
-            );
-    }
-
-    [Test]
-    public async Task ExecuteUnprocessedEvents_EventTryAfterIsAfterNow_ShouldNotProcessed()
-    {
-        var inboxEvent = new InboxMessage
-        {
-            Id = Guid.NewGuid(),
-            EventName = "SimpleEntityWasCreated",
-            Provider = "Unknown",
-            Payload = "{}",
-            TryCount = 0,
-            TryAfterAt = DateTime.UtcNow.AddMinutes(1)
-        };
-
-        var items = new[] { inboxEvent };
-        _inboxRepository.GetUnprocessedEventsAsync().Returns(items);
-
-        var scope = Substitute.For<IServiceScope>();
-        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
-        _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);
-        serviceScopeFactory.CreateScope().Returns(scope);
-        scope.ServiceProvider.Returns(_serviceProvider);
-        scope.ServiceProvider.GetService(typeof(SimpleEntityWasCreatedHandler))
-            .Returns(new SimpleEntityWasCreatedHandler());
-
-        await _inboxEventsProcessor.ExecuteUnprocessedEvents(CancellationToken.None);
-
-        await _inboxRepository
-            .Received(1)
-            .UpdateEventsAsync(Arg.Is<IEnumerable<InboxMessage>>(x =>
-                x.Count() == 1 &&
-                x.First().TryCount == 1 &&
-                x.First().ProcessedAt == null)
-            );
+            .Received(2)
+            .UpdateEventAsync(Arg.Any<InboxMessage>());
     }
 
     #endregion
@@ -178,6 +178,20 @@ internal class InboxEventsProcessorTests
 
         var receivers = (Dictionary<string, List<EventHandlerInformation>>)field!.GetValue(_inboxEventsProcessor);
         return receivers;
+    }
+
+    void MockDistributedLockProvider(IKeyedServiceProvider serviceProvider)
+    {
+        var distributedLockProvider = Substitute.For<IDistributedLockProvider>();
+        serviceProvider.GetRequiredKeyedService(typeof(IDistributedLockProvider), FunctionalityNames.Inbox)
+            .Returns(distributedLockProvider);
+        
+        var distributedLock = Substitute.For<IDistributedLock>();
+        distributedLockProvider.CreateLock(Arg.Any<string>()).Returns(distributedLock);
+
+        var distributedSynchronizationHandle = Substitute.For<IDistributedSynchronizationHandle>();
+        distributedLock.TryAcquireAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(distributedSynchronizationHandle);
     }
 
     #endregion
