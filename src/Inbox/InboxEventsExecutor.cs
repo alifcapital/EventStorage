@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using EventStorage.Configurations;
+using EventStorage.Constants;
 using EventStorage.Exceptions;
 using EventStorage.Extensions;
 using EventStorage.Inbox.EventArgs;
@@ -11,6 +12,7 @@ using EventStorage.Instrumentation;
 using EventStorage.Instrumentation.Trace;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
+using Medallion.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -21,6 +23,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<InboxEventsExecutor> _logger;
     private readonly InboxOrOutboxStructure _settings;
+    private readonly IDistributedLockProvider _lockProvider;
 
     /// <summary>
     /// The event to be executed before executing the handler of the inbox event.
@@ -45,6 +48,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     {
         _serviceProvider = serviceProvider;
         _logger = _serviceProvider.GetRequiredService<ILogger<InboxEventsExecutor>>();
+        _lockProvider = _serviceProvider.GetRequiredKeyedService<IDistributedLockProvider>(FunctionalityNames.Inbox);
         _settings = _serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Inbox;
         _receivers = new Dictionary<string, List<EventHandlerInformation>>();
         _semaphore = new SemaphoreSlim(_settings.MaxConcurrency);
@@ -97,7 +101,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         {
             using var scope = _serviceProvider.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
-            var eventsToHandle = await repository.GetUnprocessedEventsAsync();
+            var eventsToHandle = await repository.GetUnprocessedEventsAsync(_settings.MaxEventsToFetch);
             if (eventsToHandle.Length == 0)
                 return;
 

@@ -102,8 +102,7 @@ internal class InboxEventsExecutorTests
             AdditionalData = null,
             NamingPolicyType = nameof(NamingPolicyType.PascalCase),
             TryCount = 0,
-            TryAfterAt = DateTime.UtcNow.AddMinutes(-1),
-            ProcessedAt = null
+            TryAfterAt = DateTime.UtcNow.AddMinutes(-1)
         };
 
         var items = new[] { inboxEvent };
@@ -141,8 +140,7 @@ internal class InboxEventsExecutorTests
             Provider = "Unknown",
             Payload = "{}",
             TryCount = 0,
-            TryAfterAt = DateTime.UtcNow.AddMinutes(1),
-            ProcessedAt = null
+            TryAfterAt = DateTime.UtcNow.AddMinutes(1)
         };
 
         var items = new[] { inboxEvent };

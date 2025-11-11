@@ -54,6 +54,13 @@ internal interface IEventRepository<TBaseMessage> : ITableCreator
     /// <param name="events">Events to update.</param>
     /// <returns>Returns true if there are any affected rows.</returns>
     Task<bool> UpdateEventsAsync(IEnumerable<TBaseMessage> events);
+    
+    /// <summary>
+    /// For checking if the event is already processed.
+    /// </summary>
+    /// <param name="id">The id of the event to check.</param>
+    /// <returns>Returns true if the event is already processed or there is no event with the specified id, otherwise false.</returns>
+    Task<bool> IsEventProcessedAsync(Guid id);
 
     /// <summary>
     /// Deletes all processed events which processed before the specified date.

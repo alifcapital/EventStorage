@@ -24,7 +24,6 @@ internal class DataContext<TEvent> where TEvent : BaseMessageBox, new()
 
     public TEvent GetById(Guid id)
     {
-        
         var sql = @$"SELECT id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"", 
                         event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"", 
                         payload as ""{nameof(IBaseMessageBox.Payload)}"", headers as ""{nameof(IBaseMessageBox.Headers)}"", 
@@ -52,9 +51,12 @@ internal class DataContext<TEvent> where TEvent : BaseMessageBox, new()
                 NamingPolicyType = reader.GetString(6),
                 AdditionalData = reader.GetString(7),
                 TryCount = reader.GetInt32(9),
-                TryAfterAt = reader.GetDateTime(10),
-                ProcessedAt = reader.IsDBNull(11) ? null : reader.GetDateTime(11)
+                TryAfterAt = reader.GetDateTime(10)
             };
+            
+            var isProcessed = !reader.IsDBNull(11);
+            if(isProcessed)
+                outboxEvent.Processed();
         }
         else
         {
