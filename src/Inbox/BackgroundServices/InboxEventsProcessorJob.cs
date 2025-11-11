@@ -7,12 +7,12 @@ using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Inbox.BackgroundServices;
 
-internal class InboxEventsExecutorJob(
+internal class InboxEventsProcessorJob(
     IServiceProvider services,
-    IInboxEventsExecutor inboxEventsExecutor,
+    IInboxEventsProcessor inboxEventsProcessor,
     InboxAndOutboxSettings settings,
-    ILogger<InboxEventsExecutorJob> logger)
-    : BaseEventsExecutorJob(services, inboxEventsExecutor, settings.Inbox, logger)
+    ILogger<InboxEventsProcessorJob> logger)
+    : BaseEventsProcessorJob(services, inboxEventsProcessor, settings.Inbox, logger)
 {
     protected override ITableCreator GetTableCreatorService(IServiceProvider serviceProvider)
     {

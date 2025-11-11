@@ -10,12 +10,12 @@ namespace EventStorage.BackgroundServices;
 /// The base background service for creating table if not exists and process unprocessed events.
 /// </summary>
 /// <param name="services">The service provider to inject a table creator service.</param>
-/// <param name="eventsExecutor">The events executor service to process unprocessed events.</param>
+/// <param name="eventsProcessor">The events executor service to process unprocessed events.</param>
 /// <param name="functionalitySettings">The functionality settings for delay configuration.</param>
 /// <param name="logger">The logger instance.</param>
-internal abstract class BaseEventsExecutorJob(
+internal abstract class BaseEventsProcessorJob(
     IServiceProvider services,
-    IEventsExecutor eventsExecutor,
+    IEventsProcessor eventsProcessor,
     InboxOrOutboxStructure functionalitySettings,
     ILogger logger)
     : BackgroundService
@@ -60,7 +60,7 @@ internal abstract class BaseEventsExecutorJob(
         {
             try
             {
-                await eventsExecutor.ExecuteUnprocessedEvents(stoppingToken);
+                await eventsProcessor.ExecuteUnprocessedEvents(stoppingToken);
             }
             catch (Exception e)
             {

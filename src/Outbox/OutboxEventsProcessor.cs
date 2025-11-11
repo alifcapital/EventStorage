@@ -16,10 +16,10 @@ using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Outbox;
 
-internal class OutboxEventsExecutor : IOutboxEventsExecutor
+internal class OutboxEventsProcessor : IOutboxEventsProcessor
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<OutboxEventsExecutor> _logger;
+    private readonly ILogger<OutboxEventsProcessor> _logger;
     private readonly InboxOrOutboxStructure _settings;
     private readonly IDistributedLockProvider _lockProvider;
 
@@ -37,10 +37,10 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
     private readonly SemaphoreSlim _singleExecutionLock = new(1, 1);
     private readonly SemaphoreSlim _semaphore;
 
-    public OutboxEventsExecutor(IServiceProvider serviceProvider)
+    public OutboxEventsProcessor(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
-        _logger = serviceProvider.GetRequiredService<ILogger<OutboxEventsExecutor>>();
+        _logger = serviceProvider.GetRequiredService<ILogger<OutboxEventsProcessor>>();
         _lockProvider = _serviceProvider.GetRequiredKeyedService<IDistributedLockProvider>(FunctionalityNames.Outbox);
         _settings = serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Outbox;
         _allPublishers = new Dictionary<string, Dictionary<EventProviderType, EventPublisherInformation>>();

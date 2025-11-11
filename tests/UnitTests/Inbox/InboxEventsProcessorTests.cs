@@ -14,9 +14,9 @@ using IServiceScopeFactory = Microsoft.Extensions.DependencyInjection.IServiceSc
 
 namespace EventStorage.Tests.UnitTests.Inbox;
 
-internal class InboxEventsExecutorTests
+internal class InboxEventsProcessorTests
 {
-    private InboxEventsExecutor _inboxEventsExecutor;
+    private InboxEventsProcessor _inboxEventsProcessor;
     private IServiceProvider _serviceProvider;
     private IInboxRepository _inboxRepository;
 
@@ -25,9 +25,9 @@ internal class InboxEventsExecutorTests
     [SetUp]
     public void Setup()
     {
-        var logger = NullLogger<InboxEventsExecutor>.Instance;
+        var logger = NullLogger<InboxEventsProcessor>.Instance;
         _serviceProvider = Substitute.For<IServiceProvider>();
-        _serviceProvider.GetService(typeof(ILogger<InboxEventsExecutor>)).Returns(logger);
+        _serviceProvider.GetService(typeof(ILogger<InboxEventsProcessor>)).Returns(logger);
 
         _inboxRepository = Substitute.For<IInboxRepository>();
         _serviceProvider.GetService(typeof(InboxAndOutboxSettings)).Returns(new InboxAndOutboxSettings
@@ -37,7 +37,7 @@ internal class InboxEventsExecutorTests
         });
         _serviceProvider.GetService(typeof(IInboxRepository)).Returns(_inboxRepository);
 
-        _inboxEventsExecutor = new InboxEventsExecutor(_serviceProvider);
+        _inboxEventsProcessor = new InboxEventsProcessor(_serviceProvider);
     }
 
     #endregion
@@ -48,11 +48,11 @@ internal class InboxEventsExecutorTests
         var typeOfReceiveEvent = typeof(SimpleEntityWasCreated);
         var typeOfEventReceiver = typeof(SimpleEntityWasCreatedHandler);
         var providerType = EventProviderType.Unknown;
-        _inboxEventsExecutor.AddHandler(typeOfReceiveEvent, typeOfEventReceiver, providerType);
+        _inboxEventsProcessor.AddHandler(typeOfReceiveEvent, typeOfEventReceiver, providerType);
 
         var handlers = GetHandlersInformation();
 
-        var handlerKey = InboxEventsExecutor.GetHandlerKey(typeOfReceiveEvent.Name, providerType.ToString());
+        var handlerKey = InboxEventsProcessor.GetHandlerKey(typeOfReceiveEvent.Name, providerType.ToString());
         Assert.That(handlers.ContainsKey(handlerKey), Is.True);
 
         var handlersInformation = handlers[handlerKey];
@@ -70,12 +70,12 @@ internal class InboxEventsExecutorTests
         var typeOfEventHandler1 = typeof(Domain.Module1.UserCreatedHandler);
         var typeOfEventHandler2 = typeof(Domain.Module2.UserCreatedHandler);
         var providerType = EventProviderType.MessageBroker;
-        _inboxEventsExecutor.AddHandler(typeOfReceiveEvent1, typeOfEventHandler1, providerType);
-        _inboxEventsExecutor.AddHandler(typeOfReceiveEvent2, typeOfEventHandler2, providerType);
+        _inboxEventsProcessor.AddHandler(typeOfReceiveEvent1, typeOfEventHandler1, providerType);
+        _inboxEventsProcessor.AddHandler(typeOfReceiveEvent2, typeOfEventHandler2, providerType);
 
         var receivers = GetHandlersInformation();
 
-        var receiverKey = InboxEventsExecutor.GetHandlerKey(typeOfReceiveEvent1.Name, providerType.ToString());
+        var receiverKey = InboxEventsProcessor.GetHandlerKey(typeOfReceiveEvent1.Name, providerType.ToString());
         Assert.That(receivers.ContainsKey(receiverKey), Is.True);
 
         var receiversInformation = receivers[receiverKey];
@@ -116,10 +116,10 @@ internal class InboxEventsExecutorTests
         scope.ServiceProvider.GetService(typeof(SimpleEntityWasCreatedHandler))
             .Returns(new SimpleEntityWasCreatedHandler());
 
-        _inboxEventsExecutor.AddHandler(typeof(SimpleEntityWasCreated), typeof(SimpleEntityWasCreatedHandler),
+        _inboxEventsProcessor.AddHandler(typeof(SimpleEntityWasCreated), typeof(SimpleEntityWasCreatedHandler),
             EventProviderType.Unknown);
 
-        await _inboxEventsExecutor.ExecuteUnprocessedEvents(CancellationToken.None);
+        await _inboxEventsProcessor.ExecuteUnprocessedEvents(CancellationToken.None);
 
         await _inboxRepository
             .Received(1)
@@ -154,7 +154,7 @@ internal class InboxEventsExecutorTests
         scope.ServiceProvider.GetService(typeof(SimpleEntityWasCreatedHandler))
             .Returns(new SimpleEntityWasCreatedHandler());
 
-        await _inboxEventsExecutor.ExecuteUnprocessedEvents(CancellationToken.None);
+        await _inboxEventsProcessor.ExecuteUnprocessedEvents(CancellationToken.None);
 
         await _inboxRepository
             .Received(1)
@@ -172,11 +172,11 @@ internal class InboxEventsExecutorTests
     private Dictionary<string, List<EventHandlerInformation>> GetHandlersInformation()
     {
         const string receiversFieldName = "_receivers";
-        var field = _inboxEventsExecutor.GetType().GetField(receiversFieldName,
+        var field = _inboxEventsProcessor.GetType().GetField(receiversFieldName,
             BindingFlags.NonPublic | BindingFlags.Instance);
         Assert.That(field, Is.Not.Null, "_receivers field not found via reflection");
 
-        var receivers = (Dictionary<string, List<EventHandlerInformation>>)field!.GetValue(_inboxEventsExecutor);
+        var receivers = (Dictionary<string, List<EventHandlerInformation>>)field!.GetValue(_inboxEventsProcessor);
         return receivers;
     }
 

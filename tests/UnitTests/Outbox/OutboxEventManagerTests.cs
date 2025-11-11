@@ -15,7 +15,7 @@ namespace EventStorage.Tests.UnitTests.Outbox;
 public class OutboxEventManagerTests
 {
     private IOutboxRepository _outboxRepository;
-    private IOutboxEventsExecutor _outboxEventsExecutor;
+    private IOutboxEventsProcessor _outboxEventsProcessor;
     private OutboxEventManager _outboxEventManager;
     private ILogger<OutboxEventManager> _logger;
 
@@ -23,9 +23,9 @@ public class OutboxEventManagerTests
     public void SetUp()
     {
         _outboxRepository = Substitute.For<IOutboxRepository>();
-        _outboxEventsExecutor = Substitute.For<IOutboxEventsExecutor>();
+        _outboxEventsProcessor = Substitute.For<IOutboxEventsProcessor>();
         _logger = Substitute.For<ILogger<OutboxEventManager>>();
-        _outboxEventManager = new OutboxEventManager(_logger, _outboxEventsExecutor, _outboxRepository);
+        _outboxEventManager = new OutboxEventManager(_logger, _outboxEventsProcessor, _outboxRepository);
     }
 
     [TearDown]
@@ -40,7 +40,7 @@ public class OutboxEventManagerTests
     public void Collect_StoringEventDoesNotHavePublisher_ShouldNotAddMessageAndReturnFalse()
     {
         var outboxEvent = new SimpleOutboxEventCreated();
-        _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent)
+        _outboxEventsProcessor.GetEventPublisherTypes(outboxEvent)
             .Returns((string)null);
 
         var result = _outboxEventManager.Collect(outboxEvent);
@@ -55,7 +55,7 @@ public class OutboxEventManagerTests
     {
         var outboxEvent = new SimpleOutboxEventCreated();
         var eventProviderTypes = $"{EventProviderType.MessageBroker},{EventProviderType.Sms}";
-        _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent).Returns(eventProviderTypes);
+        _outboxEventsProcessor.GetEventPublisherTypes(outboxEvent).Returns(eventProviderTypes);
 
         var result = _outboxEventManager.Collect(outboxEvent);
 
@@ -157,7 +157,7 @@ public class OutboxEventManagerTests
     {
         var outboxEvent = new SimpleOutboxEventCreated();
         var eventProviderType = EventProviderType.Sms.ToString();
-        _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent).Returns(eventProviderType);
+        _outboxEventsProcessor.GetEventPublisherTypes(outboxEvent).Returns(eventProviderType);
         _outboxRepository.InsertEventAsync(Arg.Any<OutboxMessage>()).Returns(true);
 
         var result = await _outboxEventManager.StoreAsync(outboxEvent);
@@ -172,7 +172,7 @@ public class OutboxEventManagerTests
     public async Task StoreAsync_StoringEventDoesNotHaveCachedPublisher_MessageShouldNotBeAddedAndReturnFalse()
     {
         var outboxEvent = new SimpleOutboxEventCreated();
-        _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent)
+        _outboxEventsProcessor.GetEventPublisherTypes(outboxEvent)
             .Returns((string)null);
 
         var result = await _outboxEventManager.StoreAsync(outboxEvent);
@@ -202,7 +202,7 @@ public class OutboxEventManagerTests
             }
         };
         var eventProviderType = EventProviderType.MessageBroker.ToString();
-        _outboxEventsExecutor.GetEventPublisherTypes(Arg.Any<IOutboxEvent>()).Returns(eventProviderType);
+        _outboxEventsProcessor.GetEventPublisherTypes(Arg.Any<IOutboxEvent>()).Returns(eventProviderType);
         _outboxRepository.BulkInsertEventsAsync(Arg.Any<OutboxMessage[]>()).Returns(true);
 
         var result = await _outboxEventManager.StoreAsync(outboxEvents);

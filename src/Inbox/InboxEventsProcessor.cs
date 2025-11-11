@@ -18,10 +18,10 @@ using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Inbox;
 
-internal class InboxEventsExecutor : IInboxEventsExecutor
+internal class InboxEventsProcessor : IInboxEventsProcessor
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<InboxEventsExecutor> _logger;
+    private readonly ILogger<InboxEventsProcessor> _logger;
     private readonly InboxOrOutboxStructure _settings;
     private readonly IDistributedLockProvider _lockProvider;
 
@@ -44,10 +44,10 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     private readonly SemaphoreSlim _singleExecutionLock = new(1, 1);
     private readonly SemaphoreSlim _semaphore;
 
-    public InboxEventsExecutor(IServiceProvider serviceProvider)
+    public InboxEventsProcessor(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
-        _logger = _serviceProvider.GetRequiredService<ILogger<InboxEventsExecutor>>();
+        _logger = _serviceProvider.GetRequiredService<ILogger<InboxEventsProcessor>>();
         _lockProvider = _serviceProvider.GetRequiredKeyedService<IDistributedLockProvider>(FunctionalityNames.Inbox);
         _settings = _serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Inbox;
         _receivers = new Dictionary<string, List<EventHandlerInformation>>();

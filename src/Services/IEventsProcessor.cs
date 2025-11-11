@@ -1,9 +1,9 @@
 namespace EventStorage.Services;
 
 /// <summary>
-/// Service for executing event handlers of inbox or outbox events.
+/// Service for processing unprocessed events by executing event handlers of inbox or outbox events.
 /// </summary>
-internal interface IEventsExecutor
+internal interface IEventsProcessor
 {
     /// <summary>
     /// For executing unprocessed events

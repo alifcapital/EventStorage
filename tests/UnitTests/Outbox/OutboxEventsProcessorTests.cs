@@ -9,9 +9,9 @@ using NSubstitute;
 
 namespace EventStorage.Tests.UnitTests.Outbox;
 
-public class OutboxEventsExecutorTests
+public class OutboxEventsProcessorTests
 {
-    private OutboxEventsExecutor _outboxEventsExecutor;
+    private OutboxEventsProcessor _outboxEventsProcessor;
     private IServiceProvider _serviceProvider;
 
     #region SetUp
@@ -20,8 +20,8 @@ public class OutboxEventsExecutorTests
     public void SetUp()
     {
         _serviceProvider = Substitute.For<IServiceProvider>();
-        var logger = Substitute.For<ILogger<OutboxEventsExecutor>>();
-        _serviceProvider.GetService(typeof(ILogger<OutboxEventsExecutor>)).Returns(logger);
+        var logger = Substitute.For<ILogger<OutboxEventsProcessor>>();
+        _serviceProvider.GetService(typeof(ILogger<OutboxEventsProcessor>)).Returns(logger);
         _serviceProvider.GetService(typeof(InboxAndOutboxSettings)).Returns(new InboxAndOutboxSettings
         {
             Outbox = new InboxOrOutboxStructure
@@ -33,7 +33,7 @@ public class OutboxEventsExecutorTests
             }
         });
 
-        _outboxEventsExecutor = new OutboxEventsExecutor(_serviceProvider);
+        _outboxEventsProcessor = new OutboxEventsProcessor(_serviceProvider);
     }
 
     #endregion
@@ -47,7 +47,7 @@ public class OutboxEventsExecutorTests
         var typeOfEventPublisher = typeof(SimpleSendEventCreatedHandler);
         const EventProviderType providerType = EventProviderType.MessageBroker;
 
-        _outboxEventsExecutor.AddPublisher(
+        _outboxEventsProcessor.AddPublisher(
             typeOfOutboxEvent: typeOfSentEvent,
             typeOfEventPublisher: typeOfEventPublisher,
             providerType: providerType,
@@ -57,7 +57,7 @@ public class OutboxEventsExecutorTests
         );
 
         var publishers = GetPublishersInformation();
-        var publisherKey = _outboxEventsExecutor.GetPublisherKey(typeOfSentEvent.Name, typeOfSentEvent.Namespace);
+        var publisherKey = _outboxEventsProcessor.GetPublisherKey(typeOfSentEvent.Name, typeOfSentEvent.Namespace);
         Assert.That(publishers.ContainsKey(publisherKey), Is.True);
 
         var publishersInfo = publishers[publisherKey];
@@ -75,7 +75,7 @@ public class OutboxEventsExecutorTests
         var typeOfEventPublisher = typeof(SimpleSendEventCreatedHandler);
         const EventProviderType providerType = EventProviderType.MessageBroker;
 
-        _outboxEventsExecutor.AddPublisher(
+        _outboxEventsProcessor.AddPublisher(
             typeOfOutboxEvent: typeOfSentEvent,
             typeOfEventPublisher: typeOfEventPublisher,
             providerType: providerType,
@@ -85,7 +85,7 @@ public class OutboxEventsExecutorTests
         );
 
         var publishers = GetPublishersInformation();
-        var publisherKey = _outboxEventsExecutor.GetPublisherKey(typeOfSentEvent.Name, typeOfSentEvent.Namespace);
+        var publisherKey = _outboxEventsProcessor.GetPublisherKey(typeOfSentEvent.Name, typeOfSentEvent.Namespace);
         Assert.That(publishers.ContainsKey(publisherKey), Is.True);
 
         var publisherInformation = publishers[publisherKey].First().Value;
@@ -105,7 +105,7 @@ public class OutboxEventsExecutorTests
         var typeOfEventPublisher = typeof(SimpleSendEventCreatedHandler);
         const EventProviderType providerType = EventProviderType.MessageBroker;
 
-        _outboxEventsExecutor.AddPublisher(
+        _outboxEventsProcessor.AddPublisher(
             typeOfOutboxEvent: typeOfSentEvent,
             typeOfEventPublisher: typeOfEventPublisher,
             providerType: providerType,
@@ -115,7 +115,7 @@ public class OutboxEventsExecutorTests
         );
 
         var outboxEvent = new SimpleOutboxEventCreated();
-        var publishers = _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent);
+        var publishers = _outboxEventsProcessor.GetEventPublisherTypes(outboxEvent);
         Assert.That(publishers, Does.Contain(providerType.ToString()));
     }
 
@@ -126,11 +126,11 @@ public class OutboxEventsExecutorTests
         var typeOfEventPublisher = typeof(SimpleSendEventCreatedHandler);
         const EventProviderType providerType = EventProviderType.MessageBroker;
 
-        _outboxEventsExecutor.AddPublisher(typeOfSentEvent, typeOfEventPublisher, providerType, false, false, true);
-        _outboxEventsExecutor.AddPublisher(typeOfSentEvent, typeOfEventPublisher, providerType, false, false, true);
+        _outboxEventsProcessor.AddPublisher(typeOfSentEvent, typeOfEventPublisher, providerType, false, false, true);
+        _outboxEventsProcessor.AddPublisher(typeOfSentEvent, typeOfEventPublisher, providerType, false, false, true);
 
         var outboxEvent = new SimpleOutboxEventCreated();
-        var publishers = _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent);
+        var publishers = _outboxEventsProcessor.GetEventPublisherTypes(outboxEvent);
         Assert.That(publishers, Does.Contain(providerType.ToString()));
     }
 
@@ -141,7 +141,7 @@ public class OutboxEventsExecutorTests
         var typeOfEventPublisher = typeof(SimpleSendEventCreatedHandler);
         const EventProviderType providerType = EventProviderType.MessageBroker;
 
-        _outboxEventsExecutor.AddPublisher(
+        _outboxEventsProcessor.AddPublisher(
             typeOfOutboxEvent: typeOfSentEvent,
             typeOfEventPublisher: typeOfEventPublisher,
             providerType: providerType,
@@ -151,7 +151,7 @@ public class OutboxEventsExecutorTests
         );
 
         var outboxEvent = new SimpleOutboxEventWithoutAdditionalProperties();
-        var publishers = _outboxEventsExecutor.GetEventPublisherTypes(outboxEvent);
+        var publishers = _outboxEventsProcessor.GetEventPublisherTypes(outboxEvent);
         Assert.That(publishers, Is.Null);
     }
 
@@ -162,12 +162,12 @@ public class OutboxEventsExecutorTests
     private Dictionary<string, Dictionary<EventProviderType, EventPublisherInformation>> GetPublishersInformation()
     {
         const string publishersFieldName = "_allPublishers";
-        var field = _outboxEventsExecutor.GetType().GetField(publishersFieldName,
+        var field = _outboxEventsProcessor.GetType().GetField(publishersFieldName,
             BindingFlags.NonPublic | BindingFlags.Instance);
         Assert.That(field, Is.Not.Null, "_allPublishers field not found in OutboxEventsExecutor");
 
         var publishers = (Dictionary<string, Dictionary<EventProviderType, EventPublisherInformation>>)
-            field!.GetValue(_outboxEventsExecutor);
+            field!.GetValue(_outboxEventsProcessor);
 
         return publishers!;
     }
