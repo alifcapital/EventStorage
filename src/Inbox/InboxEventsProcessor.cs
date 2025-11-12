@@ -110,7 +110,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
 
             var tasks = eventsToHandle.Select(async eventToReceive =>
             {
-                var lockName = $"ProcessingEvent_{eventToReceive.Id}";
+                var lockName = $"ProcessingInboxEvent_{eventToReceive.Id}";
                 await using var distributedLock =
                     await _lockProvider.TryAcquireLockAsync(lockName, cancellationToken: stoppingToken);
                 if (distributedLock is null)

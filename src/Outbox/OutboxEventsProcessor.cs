@@ -109,7 +109,7 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
 
             var tasks = eventsToPublish.Select(async eventToPublish =>
             {
-                var lockName = $"ProcessingEvent_{eventToPublish.Id}";
+                var lockName = $"ProcessingOutboxEvent_{eventToPublish.Id}";
                 await using var distributedLock =
                     await _lockProvider.TryAcquireLockAsync(lockName, cancellationToken: stoppingToken);
                 if (distributedLock is null)
