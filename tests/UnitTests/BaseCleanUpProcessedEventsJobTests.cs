@@ -54,7 +54,10 @@ internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEv
     [Test]
     public async Task StartAsync_SettingsDaysToCleanIsZero_ShouldNotDelete()
     {
-        _settings.DaysToCleanUpEvents = 0;
+        _settings = _settings with
+        {
+            DaysToCleanUpEvents = 0
+        };
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
         _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);

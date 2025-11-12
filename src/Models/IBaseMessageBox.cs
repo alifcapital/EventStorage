@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace EventStorage.Models;
 
@@ -66,7 +65,7 @@ internal interface  IBaseMessageBox
     /// <summary>
     /// Gets the processed time of the event.
     /// </summary>
-    DateTime? ProcessedAt { get; internal set; }
+    DateTime? ProcessedAt { get; }
 
     /// <summary>
     /// To increase the TryCount and TryAfterAt when it is failed

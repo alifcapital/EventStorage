@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using EventStorage.Configurations;
+using EventStorage.Constants;
 using EventStorage.Exceptions;
 using EventStorage.Extensions;
 using EventStorage.Inbox.EventArgs;
@@ -11,16 +12,18 @@ using EventStorage.Instrumentation;
 using EventStorage.Instrumentation.Trace;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
+using Medallion.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Inbox;
 
-internal class InboxEventsExecutor : IInboxEventsExecutor
+internal class InboxEventsProcessor : IInboxEventsProcessor
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<InboxEventsExecutor> _logger;
+    private readonly ILogger<InboxEventsProcessor> _logger;
     private readonly InboxOrOutboxStructure _settings;
+    private readonly IDistributedLockProvider _lockProvider;
 
     /// <summary>
     /// The event to be executed before executing the handler of the inbox event.
@@ -41,14 +44,17 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
     private readonly SemaphoreSlim _singleExecutionLock = new(1, 1);
     private readonly SemaphoreSlim _semaphore;
 
-    public InboxEventsExecutor(IServiceProvider serviceProvider)
+    public InboxEventsProcessor(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
-        _logger = _serviceProvider.GetRequiredService<ILogger<InboxEventsExecutor>>();
+        _logger = _serviceProvider.GetRequiredService<ILogger<InboxEventsProcessor>>();
+        _lockProvider = _serviceProvider.GetRequiredKeyedService<IDistributedLockProvider>(FunctionalityNames.Inbox);
         _settings = _serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Inbox;
         _receivers = new Dictionary<string, List<EventHandlerInformation>>();
         _semaphore = new SemaphoreSlim(_settings.MaxConcurrency);
     }
+
+    #region AddHandler
 
     /// <summary>
     /// Registers a handler 
@@ -81,6 +87,10 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         handlersInformation.Add(receiverInformation);
     }
 
+    #endregion
+
+    #region ExecuteUnprocessedEvents
+    
     /// <summary>
     /// The method to execute unprocessed events. We are locking the logic to prevent re-entry into the method while processing is ongoing.
     /// </summary>
@@ -91,7 +101,7 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
         {
             using var scope = _serviceProvider.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
-            var eventsToHandle = await repository.GetUnprocessedEventsAsync();
+            var eventsToHandle = await repository.GetUnprocessedEventsAsync(_settings.MaxEventsToFetch);
             if (eventsToHandle.Length == 0)
                 return;
 
@@ -100,10 +110,29 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
 
             var tasks = eventsToHandle.Select(async eventToReceive =>
             {
-                await _semaphore.WaitAsync(stoppingToken);
+                var lockName = $"ProcessingInboxEvent_{eventToReceive.Id}";
+                await using var distributedLock =
+                    await _lockProvider.TryAcquireLockAsync(lockName, cancellationToken: stoppingToken);
+                if (distributedLock is null)
+                {
+                    _logger.LogDebug(
+                        "Could not open distributed lock for processing inbox event with ID: {EventId}. It may be processing by another instance.",
+                        eventToReceive.Id);
+                    return;
+                }
+
                 try
                 {
+                    await _semaphore.WaitAsync(stoppingToken);
                     stoppingToken.ThrowIfCancellationRequested();
+                    var isEventProcessed = await repository.IsEventProcessedAsync(eventToReceive.Id);
+                    if (isEventProcessed)
+                    {
+                        _logger.LogDebug("The inbox event with id {EventId} is already processed. Skipping execution.",
+                            eventToReceive.Id);
+                        return;
+                    }
+                    
                     await ExecuteEventHandlers(eventToReceive, _serviceProvider, activity);
                 }
                 catch
@@ -112,20 +141,19 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
                 }
                 finally
                 {
+                    await repository.UpdateEventAsync(eventToReceive);
                     _semaphore.Release();
                 }
             }).ToArray();
 
             await Task.WhenAll(tasks);
-
-            await repository.UpdateEventsAsync(eventsToHandle);
         }
         finally
         {
             _singleExecutionLock.Release();
         }
     }
-
+    
     private async Task ExecuteEventHandlers(IInboxMessage inboxMessage, IServiceProvider serviceProvider,
         Activity parentActivity)
     {
@@ -186,6 +214,8 @@ internal class InboxEventsExecutor : IInboxEventsExecutor
                 inboxMessage.EventName, inboxMessage.Id, inboxMessage.Provider);
         }
     }
+
+    #endregion
 
     #region Helper methods
 

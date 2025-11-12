@@ -366,6 +366,7 @@ The `InboxAndOutbox` is the main section for setting of the Outbox and Inbox fun
       "IsEnabled": false,
       "TableName": "Outbox",
       "MaxConcurrency": 10,
+      "MaxEventsToFetch": 100,
       "TryCount": 5,
       "TryAfterMinutes": 20,
       "TryAfterMinutesIfEventNotFound": 60,
@@ -381,6 +382,7 @@ The `InboxAndOutbox` is the main section for setting of the Outbox and Inbox fun
 `IsEnabled` - Enables or disables the use of Inbox/Outbox for storing received/sent events. Default value is false. <br/>
 `TableName` - Specifies the table name used for storing received/sent events. Default value is "Inbox" for Inbox, "Outbox" for Outbox.<br/>
 `MaxConcurrency` - Sets the maximum number of concurrent tasks for executing received/publishing events. Default value is 10.<br/>
+`MaxEventsToFetch` - The maximum number of events to fetch and process in a single batch. Default value is 100.<br/>
 `TryCount` - Defines the number of attempts before increasing the delay for the next retry. Default value is 10.<br/>
 `TryAfterMinutes` - Specifies the number of minutes to wait before retrying if an event fails. Default value is 5.<br/>
 `TryAfterMinutesIfEventNotFound` - For increasing the TryAfterAt to amount of minutes if the event not found to publish or receive. Default value is 60.<br/>

@@ -9,7 +9,7 @@ namespace EventStorage.Outbox.BackgroundServices;
 internal class CleanUpProcessedOutboxEventsJob : BaseCleanUpProcessedEventsJob<IOutboxRepository, OutboxMessage>
 {
     public CleanUpProcessedOutboxEventsJob(IServiceProvider services,
-        InboxAndOutboxSettings settings, ILogger<OutboxEventsExecutorJob> logger) : base(services, settings.Outbox,
+        InboxAndOutboxSettings settings, ILogger<OutboxEventsProcessorJob> logger) : base(services, settings.Outbox,
         logger)
     {
     }

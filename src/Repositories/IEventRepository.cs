@@ -1,14 +1,11 @@
 using EventStorage.Models;
+using EventStorage.Services;
 
 namespace EventStorage.Repositories;
 
-internal interface IEventRepository<TBaseMessage> where TBaseMessage : IBaseMessageBox
+internal interface IEventRepository<TBaseMessage> : ITableCreator
+    where TBaseMessage : IBaseMessageBox
 {
-    /// <summary>
-    /// Creates the table if it does not exist.
-    /// </summary>
-    void CreateTableIfNotExists();
-
     /// <summary>
     /// Inserts a new event into the database.
     /// </summary>
@@ -28,7 +25,7 @@ internal interface IEventRepository<TBaseMessage> where TBaseMessage : IBaseMess
     /// </summary>
     /// <param name="events">Events to insert.</param>
     /// <returns>Returns true if it was entered successfully or false if the value is duplicated. It can throw an exception if something goes wrong.</returns>
-    Task<bool>  BulkInsertEventsAsync(TBaseMessage[] events);
+    Task<bool> BulkInsertEventsAsync(TBaseMessage[] events);
 
     /// <summary>
     /// Inserts one or more new events into the database.
@@ -57,6 +54,13 @@ internal interface IEventRepository<TBaseMessage> where TBaseMessage : IBaseMess
     /// <param name="events">Events to update.</param>
     /// <returns>Returns true if there are any affected rows.</returns>
     Task<bool> UpdateEventsAsync(IEnumerable<TBaseMessage> events);
+    
+    /// <summary>
+    /// For checking if the event is already processed.
+    /// </summary>
+    /// <param name="id">The id of the event to check.</param>
+    /// <returns>Returns true if the event is already processed or there is no event with the specified id, otherwise false.</returns>
+    Task<bool> IsEventProcessedAsync(Guid id);
 
     /// <summary>
     /// Deletes all processed events which processed before the specified date.

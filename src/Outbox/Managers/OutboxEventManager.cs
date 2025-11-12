@@ -12,19 +12,19 @@ namespace EventStorage.Outbox.Managers;
 internal class OutboxEventManager : IOutboxEventManager
 {
     private readonly IOutboxRepository _repository;
-    private readonly IOutboxEventsExecutor _outboxEventsExecutor;
+    private readonly IOutboxEventsProcessor _outboxEventsProcessor;
     private readonly ILogger<OutboxEventManager> _logger;
     private readonly ConcurrentDictionary<Guid, OutboxMessage> _eventsToSend = [];
 
     /// <summary>
     /// The EventSenderManager class will keep injecting itself even the outbox pattern is off, but the repository will be null since that is not registered in the DI container.
     /// </summary>
-    public OutboxEventManager(ILogger<OutboxEventManager> logger, IOutboxEventsExecutor outboxEventsExecutor = null,
+    public OutboxEventManager(ILogger<OutboxEventManager> logger, IOutboxEventsProcessor outboxEventsProcessor = null,
         IOutboxRepository repository = null)
     {
         _repository = repository;
         _logger = logger;
-        _outboxEventsExecutor = outboxEventsExecutor;
+        _outboxEventsProcessor = outboxEventsProcessor;
     }
 
     #region Collect Methods
@@ -32,7 +32,7 @@ internal class OutboxEventManager : IOutboxEventManager
     public bool Collect<TOutboxEvent>(TOutboxEvent outboxEvent,
         NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
     {
-        var eventPublisherTypes = _outboxEventsExecutor?.GetEventPublisherTypes(outboxEvent);
+        var eventPublisherTypes = _outboxEventsProcessor?.GetEventPublisherTypes(outboxEvent);
         if (string.IsNullOrEmpty(eventPublisherTypes))
         {
             _logger.LogError("There is no publisher for the {OutboxEventName} outbox event type.",
@@ -93,7 +93,7 @@ internal class OutboxEventManager : IOutboxEventManager
     public Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent,
         NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
     {
-        var eventPublisherTypes = _outboxEventsExecutor?.GetEventPublisherTypes(outboxEvent);
+        var eventPublisherTypes = _outboxEventsProcessor?.GetEventPublisherTypes(outboxEvent);
         if (string.IsNullOrEmpty(eventPublisherTypes))
         {
             _logger.LogError("There is no publisher for the {OutboxEventName} outbox event type.",
@@ -115,7 +115,7 @@ internal class OutboxEventManager : IOutboxEventManager
             var outboxMessages = new List<OutboxMessage>();
             foreach (var outboxEvent in outboxEvents)
             {
-                var eventPublisherTypes = _outboxEventsExecutor?.GetEventPublisherTypes(outboxEvent);
+                var eventPublisherTypes = _outboxEventsProcessor?.GetEventPublisherTypes(outboxEvent);
                 if (string.IsNullOrEmpty(eventPublisherTypes))
                 {
                     _logger.LogError("There is no publisher for the {OutboxEventName} outbox event type.",

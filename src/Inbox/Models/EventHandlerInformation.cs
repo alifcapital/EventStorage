@@ -1,5 +1,4 @@
 ﻿using System.Reflection;
-using EventStorage.Inbox.Providers;
 using EventStorage.Models;
 
 namespace EventStorage.Inbox.Models;

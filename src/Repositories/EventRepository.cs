@@ -22,12 +22,15 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
     /// </summary>
     protected abstract string TraceMessageTag { get; }
 
+    #region CreateTableIfNotExists
+
     public void CreateTableIfNotExists()
     {
-        using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
+            using var dbConnection = new NpgsqlConnection(_connectionString);
             dbConnection.Open();
+
             var sql = $@"CREATE TABLE IF NOT EXISTS {_tableName}
                 (
                     id UUID NOT NULL PRIMARY KEY,
@@ -58,6 +61,10 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
         }
     }
 
+    #endregion
+
+    #region InsertEventAsync
+
     private readonly string _sqlQueryToInsertEvent = $@"
                 INSERT INTO {settings.TableName} (
                     id, provider, event_name, event_path, payload, headers, 
@@ -70,9 +77,9 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
     public bool InsertEvent(TBaseMessage message)
     {
         using var activity = CreateLogsForInvestigation(message);
-        using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
+            using var dbConnection = new NpgsqlConnection(_connectionString);
             dbConnection.Open();
             dbConnection.Execute(_sqlQueryToInsertEvent, message);
 
@@ -91,9 +98,9 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
     public async Task<bool> InsertEventAsync(TBaseMessage message)
     {
         using var activity = CreateLogsForInvestigation(message);
-        await using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
+            await using var dbConnection = new NpgsqlConnection(_connectionString);
             await dbConnection.OpenAsync();
 
             var affectedRows = await dbConnection.ExecuteAsync(_sqlQueryToInsertEvent, message);
@@ -109,12 +116,16 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
         }
     }
 
+    #endregion
+
+    #region BulkInsertEventsAsync
+
     public async Task<bool> BulkInsertEventsAsync(TBaseMessage[] events)
     {
         using var activity = CreateActivityAndAddLogForBulkInsertIfEnabled(events);
-        await using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
+            await using var dbConnection = new NpgsqlConnection(_connectionString);
             await dbConnection.OpenAsync();
 
             var affectedRows = await dbConnection.ExecuteAsync(_sqlQueryToInsertEvent, events);
@@ -134,9 +145,9 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
     public bool BulkInsertEvents(TBaseMessage[] events)
     {
         using var activity = CreateActivityAndAddLogForBulkInsertIfEnabled(events);
-        using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
+            using var dbConnection = new NpgsqlConnection(_connectionString);
             dbConnection.Open();
 
             var affectedRows = dbConnection.Execute(_sqlQueryToInsertEvent, events);
@@ -152,6 +163,10 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
                 $"Error while inserting an events to the {_tableName} table with the {insertingEventIds} ids.");
         }
     }
+
+    #endregion
+
+    #region GetUnprocessedEventsAsync
 
     private readonly string _selectSqlQuery = $@"
                 SELECT id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"", 
@@ -170,10 +185,11 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
 
     public async Task<TBaseMessage[]> GetUnprocessedEventsAsync(int limit)
     {
-        await using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
+            await using var dbConnection = new NpgsqlConnection(_connectionString);
             await dbConnection.OpenAsync();
+
             var unprocessedEvents = await dbConnection.QueryAsync<TBaseMessage>(_selectSqlQuery, new
             {
                 CurrentTime = DateTime.Now,
@@ -188,6 +204,10 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
         }
     }
 
+    #endregion
+
+    #region UpdateEventAsync
+
     private readonly string _sqlUpdateEventQuery = $@"
                 UPDATE {settings.TableName}
                 SET 
@@ -198,9 +218,9 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
 
     public async Task<bool> UpdateEventAsync(TBaseMessage @event)
     {
-        await using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
+            await using var dbConnection = new NpgsqlConnection(_connectionString);
             await dbConnection.OpenAsync();
 
             var affectedRows = await dbConnection.ExecuteAsync(_sqlUpdateEventQuery, @event);
@@ -215,9 +235,9 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
 
     public async Task<bool> UpdateEventsAsync(IEnumerable<TBaseMessage> events)
     {
-        await using var dbConnection = new NpgsqlConnection(_connectionString);
         try
         {
+            await using var dbConnection = new NpgsqlConnection(_connectionString);
             await dbConnection.OpenAsync();
 
             var affectedRows = await dbConnection.ExecuteAsync(_sqlUpdateEventQuery, events);
@@ -228,6 +248,34 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
             throw new EventStoreException(e, $"Error while updating events of the {_tableName} table.");
         }
     }
+
+    #endregion
+
+    #region IsEventProcessedAsync
+
+    private readonly string _sqlCheckEventQuery = $@"
+                SELECT processed_at IS NOT NULL FROM {settings.TableName} WHERE id = @Id";
+
+    public async Task<bool> IsEventProcessedAsync(Guid id)
+    {
+        try
+        {
+            await using var dbConnection = new NpgsqlConnection(_connectionString);
+            dbConnection.Open();
+
+            var result = await dbConnection.QuerySingleOrDefaultAsync<bool?>(_sqlCheckEventQuery, new { Id = id });
+            return result ?? true;
+        }
+        catch (Exception e)
+        {
+            throw new EventStoreException(e,
+                $"Error while checking if the event with id {id} is processed in the {_tableName} table.");
+        }
+    }
+
+    #endregion
+
+    #region DeleteProcessedEventsAsync
 
     private readonly string _sqlDeleteEventQuery = $@"
                 DELETE FROM {settings.TableName}
@@ -249,6 +297,8 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
         }
     }
 
+    #endregion
+
     #region Helper methods
 
     /// <summary>
@@ -258,7 +308,8 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
     /// <returns>Newly created activity or null if tracing is not enabled.</returns>
     private Activity CreateLogsForInvestigation(TBaseMessage message)
     {
-        logger.LogDebug("{StorageType}: Storing event '{EventName}' with ID {MessageId}", TraceMessageTag, message.EventName, message.Id);
+        logger.LogDebug("{StorageType}: Storing event '{EventName}' with ID {MessageId}", TraceMessageTag,
+            message.EventName, message.Id);
 
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
@@ -280,7 +331,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
     private Activity CreateActivityAndAddLogForBulkInsertIfEnabled(TBaseMessage[] messages)
     {
         logger.LogDebug("{StorageType}: Storing {MessagesCount} event(s)", TraceMessageTag, messages.Length);
-        
+
         if (!EventStorageTraceInstrumentation.IsEnabled) return null;
 
         const string eventIdTag = "event.names";

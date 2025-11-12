@@ -7,7 +7,7 @@ internal abstract class BaseMessageBox : IBaseMessageBox
     public Guid Id { get; init; }
     public string Provider { get; init; }
     public string EventName { get; init; }
-    public string EventPath { get; init;  }
+    public string EventPath { get; init; }
     public string Payload { get; internal init; }
     public string Headers { get; internal init; }
     public string AdditionalData { get; internal init; }
@@ -15,7 +15,7 @@ internal abstract class BaseMessageBox : IBaseMessageBox
     public int TryCount { get; set; }
     public string NamingPolicyType { get; init; } = NamingPolicyTypeNames.PascalCase;
     public DateTime TryAfterAt { get; set; } = DateTime.Now;
-    public DateTime? ProcessedAt { get; set; }
+    public DateTime? ProcessedAt { get; protected set; }
 
     public void Failed(int maxTryCount, int tryAfterMinutes)
     {

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using EventStorage.Configurations;
+using EventStorage.Constants;
 using EventStorage.Exceptions;
 using EventStorage.Extensions;
 using EventStorage.Instrumentation;
@@ -9,16 +10,18 @@ using EventStorage.Models;
 using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Providers;
 using EventStorage.Outbox.Repositories;
+using Medallion.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Outbox;
 
-internal class OutboxEventsExecutor : IOutboxEventsExecutor
+internal class OutboxEventsProcessor : IOutboxEventsProcessor
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<OutboxEventsExecutor> _logger;
+    private readonly ILogger<OutboxEventsProcessor> _logger;
     private readonly InboxOrOutboxStructure _settings;
+    private readonly IDistributedLockProvider _lockProvider;
 
     /// <summary>
     /// To collect all publisher information. The key is the event name and provider name. The value is the publisher information.
@@ -34,10 +37,11 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
     private readonly SemaphoreSlim _singleExecutionLock = new(1, 1);
     private readonly SemaphoreSlim _semaphore;
 
-    public OutboxEventsExecutor(IServiceProvider serviceProvider)
+    public OutboxEventsProcessor(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
-        _logger = serviceProvider.GetRequiredService<ILogger<OutboxEventsExecutor>>();
+        _logger = serviceProvider.GetRequiredService<ILogger<OutboxEventsProcessor>>();
+        _lockProvider = _serviceProvider.GetRequiredKeyedService<IDistributedLockProvider>(FunctionalityNames.Outbox);
         _settings = serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Outbox;
         _allPublishers = new Dictionary<string, Dictionary<EventProviderType, EventPublisherInformation>>();
         _eventPublisherTypes = new Dictionary<string, string>();
@@ -96,7 +100,7 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
         {
             using var scope = _serviceProvider.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
-            var eventsToPublish = await repository.GetUnprocessedEventsAsync();
+            var eventsToPublish = await repository.GetUnprocessedEventsAsync(_settings.MaxEventsToFetch);
             if (eventsToPublish.Length == 0)
                 return;
 
@@ -105,10 +109,29 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
 
             var tasks = eventsToPublish.Select(async eventToPublish =>
             {
-                await _semaphore.WaitAsync(stoppingToken);
+                var lockName = $"ProcessingOutboxEvent_{eventToPublish.Id}";
+                await using var distributedLock =
+                    await _lockProvider.TryAcquireLockAsync(lockName, cancellationToken: stoppingToken);
+                if (distributedLock is null)
+                {
+                    _logger.LogDebug(
+                        "Could not open distributed lock for processing outbox event with ID: {EventId}. It may be processing by another instance.",
+                        eventToPublish.Id);
+                    return;
+                }
+
                 try
                 {
+                    await _semaphore.WaitAsync(stoppingToken);
                     stoppingToken.ThrowIfCancellationRequested();
+                    var isEventProcessed = await repository.IsEventProcessedAsync(eventToPublish.Id);
+                    if (isEventProcessed)
+                    {
+                        _logger.LogDebug("The outbox event with id {EventId} is already processed. Skipping execution.",
+                            eventToPublish.Id);
+                        return;
+                    }
+
                     await ExecuteEventPublisher(eventToPublish, scope.ServiceProvider, activity);
                 }
                 catch
@@ -117,13 +140,12 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
                 }
                 finally
                 {
+                    await repository.UpdateEventAsync(eventToPublish);
                     _semaphore.Release();
                 }
-            }).ToList();
+            }).ToArray();
 
             await Task.WhenAll(tasks);
-
-            await repository.UpdateEventsAsync(eventsToPublish);
         }
         finally
         {
@@ -146,11 +168,11 @@ internal class OutboxEventsExecutor : IOutboxEventsExecutor
                     MarkEventAsFailedWhenThereIsNoPublisher();
                     return;
                 }
-                
-                _logger.LogDebug("{StorageType}: Executing publishers of the event '{EventName}' (ID: {MessageId})", 
+
+                _logger.LogDebug("{StorageType}: Executing publishers of the event '{EventName}' (ID: {MessageId})",
                     EventStorageInvestigationTagNames.OutboxEventTag, outboxMessage.EventName, outboxMessage.Id);
                 using var activity = CreateActivityForExecutingPublishersIfEnabled(outboxMessage, parentActivity);
-                
+
                 var firstEventInfo = publishers.First().Value;
                 var jsonSerializerSetting = outboxMessage.GetJsonSerializer();
                 var eventToPublish =

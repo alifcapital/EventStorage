@@ -1,3 +1,4 @@
+using System.Reflection;
 using EventStorage.Models;
 using EventStorage.Repositories;
 using EventStorage.Tests.Configs;
@@ -20,7 +21,7 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
     }
 
     #region CreateTableIfNotExists
-        
+
     [Test]
     public void CreateTableIfNotExists_ShouldCreateTable()
     {
@@ -30,7 +31,7 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
     #endregion
 
     #region InsertEvent
-        
+
     [Test]
     public void InsertEvent_OneItem_EventShouldBeInserted()
     {
@@ -58,9 +59,9 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
     }
 
     #endregion
-        
+
     #region InsertEventAsync
-        
+
     [Test]
     public async Task InsertEventAsync_OneItem_EventShouldBeInserted()
     {
@@ -89,7 +90,7 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
     #endregion
 
     #region BulkInsertEvents
-        
+
     [Test]
     public void BulkInsertEvents_AddedTwoItems_BothEventsShouldBeInserted()
     {
@@ -125,7 +126,7 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
         var firstEventFromDb = _dataContext.GetById(firstEvent.Id);
         Assert.That(firstEventFromDb.Id, Is.EqualTo(firstEvent.Id));
         Assert.That(firstEventFromDb.EventName, Is.EqualTo(firstEvent.EventName));
-            
+
         var secondEventFromDb = _dataContext.GetById(secondEvent.Id);
         Assert.That(secondEventFromDb.Id, Is.EqualTo(secondEvent.Id));
         Assert.That(secondEventFromDb.EventName, Is.EqualTo(secondEvent.EventName));
@@ -134,7 +135,7 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
     #endregion
 
     #region BulkInsertEventsAsync
-        
+
     [Test]
     public async Task BulkInsertEventsAsync_AddedTwoItems_BothEventsShouldBeInserted()
     {
@@ -170,7 +171,7 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
         var firstEventFromDb = _dataContext.GetById(firstEvent.Id);
         Assert.That(firstEventFromDb.Id, Is.EqualTo(firstEvent.Id));
         Assert.That(firstEventFromDb.EventName, Is.EqualTo(firstEvent.EventName));
-            
+
         var secondEventFromDb = _dataContext.GetById(secondEvent.Id);
         Assert.That(secondEventFromDb.Id, Is.EqualTo(secondEvent.Id));
         Assert.That(secondEventFromDb.EventName, Is.EqualTo(secondEvent.EventName));
@@ -193,8 +194,7 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
             Headers = "TestHeaders1",
             AdditionalData = "TestAdditionalData1",
             TryCount = 0,
-            TryAfterAt = DateTime.Now.AddMinutes(-1),
-            ProcessedAt = null
+            TryAfterAt = DateTime.Now.AddMinutes(-1)
         };
 
         var baseEventBox2 = new TEvent
@@ -207,27 +207,39 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
             Headers = "TestHeaders2",
             AdditionalData = "TestAdditionalData2",
             TryCount = 0,
-            TryAfterAt = DateTime.Now.AddMinutes(-1),
-            ProcessedAt = null
+            TryAfterAt = DateTime.Now.AddMinutes(5)
         };
-            
-        _repository.InsertEvent(baseEventBox1);
-        _repository.InsertEvent(baseEventBox2);
-            
-        var result = await _repository.GetUnprocessedEventsAsync(2);
-            
-        Assert.That(result.Any(e => e.Id == baseEventBox2.Id), Is.True);
-            
-        var firstEvent = result.FirstOrDefault(e => e.Id == baseEventBox1.Id);
+        
+        var baseEventBox3 = new TEvent
+        {
+            Id = Guid.NewGuid(),
+            Provider = "TestProvider3",
+            EventName = "TestEvent3" + typeof(TEvent).FullName,
+            EventPath = "/test/path2",
+            Payload = "TestPayload2",
+            Headers = "TestHeaders2",
+            AdditionalData = "TestAdditionalData2",
+            TryCount = 0,
+            TryAfterAt = DateTime.Now.AddMinutes(-3)
+        };
+
+        await _repository.BulkInsertEventsAsync([baseEventBox1, baseEventBox2, baseEventBox3]);
+
+        var result = await _repository.GetUnprocessedEventsAsync(5);
+
+        Assert.That(result.Length, Is.EqualTo(2));
+
+        var firstEvent = result.Single(e => e.Id == baseEventBox1.Id);
         Assert.That(firstEvent, Is.Not.Null);
-        Assert.That(firstEvent, IsClass.EquivalentTo(baseEventBox1, nameof(baseEventBox1.CreatedAt), nameof(baseEventBox1.TryAfterAt)));
+        Assert.That(firstEvent,
+            IsClass.EquivalentTo(baseEventBox1, nameof(baseEventBox1.CreatedAt), nameof(baseEventBox1.TryAfterAt)));
         Assert.That(firstEvent.TryAfterAt, Is.EqualTo(baseEventBox1.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
     }
 
     #endregion
 
     #region UpdateEventAsync
-        
+
     [Test]
     public async Task UpdateEventAsync_OneItem_ShouldUpdateEvent()
     {
@@ -240,19 +252,18 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
             Payload = "TestPayload",
             Headers = "TestHeaders",
             AdditionalData = "TestAdditionalData",
-            TryCount = 0,
-            ProcessedAt = null
+            TryCount = 0
         };
 
-        _repository.InsertEvent(outboxEvent);
+        await _repository.InsertEventAsync(outboxEvent);
 
         // Modify the event
         outboxEvent.TryCount = 1;
         outboxEvent.TryAfterAt = DateTime.Now.AddMinutes(10);
-        outboxEvent.ProcessedAt = DateTime.Now;
-            
+        outboxEvent.Processed();
+
         var result = await _repository.UpdateEventAsync(outboxEvent);
-            
+
         Assert.That(result, Is.True);
 
         var updatedEvent = _dataContext.GetById(outboxEvent.Id);
@@ -261,11 +272,11 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
         Assert.That(updatedEvent.TryAfterAt, Is.EqualTo(outboxEvent.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
         Assert.That(updatedEvent.ProcessedAt, Is.EqualTo(outboxEvent.ProcessedAt).Within(TimeSpan.FromSeconds(1)));
     }
-        
+
     #endregion
 
     #region UpdateEventsAsync
-        
+
     [Test]
     public async Task UpdateEventsAsync_TwoItems_ShouldUpdateEvents()
     {
@@ -278,8 +289,7 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
             Payload = "TestPayload1",
             Headers = "TestHeaders1",
             AdditionalData = "TestAdditionalData1",
-            TryCount = 0,
-            ProcessedAt = null
+            TryCount = 0
         };
 
         var outboxEvent2 = new TEvent
@@ -291,42 +301,102 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
             Payload = "TestPayload2",
             Headers = "TestHeaders2",
             AdditionalData = "TestAdditionalData2",
-            TryCount = 0,
-            ProcessedAt = null
+            TryCount = 0
         };
 
-        _repository.InsertEvent(outboxEvent1);
-        _repository.InsertEvent(outboxEvent2);
+        await _repository.BulkInsertEventsAsync([outboxEvent1, outboxEvent2]);
 
         // Modify the events
         outboxEvent1.TryCount = 1;
         outboxEvent1.TryAfterAt = DateTime.Now.AddMinutes(10);
-        outboxEvent1.ProcessedAt = DateTime.Now;
+        outboxEvent1.Processed();
 
         outboxEvent2.TryCount = 1;
         outboxEvent2.TryAfterAt = DateTime.Now.AddMinutes(10);
-        outboxEvent2.ProcessedAt = DateTime.Now;
-            
+        outboxEvent2.Processed();
+
         var result = await _repository.UpdateEventsAsync(new List<TEvent> { outboxEvent1, outboxEvent2 });
-            
+
         Assert.That(result, Is.True);
 
         var updatedEvent1 = _dataContext.GetById(outboxEvent1.Id);
         var updatedEvent2 = _dataContext.GetById(outboxEvent2.Id);
-            
+
         Assert.That(updatedEvent1.TryCount, Is.EqualTo(outboxEvent1.TryCount));
         Assert.That(updatedEvent1.TryAfterAt, Is.EqualTo(outboxEvent1.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
         Assert.That(updatedEvent1.ProcessedAt, Is.EqualTo(outboxEvent1.ProcessedAt).Within(TimeSpan.FromSeconds(1)));
-            
+
         Assert.That(updatedEvent2.TryCount, Is.EqualTo(outboxEvent2.TryCount));
         Assert.That(updatedEvent2.TryAfterAt, Is.EqualTo(outboxEvent2.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
         Assert.That(updatedEvent2.ProcessedAt, Is.EqualTo(outboxEvent2.ProcessedAt).Within(TimeSpan.FromSeconds(1)));
     }
-        
+
+    #endregion
+
+    #region IsEventProcessedAsync
+
+    [Test]
+    public async Task IsEventProcessedAsync_EventExistsAndProcessed_ShouldReturnTrue()
+    {
+        var processedEvent = new TEvent
+        {
+            Id = Guid.NewGuid(),
+            Provider = "TestProvider",
+            EventName = "ProcessedEvent",
+            EventPath = "/test/path",
+            Payload = "TestPayload",
+            Headers = "TestHeaders",
+            AdditionalData = "TestAdditionalData",
+            TryCount = 1,
+            TryAfterAt = DateTime.Now
+        };
+        await _repository.InsertEventAsync(processedEvent);
+
+        processedEvent.Processed();
+        await _repository.UpdateEventAsync(processedEvent);
+
+        var isProcessed = await _repository.IsEventProcessedAsync(processedEvent.Id);
+
+        Assert.That(isProcessed, Is.True);
+    }
+
+    [Test]
+    public async Task IsEventProcessedAsync_EventExistsButNotProcessed_ShouldReturnFalse()
+    {
+        var unprocessedEvent = new TEvent
+        {
+            Id = Guid.NewGuid(),
+            Provider = "TestProvider",
+            EventName = "UnprocessedEvent",
+            EventPath = "/test/path",
+            Payload = "TestPayload",
+            Headers = "TestHeaders",
+            AdditionalData = "TestAdditionalData",
+            TryCount = 0,
+            TryAfterAt = DateTime.Now
+        };
+
+        await _repository.InsertEventAsync(unprocessedEvent);
+
+        var isProcessed = await _repository.IsEventProcessedAsync(unprocessedEvent.Id);
+
+        Assert.That(isProcessed, Is.False);
+    }
+
+    [Test]
+    public async Task IsEventProcessedAsync_EventDoesNotExist_ShouldReturnTrue()
+    {
+        var nonExistentId = Guid.NewGuid();
+
+        var isProcessed = await _repository.IsEventProcessedAsync(nonExistentId);
+
+        Assert.That(isProcessed, Is.True);
+    }
+
     #endregion
 
     #region DeleteProcessedEventsAsync
-        
+
     [Test]
     public async Task DeleteProcessedEventsAsync_OneItems_ShouldDeleteProcessedEvents()
     {
@@ -340,8 +410,7 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
             Payload = "TestPayload1",
             Headers = "TestHeaders1",
             AdditionalData = "TestAdditionalData1",
-            TryCount = 0,
-            ProcessedAt = DateTime.Now.AddMinutes(-20)
+            TryCount = 0
         };
 
         var event2 = new TEvent
@@ -353,21 +422,41 @@ internal abstract class EventRepositoryTests<TEvent> : BaseTestEntity where TEve
             Payload = "TestPayload2",
             Headers = "TestHeaders2",
             AdditionalData = "TestAdditionalData2",
-            TryCount = 0,
-            ProcessedAt = DateTime.Now.AddMinutes(-5)
+            TryCount = 0
         };
 
-        _repository.InsertEvent(event1);
-        _repository.InsertEvent(event2);
+        await _repository.BulkInsertEventsAsync([event1, event2]);
 
+        SetProcessedTimeOfEvent(event1, DateTime.Now.AddMinutes(-20));
+        SetProcessedTimeOfEvent(event2, DateTime.Now.AddMinutes(-5));
         await _repository.UpdateEventsAsync([event1, event2]);
-            
+
         var result = await _repository.DeleteProcessedEventsAsync(processedAt);
-            
+
         Assert.That(result, Is.True);
         Assert.That(_dataContext.ExistsById(event1.Id), Is.False);
         Assert.That(_dataContext.ExistsById(event2.Id), Is.True);
     }
-        
+
+    #endregion
+
+    #region Helper methods
+
+    /// <summary>
+    /// Sets the processed time of the event. Since ProcessedAt has a private setter, we use reflection to set its value.
+    /// </summary>
+    private void SetProcessedTimeOfEvent(TEvent eventBox, DateTime processedAt)
+    {
+        const string nameOfProperty = nameof(BaseMessageBox.ProcessedAt);
+        var property = typeof(TEvent).GetProperty(nameOfProperty,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+        var setter = property?.GetSetMethod(nonPublic: true);
+        if (setter == null)
+            throw new InvalidOperationException($"Private setter for {nameOfProperty} not found in {typeof(TEvent).Name}");
+
+        setter.Invoke(eventBox, new object[] { processedAt });
+    }
+
     #endregion
 }
