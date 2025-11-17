@@ -16,11 +16,11 @@ public enum NamingPolicyType
 public struct NamingPolicyTypeNames
 {
     public const string PascalCase = nameof(NamingPolicyType.PascalCase);
-    private const string CamelCase = nameof(NamingPolicyType.CamelCase);
-    private const string SnakeCaseLower = nameof(NamingPolicyType.SnakeCaseLower);
-    private const string SnakeCaseUpper = nameof(NamingPolicyType.SnakeCaseUpper);
-    private const string KebabCaseLower = nameof(NamingPolicyType.KebabCaseLower);
-    private const string KebabCaseUpper = nameof(NamingPolicyType.KebabCaseUpper);
+    public const string CamelCase = nameof(NamingPolicyType.CamelCase);
+    public const string SnakeCaseLower = nameof(NamingPolicyType.SnakeCaseLower);
+    public const string SnakeCaseUpper = nameof(NamingPolicyType.SnakeCaseUpper);
+    public const string KebabCaseLower = nameof(NamingPolicyType.KebabCaseLower);
+    public const string KebabCaseUpper = nameof(NamingPolicyType.KebabCaseUpper);
     
     /// <summary>
     /// Create a JsonSerializerOptions to use on naming police for serializing and deserializing properties of Event 

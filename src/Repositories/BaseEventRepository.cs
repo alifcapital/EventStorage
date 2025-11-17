@@ -10,12 +10,22 @@ using Npgsql;
 
 namespace EventStorage.Repositories;
 
-internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOutboxStructure settings)
-    : IEventRepository<TBaseMessage>
+/// <summary>
+/// The base event repository for working with the Inbox and Outbox events.
+/// </summary>
+/// <param name="logger">The logger instance.</param>
+/// <param name="settings">The inbox or outbox settings.</param>
+/// <typeparam name="TBaseMessage">The type of the message to store.</typeparam>
+internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxOrOutboxStructure settings)
+    : IBaseEventRepository<TBaseMessage>
     where TBaseMessage : class, IBaseMessageBox
 {
-    private readonly string _tableName = settings.TableName;
     private readonly string _connectionString = settings.ConnectionString;
+    
+    /// <summary>
+    /// The name of the table for connecting repository to the correct table in the database.
+    /// </summary>
+    protected readonly string TableName = settings.TableName;
 
     /// <summary>
     /// The tag/prefix of the trace message for logging purposes.
@@ -24,14 +34,10 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
 
     #region CreateTableIfNotExists
 
-    public void CreateTableIfNotExists()
-    {
-        try
-        {
-            using var dbConnection = new NpgsqlConnection(_connectionString);
-            dbConnection.Open();
-
-            var sql = $@"CREATE TABLE IF NOT EXISTS {_tableName}
+    /// <summary>
+    /// The SQL script for creating the table for storing events if it does not exist.
+    /// </summary>
+    protected virtual string CreateTableSqlScript => $@"CREATE TABLE IF NOT EXISTS {TableName}
                 (
                     id UUID NOT NULL PRIMARY KEY,
                     provider VARCHAR(50) NOT NULL,
@@ -45,19 +51,27 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
                     try_count integer DEFAULT 0 NOT NULL,
                     try_after_at TIMESTAMP(0) NOT NULL,
                     processed_at TIMESTAMP(0) DEFAULT NULL
-                );
+                );";
 
-                CREATE INDEX IF NOT EXISTS idx_for_get_unprocessed_events_of_{_tableName}
-                    ON public.{_tableName} (processed_at, try_after_at);
+    public void CreateTableIfNotExists()
+    {
+        try
+        {
+            using var dbConnection = new NpgsqlConnection(_connectionString);
+            dbConnection.Open();
 
-                CREATE INDEX IF NOT EXISTS idx_for_delete_processed_events_of_{_tableName}
-                    ON public.{_tableName} (processed_at);";
+            var createIndexScripts = $@"CREATE INDEX IF NOT EXISTS idx_for_get_unprocessed_events_of_{TableName}
+                    ON public.{TableName} (processed_at, try_after_at);
 
-            dbConnection.Execute(sql);
+                CREATE INDEX IF NOT EXISTS idx_for_delete_processed_events_of_{TableName}
+                    ON public.{TableName} (processed_at);";
+
+            dbConnection.Execute(CreateTableSqlScript);
+            dbConnection.Execute(createIndexScripts);
         }
         catch (Exception e)
         {
-            throw new EventStoreException(e, $"Error while checking/creating {_tableName} table.");
+            throw new EventStoreException(e, $"Error while checking/creating {TableName} table.");
         }
     }
 
@@ -65,8 +79,11 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
 
     #region InsertEventAsync
 
-    private readonly string _sqlQueryToInsertEvent = $@"
-                INSERT INTO {settings.TableName} (
+    /// <summary>
+    /// The SQL query for inserting a new event to the database.
+    /// </summary>
+    protected virtual string SqlQueryToInsertEvent => $@"
+                INSERT INTO {TableName} (
                     id, provider, event_name, event_path, payload, headers, 
                     additional_data, naming_policy_type, created_at, try_count, try_after_at
                 ) VALUES (
@@ -81,7 +98,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
         {
             using var dbConnection = new NpgsqlConnection(_connectionString);
             dbConnection.Open();
-            dbConnection.Execute(_sqlQueryToInsertEvent, message);
+            dbConnection.Execute(SqlQueryToInsertEvent, message);
 
             return true;
         }
@@ -91,7 +108,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
                 return false;
 
             throw new EventStoreException(e,
-                $"Error while inserting a new event to the {_tableName} table with the {message.Id} id.");
+                $"Error while inserting a new event to the {TableName} table with the {message.Id} id.");
         }
     }
 
@@ -103,7 +120,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
             await using var dbConnection = new NpgsqlConnection(_connectionString);
             await dbConnection.OpenAsync();
 
-            var affectedRows = await dbConnection.ExecuteAsync(_sqlQueryToInsertEvent, message);
+            var affectedRows = await dbConnection.ExecuteAsync(SqlQueryToInsertEvent, message);
             return affectedRows > 0;
         }
         catch (Exception e)
@@ -112,7 +129,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
                 return false;
 
             throw new EventStoreException(e,
-                $"Error while inserting a new event to the {_tableName} table with the {message.Id} id.");
+                $"Error while inserting a new event to the {TableName} table with the {message.Id} id.");
         }
     }
 
@@ -128,7 +145,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
             await using var dbConnection = new NpgsqlConnection(_connectionString);
             await dbConnection.OpenAsync();
 
-            var affectedRows = await dbConnection.ExecuteAsync(_sqlQueryToInsertEvent, events);
+            var affectedRows = await dbConnection.ExecuteAsync(SqlQueryToInsertEvent, events);
             return affectedRows > 0;
         }
         catch (Exception e)
@@ -138,7 +155,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
 
             var insertingEventIds = string.Join(", ", events.Select(x => x.Id));
             throw new EventStoreException(e,
-                $"Error while inserting an events to the {_tableName} table with the {insertingEventIds} ids.");
+                $"Error while inserting an events to the {TableName} table with the {insertingEventIds} ids.");
         }
     }
 
@@ -150,7 +167,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
             using var dbConnection = new NpgsqlConnection(_connectionString);
             dbConnection.Open();
 
-            var affectedRows = dbConnection.Execute(_sqlQueryToInsertEvent, events);
+            var affectedRows = dbConnection.Execute(SqlQueryToInsertEvent, events);
             return affectedRows > 0;
         }
         catch (Exception e)
@@ -160,7 +177,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
 
             var insertingEventIds = string.Join(", ", events.Select(x => x.Id));
             throw new EventStoreException(e,
-                $"Error while inserting an events to the {_tableName} table with the {insertingEventIds} ids.");
+                $"Error while inserting an events to the {TableName} table with the {insertingEventIds} ids.");
         }
     }
 
@@ -168,7 +185,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
 
     #region GetUnprocessedEventsAsync
 
-    private readonly string _selectSqlQuery = $@"
+    protected virtual string SqlQueryToGetUnprocessedEvents => $@"
                 SELECT id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"", 
                         event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"", 
                         payload as ""{nameof(IBaseMessageBox.Payload)}"", headers as ""{nameof(IBaseMessageBox.Headers)}"", 
@@ -176,7 +193,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
                         additional_data as ""{nameof(IBaseMessageBox.AdditionalData)}"", created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"", 
                         try_count as ""{nameof(IBaseMessageBox.TryCount)}"", try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"", 
                         processed_at as ""{nameof(IBaseMessageBox.ProcessedAt)}""
-                FROM {settings.TableName}
+                FROM {TableName}
                 WHERE 
                     processed_at IS NULL
                     AND try_after_at <= @CurrentTime
@@ -190,7 +207,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
             await using var dbConnection = new NpgsqlConnection(_connectionString);
             await dbConnection.OpenAsync();
 
-            var unprocessedEvents = await dbConnection.QueryAsync<TBaseMessage>(_selectSqlQuery, new
+            var unprocessedEvents = await dbConnection.QueryAsync<TBaseMessage>(SqlQueryToGetUnprocessedEvents, new
             {
                 CurrentTime = DateTime.Now,
                 Limit = limit
@@ -200,7 +217,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
         }
         catch (Exception e)
         {
-            throw new EventStoreException(e, $"Error while retrieving unprocessed events from the {_tableName} table.");
+            throw new EventStoreException(e, $"Error while retrieving unprocessed events from the {TableName} table.");
         }
     }
 
@@ -229,7 +246,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
         catch (Exception e)
         {
             throw new EventStoreException(e,
-                $"Error while updating the event in the {_tableName} table with the {@event.Id} id.");
+                $"Error while updating the event in the {TableName} table with the {@event.Id} id.");
         }
     }
 
@@ -245,7 +262,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
         }
         catch (Exception e)
         {
-            throw new EventStoreException(e, $"Error while updating events of the {_tableName} table.");
+            throw new EventStoreException(e, $"Error while updating events of the {TableName} table.");
         }
     }
 
@@ -269,7 +286,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
         catch (Exception e)
         {
             throw new EventStoreException(e,
-                $"Error while checking if the event with id {id} is processed in the {_tableName} table.");
+                $"Error while checking if the event with id {id} is processed in the {TableName} table.");
         }
     }
 
@@ -293,7 +310,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
         }
         catch (Exception e)
         {
-            throw new EventStoreException(e, $"Error while deleting processed events from the {_tableName} table.");
+            throw new EventStoreException(e, $"Error while deleting processed events from the {TableName} table.");
         }
     }
 

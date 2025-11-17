@@ -3,7 +3,10 @@ using EventStorage.Services;
 
 namespace EventStorage.Repositories;
 
-internal interface IEventRepository<TBaseMessage> : ITableCreator
+/// <summary>
+/// The base event repository for working with the Inbox and Outbox events.
+/// </summary>
+internal interface IBaseEventRepository<TBaseMessage> : ITableCreator
     where TBaseMessage : IBaseMessageBox
 {
     /// <summary>

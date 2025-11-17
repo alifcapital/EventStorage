@@ -9,7 +9,7 @@ namespace EventStorage.BackgroundServices;
 
 internal abstract class BaseCleanUpProcessedEventsJob<TEventRepository, TEventBox> : BackgroundService
     where TEventBox : class, IBaseMessageBox
-    where TEventRepository : IEventRepository<TEventBox>
+    where TEventRepository : IBaseEventRepository<TEventBox>
 {
     private readonly IServiceProvider _services;
     private readonly ILogger _logger;

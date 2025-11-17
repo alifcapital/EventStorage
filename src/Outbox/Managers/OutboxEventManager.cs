@@ -29,8 +29,7 @@ internal class OutboxEventManager : IOutboxEventManager
 
     #region Collect Methods
 
-    public bool Collect<TOutboxEvent>(TOutboxEvent outboxEvent,
-        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
+    public bool Collect<TOutboxEvent>(TOutboxEvent outboxEvent) where TOutboxEvent : IOutboxEvent
     {
         var eventPublisherTypes = _outboxEventsProcessor?.GetEventPublisherTypes(outboxEvent);
         if (string.IsNullOrEmpty(eventPublisherTypes))
@@ -40,20 +39,18 @@ internal class OutboxEventManager : IOutboxEventManager
             return false;
         }
 
-        var stored = Collect(outboxEvent, eventPublisherTypes, namingPolicyType);
+        var stored = Collect(outboxEvent, eventPublisherTypes);
         return stored;
     }
 
-    public bool Collect<TOutboxEvent>(TOutboxEvent outboxEvent, EventProviderType eventProvider,
-        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
+    public bool Collect<TOutboxEvent>(TOutboxEvent outboxEvent, EventProviderType eventProvider)
         where TOutboxEvent : IOutboxEvent
     {
-        var stored = Collect(outboxEvent, eventProvider.ToString(), namingPolicyType);
+        var stored = Collect(outboxEvent, eventProvider.ToString());
         return stored;
     }
 
-    private bool Collect<TOutboxEvent>(TOutboxEvent outboxEvent, string eventProvider,
-        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
+    private bool Collect<TOutboxEvent>(TOutboxEvent outboxEvent, string eventProvider)
         where TOutboxEvent : IOutboxEvent
     {
         if (_eventsToSend.ContainsKey(outboxEvent.EventId))
@@ -67,7 +64,7 @@ internal class OutboxEventManager : IOutboxEventManager
 
         try
         {
-            var outboxMessage = CreateOutboxMessage(outboxEvent, eventProvider, namingPolicyType);
+            var outboxMessage = CreateOutboxMessage(outboxEvent, eventProvider);
             return _eventsToSend.TryAdd(outboxMessage.Id, outboxMessage);
         }
         catch (Exception e)
@@ -84,14 +81,12 @@ internal class OutboxEventManager : IOutboxEventManager
 
     #region StoreAsync Methods
 
-    public Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent, EventProviderType eventProvider,
-        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
+    public Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent, EventProviderType eventProvider) where TOutboxEvent : IOutboxEvent
     {
-        return StoreAsync(outboxEvent, eventProvider.ToString(), namingPolicyType);
+        return StoreAsync(outboxEvent, eventProvider.ToString());
     }
 
-    public Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent,
-        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase) where TOutboxEvent : IOutboxEvent
+    public Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent) where TOutboxEvent : IOutboxEvent
     {
         var eventPublisherTypes = _outboxEventsProcessor?.GetEventPublisherTypes(outboxEvent);
         if (string.IsNullOrEmpty(eventPublisherTypes))
@@ -101,7 +96,7 @@ internal class OutboxEventManager : IOutboxEventManager
             return Task.FromResult(false);
         }
 
-        return StoreAsync(outboxEvent, eventPublisherTypes, namingPolicyType);
+        return StoreAsync(outboxEvent, eventPublisherTypes);
     }
 
     public async Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent[] outboxEvents) where TOutboxEvent : IOutboxEvent
@@ -123,7 +118,7 @@ internal class OutboxEventManager : IOutboxEventManager
                     continue;
                 }
 
-                var outboxMessage = CreateOutboxMessage(outboxEvent, eventPublisherTypes, NamingPolicyType.PascalCase);
+                var outboxMessage = CreateOutboxMessage(outboxEvent, eventPublisherTypes);
                 outboxMessages.Add(outboxMessage);
             }
 
@@ -140,8 +135,7 @@ internal class OutboxEventManager : IOutboxEventManager
         }
     }
 
-    private async Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent, string eventProvider,
-        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
+    private async Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent, string eventProvider)
         where TOutboxEvent : IOutboxEvent
     {
         if (_repository is null)
@@ -150,7 +144,7 @@ internal class OutboxEventManager : IOutboxEventManager
 
         try
         {
-            var outboxMessage = CreateOutboxMessage(outboxEvent, eventProvider, namingPolicyType);
+            var outboxMessage = CreateOutboxMessage(outboxEvent, eventProvider);
             return await _repository.InsertEventAsync(outboxMessage)!;
         }
         catch (Exception e)
@@ -227,11 +221,9 @@ internal class OutboxEventManager : IOutboxEventManager
     /// </summary>
     /// <param name="outboxEvent">The event that we want to store in the outbox table.</param>
     /// <param name="eventProvider">The provider of the event that should be handled while publishing the event.</param>
-    /// <param name="namingPolicyType">The naming policy type for serializing and deserializing properties of Event. Default value is "PascalCase".</param>
     /// <typeparam name="TOutboxEvent">The type of the outbox event that should be stored in the outbox table.</typeparam>
     /// <returns>Newly created OutboxMessage based on the provided outbox event.</returns>
-    private static OutboxMessage CreateOutboxMessage<TOutboxEvent>(TOutboxEvent outboxEvent, string eventProvider,
-        NamingPolicyType namingPolicyType) where TOutboxEvent : IOutboxEvent
+    private static OutboxMessage CreateOutboxMessage<TOutboxEvent>(TOutboxEvent outboxEvent, string eventProvider) where TOutboxEvent : IOutboxEvent
     {
         var eventType = outboxEvent.GetType();
         string eventHeaders = null;
@@ -259,7 +251,6 @@ internal class OutboxEventManager : IOutboxEventManager
             Provider = eventProvider,
             EventName = eventType.Name,
             EventPath = eventType.Namespace,
-            NamingPolicyType = namingPolicyType.ToString(),
             Headers = eventHeaders,
             AdditionalData = eventAdditionalData,
             Payload = eventPayload
