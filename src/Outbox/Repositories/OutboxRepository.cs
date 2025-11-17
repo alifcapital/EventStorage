@@ -11,6 +11,8 @@ internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutbox
 {
     protected override string TraceMessageTag => EventStorageInvestigationTagNames.OutboxEventTag;
 
+    #region Overriden queries
+
     /// <summary>
     /// Since the outbox message does not have a property naming policy, we override the base class implementation to not create column for that.
     /// </summary>
@@ -57,4 +59,6 @@ internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutbox
                     AND try_after_at <= @CurrentTime
                 ORDER BY created_at ASC
                 LIMIT @Limit";
+
+    #endregion
 }
