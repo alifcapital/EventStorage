@@ -1,4 +1,5 @@
 using EventStorage.Models;
+using EventStorage.Tests.Infrastructure.Extensions;
 using Npgsql;
 
 namespace EventStorage.Tests.Infrastructure;
@@ -24,46 +25,47 @@ internal class DataContext<TEvent> where TEvent : BaseMessageBox, new()
 
     public TEvent GetById(Guid id)
     {
-        var sql = @$"SELECT id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"", 
-                        event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"", 
-                        payload as ""{nameof(IBaseMessageBox.Payload)}"", headers as ""{nameof(IBaseMessageBox.Headers)}"", 
-                        naming_policy_type as ""{nameof(IBaseMessageBox.NamingPolicyType)}"", 
-                        additional_data as ""{nameof(IBaseMessageBox.AdditionalData)}"", created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"", 
-                        try_count as ""{nameof(IBaseMessageBox.TryCount)}"", try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"", 
-                        processed_at as ""{nameof(IBaseMessageBox.ProcessedAt)}""
-                FROM {_tableName} where id = @id";
+        var sql = @$"SELECT * FROM {_tableName} where id = @id";
         var command = _dataSource.CreateCommand(sql);
 
         command.Parameters.Add(new NpgsqlParameter("@id", id));
 
         using var reader = command.ExecuteReader();
-        TEvent outboxEvent;
+        TEvent message;
         if (reader.Read())
         {
-            outboxEvent = new TEvent
+            string namingPolicyTypeValue = null;
+            if (reader.HasColumn("naming_policy_type"))
             {
-                Id = reader.GetGuid(0),
-                Provider = reader.GetString(1),
-                EventName = reader.GetString(2),
-                EventPath = reader.GetString(3),
-                Payload = reader.GetString(4),
-                Headers = reader.GetString(5),
-                NamingPolicyType = reader.GetString(6),
-                AdditionalData = reader.GetString(7),
-                TryCount = reader.GetInt32(9),
-                TryAfterAt = reader.GetDateTime(10)
+                var ordNamingPolicy = reader.GetOrdinal("naming_policy_type");
+                if (!reader.IsDBNull(ordNamingPolicy))
+                    namingPolicyTypeValue = reader.GetString(ordNamingPolicy);
+            }
+
+            message = new TEvent
+            {
+                Id = reader.GetGuid(reader.GetOrdinal("id")),
+                Provider = reader.GetString(reader.GetOrdinal("provider")),
+                EventName = reader.GetString(reader.GetOrdinal("event_name")),
+                EventPath = reader.GetString(reader.GetOrdinal("event_path")),
+                Payload = reader.GetString(reader.GetOrdinal("payload")),
+                Headers = reader.GetString(reader.GetOrdinal("headers")),
+                NamingPolicyType = namingPolicyTypeValue,
+                AdditionalData = reader.GetString(reader.GetOrdinal("additional_data")),
+                TryCount = reader.GetInt32(reader.GetOrdinal("try_count")),
+                TryAfterAt = reader.GetDateTime(reader.GetOrdinal("try_after_at"))
             };
-            
-            var isProcessed = !reader.IsDBNull(11);
-            if(isProcessed)
-                outboxEvent.Processed();
+
+            var processedOrdinal = reader.GetOrdinal("processed_at");
+            if (!reader.IsDBNull(processedOrdinal))
+                message.Processed();
         }
         else
         {
             throw new Exception($"Event not found by given id: {id}");
         }
 
-        return outboxEvent;
+        return message;
     }
     
     public bool ExistsById(Guid id)

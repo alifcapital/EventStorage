@@ -8,7 +8,7 @@ namespace EventStorage.Tests.Services;
 
 internal class CleanUpProcessedEventsJob<TEventRepository, TEventBox> : BaseCleanUpProcessedEventsJob<TEventRepository, TEventBox>
     where TEventBox : class, IBaseMessageBox
-    where TEventRepository : IEventRepository<TEventBox>
+    where TEventRepository : IBaseEventRepository<TEventBox>
 {
     public CleanUpProcessedEventsJob(IServiceProvider services, InboxOrOutboxStructure settings, ILogger logger) : base(services, settings, logger)
     {

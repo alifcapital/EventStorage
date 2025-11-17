@@ -10,8 +10,14 @@ using Npgsql;
 
 namespace EventStorage.Repositories;
 
-internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOutboxStructure settings)
-    : IEventRepository<TBaseMessage>
+/// <summary>
+/// The base event repository for working with the Inbox and Outbox events.
+/// </summary>
+/// <param name="logger">The logger instance.</param>
+/// <param name="settings">The inbox or outbox settings.</param>
+/// <typeparam name="TBaseMessage">The type of the message to store.</typeparam>
+internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxOrOutboxStructure settings)
+    : IBaseEventRepository<TBaseMessage>
     where TBaseMessage : class, IBaseMessageBox
 {
     private readonly string _connectionString = settings.ConnectionString;
@@ -179,7 +185,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
 
     #region GetUnprocessedEventsAsync
 
-    private readonly string _selectSqlQuery = $@"
+    protected virtual string SqlQueryToGetUnprocessedEvents => $@"
                 SELECT id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"", 
                         event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"", 
                         payload as ""{nameof(IBaseMessageBox.Payload)}"", headers as ""{nameof(IBaseMessageBox.Headers)}"", 
@@ -187,7 +193,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
                         additional_data as ""{nameof(IBaseMessageBox.AdditionalData)}"", created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"", 
                         try_count as ""{nameof(IBaseMessageBox.TryCount)}"", try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"", 
                         processed_at as ""{nameof(IBaseMessageBox.ProcessedAt)}""
-                FROM {settings.TableName}
+                FROM {TableName}
                 WHERE 
                     processed_at IS NULL
                     AND try_after_at <= @CurrentTime
@@ -201,7 +207,7 @@ internal abstract class EventRepository<TBaseMessage>(ILogger logger, InboxOrOut
             await using var dbConnection = new NpgsqlConnection(_connectionString);
             await dbConnection.OpenAsync();
 
-            var unprocessedEvents = await dbConnection.QueryAsync<TBaseMessage>(_selectSqlQuery, new
+            var unprocessedEvents = await dbConnection.QueryAsync<TBaseMessage>(SqlQueryToGetUnprocessedEvents, new
             {
                 CurrentTime = DateTime.Now,
                 Limit = limit

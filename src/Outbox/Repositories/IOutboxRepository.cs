@@ -3,4 +3,4 @@ using EventStorage.Repositories;
 
 namespace EventStorage.Outbox.Repositories;
 
-internal interface IOutboxRepository: IEventRepository<OutboxMessage>;
+internal interface IOutboxRepository: IBaseEventRepository<OutboxMessage>;

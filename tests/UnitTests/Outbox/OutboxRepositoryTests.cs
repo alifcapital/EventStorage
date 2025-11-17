@@ -10,8 +10,8 @@ namespace EventStorage.Tests.UnitTests.Outbox
     /// written for the generic type.
     /// </summary>
     [TestFixture]
-    internal class OutboxRepositoryTests() : EventRepositoryTests<OutboxMessage>(
-        eventRepository: new OutboxRepository(NullLogger<OutboxRepository>.Instance, InboxAndOutboxSettings),
+    internal class OutboxRepositoryTests() : BaseEventRepositoryTests<OutboxMessage>(
+        baseEventRepository: new OutboxRepository(NullLogger<OutboxRepository>.Instance, InboxAndOutboxSettings),
         dataContext: new DataContext<OutboxMessage>(
             InboxAndOutboxSettings.Outbox.ConnectionString,
             InboxAndOutboxSettings.Outbox.TableName

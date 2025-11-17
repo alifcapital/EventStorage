@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 namespace EventStorage.Outbox.Repositories;
 
 internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutboxSettings settings)
-    : EventRepository<OutboxMessage>(logger, settings.Outbox), IOutboxRepository
+    : BaseEventRepository<OutboxMessage>(logger, settings.Outbox), IOutboxRepository
 {
     protected override string TraceMessageTag => EventStorageInvestigationTagNames.OutboxEventTag;
 
@@ -40,4 +40,21 @@ internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutbox
                     @Id, @Provider, @EventName, @EventPath, @Payload, @Headers, 
                     @AdditionalData, @CreatedAt, @TryCount, @TryAfterAt
                 )";
+    
+    /// <summary>
+    /// The SQL query for getting unprocessed outbox events without the naming policy column.
+    /// </summary>
+    protected override string SqlQueryToGetUnprocessedEvents => $@"
+                SELECT id as ""{nameof(OutboxMessage.Id)}"", provider as ""{nameof(OutboxMessage.Provider)}"", 
+                        event_name as ""{nameof(OutboxMessage.EventName)}"", event_path as ""{nameof(OutboxMessage.EventPath)}"", 
+                        payload as ""{nameof(OutboxMessage.Payload)}"", headers as ""{nameof(OutboxMessage.Headers)}"", 
+                        additional_data as ""{nameof(OutboxMessage.AdditionalData)}"", created_at as ""{nameof(OutboxMessage.CreatedAt)}"", 
+                        try_count as ""{nameof(OutboxMessage.TryCount)}"", try_after_at as ""{nameof(OutboxMessage.TryAfterAt)}"", 
+                        processed_at as ""{nameof(OutboxMessage.ProcessedAt)}""
+                FROM {TableName}
+                WHERE 
+                    processed_at IS NULL
+                    AND try_after_at <= @CurrentTime
+                ORDER BY created_at ASC
+                LIMIT @Limit";
 }

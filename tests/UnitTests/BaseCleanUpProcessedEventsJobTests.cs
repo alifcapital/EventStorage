@@ -10,7 +10,7 @@ namespace EventStorage.Tests.UnitTests;
 
 internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEventBox>
     where TEventBox : class, IBaseMessageBox
-    where TEventRepository : class, IEventRepository<TEventBox>
+    where TEventRepository : class, IBaseEventRepository<TEventBox>
 {
     private IServiceProvider _serviceProvider;
     private TEventRepository _eventRepository;
