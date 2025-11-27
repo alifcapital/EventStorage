@@ -49,7 +49,7 @@ public static class EventStoreExtensions
 
         var settings = GetDefaultSettings();
         if (settings.Inbox.TableName == settings.Outbox.TableName)
-            throw new Exception("The table name for the inbox and outbox events cannot be the same.");
+            throw new EventStoreException("The table name for the inbox and outbox events cannot be the same.");
 
         services.AddSingleton(settings);
         services.AddScoped<IOutboxEventManager, OutboxEventManager>();
@@ -119,7 +119,7 @@ public static class EventStoreExtensions
         }
     }
 
-    #region Publisher
+    #region Outbox event configuration
 
     private static void RegisterAllEventsOfOutbox(OutboxEventsProcessor outboxEventsProcessor,
         Assembly[] assemblies)
@@ -254,7 +254,7 @@ public static class EventStoreExtensions
 
     #endregion
 
-    #region Receiver
+    #region Inbox event configuration
 
     private static void RegisterAllEventsOfInbox(InboxEventsProcessor inboxEventsProcessor, Assembly[] assemblies)
     {
