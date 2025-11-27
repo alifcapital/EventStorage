@@ -176,7 +176,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
                     var inboxEvent = LoadInboxEvent(inboxMessage, inboxEventInformation);
                     if (!isOnExecutingEventInvoked)
                     {
-                        OnExecutingInboxEvent(inboxEvent, inboxEventInformation.ProviderType,
+                        OnExecutingInboxEvent(inboxEvent, inboxEventInformation,
                             serviceScope.ServiceProvider);
                         isOnExecutingEventInvoked = true;
                     }
@@ -223,10 +223,13 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
     /// Invokes the ExecutingReceivedEvent event to be able to execute the event before the handler.
     /// </summary>
     /// <param name="event">Executing an event</param>
-    /// <param name="providerType">The provider type of event</param>
+    /// <param name="eventHandlerInformation">Contains metadata about the event handler, including its type and provider.</param>
     /// <param name="serviceProvider">The IServiceProvider used to resolve dependencies from the scope.</param>
-    private void OnExecutingInboxEvent(IInboxEvent @event, EventProviderType providerType,
-        IServiceProvider serviceProvider)
+    private void OnExecutingInboxEvent(
+        IInboxEvent @event,
+        EventHandlerInformation eventHandlerInformation,
+        IServiceProvider serviceProvider
+    )
     {
         if (ExecutingInboxEvent is null)
             return;
@@ -234,7 +237,8 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         var eventArgs = new InboxEventArgs
         {
             Event = @event,
-            ProviderType = providerType,
+            EventHandlerType = eventHandlerInformation.EventHandlerType,
+            ProviderType = eventHandlerInformation.ProviderType,
             ServiceProvider = serviceProvider
         };
         ExecutingInboxEvent.Invoke(this, eventArgs);
