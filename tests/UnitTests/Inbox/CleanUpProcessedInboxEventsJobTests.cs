@@ -3,6 +3,6 @@ using EventStorage.Inbox.Repositories;
 
 namespace EventStorage.Tests.UnitTests.Inbox;
 
-[Parallelizable(ParallelScope.Self)]
+[Parallelizable]
 internal class CleanUpProcessedInboxEventsJobTests : 
     BaseCleanUpProcessedEventsJobTests<IInboxRepository, InboxMessage>;
