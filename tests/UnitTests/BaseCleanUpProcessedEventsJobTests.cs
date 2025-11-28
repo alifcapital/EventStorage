@@ -8,6 +8,7 @@ using NSubstitute;
 
 namespace EventStorage.Tests.UnitTests;
 
+[NonParallelizable]
 internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEventBox>
     where TEventBox : class, IBaseMessageBox
     where TEventRepository : class, IBaseEventRepository<TEventBox>
@@ -84,6 +85,7 @@ internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEv
         _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);
         serviceScopeFactory.CreateScope().Returns(scope);
         scope.ServiceProvider.GetService(typeof(TEventRepository)).Returns(_eventRepository);
+        _logger.ClearReceivedCalls();
 
         var stoppingToken = new CancellationTokenSource();
         stoppingToken.CancelAfter(100);
