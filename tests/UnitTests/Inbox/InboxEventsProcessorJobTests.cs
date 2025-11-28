@@ -8,7 +8,6 @@ using NSubstitute;
 
 namespace EventStorage.Tests.UnitTests.Inbox;
 
-[NonParallelizable]
 public class InboxEventsProcessorJobTests
 {
     private IServiceProvider _serviceProvider;
@@ -64,7 +63,6 @@ public class InboxEventsProcessorJobTests
         serviceScopeFactory.CreateScope().Returns(scope);
         var inboxRepository = Substitute.For<IInboxRepository>();
         scope.ServiceProvider.GetService(typeof(IInboxRepository)).Returns(inboxRepository);
-        _logger.ClearReceivedCalls();
 
         var stoppingToken = new CancellationTokenSource();
         stoppingToken.CancelAfter(100);
