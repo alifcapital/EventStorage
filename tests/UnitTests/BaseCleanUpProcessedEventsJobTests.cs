@@ -8,6 +8,7 @@ using NSubstitute;
 
 namespace EventStorage.Tests.UnitTests;
 
+[TestFixture]
 internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEventBox>
     where TEventBox : class, IBaseMessageBox
     where TEventRepository : class, IBaseEventRepository<TEventBox>

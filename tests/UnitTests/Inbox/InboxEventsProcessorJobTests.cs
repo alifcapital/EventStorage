@@ -55,6 +55,7 @@ public class InboxEventsProcessorJobTests
     }
 
     [Test]
+    [Parallelizable(ParallelScope.Self)]
     public async Task StartAsync_ThrowingExceptionOnExecutingUnprocessedEvents_ShouldLogException()
     {
         var scope = Substitute.For<IServiceScope>();
@@ -63,9 +64,6 @@ public class InboxEventsProcessorJobTests
         serviceScopeFactory.CreateScope().Returns(scope);
         var inboxRepository = Substitute.For<IInboxRepository>();
         scope.ServiceProvider.GetService(typeof(IInboxRepository)).Returns(inboxRepository);
-
-        var stoppingToken = new CancellationTokenSource();
-        stoppingToken.CancelAfter(100);
 
         var eventsReceiverService = new InboxEventsProcessorJob(
             services: _serviceProvider,
