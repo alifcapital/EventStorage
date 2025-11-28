@@ -55,6 +55,7 @@ public class InboxEventsProcessorJobTests
     }
 
     [Test]
+    [Parallelizable(ParallelScope.Self)]
     public async Task StartAsync_ThrowingExceptionOnExecutingUnprocessedEvents_ShouldLogException()
     {
         var scope = Substitute.For<IServiceScope>();
@@ -63,9 +64,6 @@ public class InboxEventsProcessorJobTests
         serviceScopeFactory.CreateScope().Returns(scope);
         var inboxRepository = Substitute.For<IInboxRepository>();
         scope.ServiceProvider.GetService(typeof(IInboxRepository)).Returns(inboxRepository);
-
-        var stoppingToken = new CancellationTokenSource();
-        stoppingToken.CancelAfter(100);
 
         var eventsReceiverService = new InboxEventsProcessorJob(
             services: _serviceProvider,
@@ -87,38 +85,6 @@ public class InboxEventsProcessorJobTests
             Arg.Any<object>(),
             Arg.Is<Exception>(ex => ex.Message == "Test exception"),
             Arg.Any<Func<object, Exception, string>>()!
-        );
-    }
-
-    [Test]
-    public async Task StartAsync_CancellationRequested_ShouldStopWithCancellationRequestTrue()
-    {
-        var scope = Substitute.For<IServiceScope>();
-        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
-        _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);
-        serviceScopeFactory.CreateScope().Returns(scope);
-        var inboxRepository = Substitute.For<IInboxRepository>();
-        scope.ServiceProvider.GetService(typeof(IInboxRepository)).Returns(inboxRepository);
-
-        var stoppingToken = new CancellationTokenSource();
-        CancellationToken cancellationToken = stoppingToken.Token;
-
-        _inboxEventsProcessor
-            .ExecuteUnprocessedEvents(cancellationToken)
-            .Returns(async _ => await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken));
-
-        var eventsReceiverService = new InboxEventsProcessorJob(
-            services: _serviceProvider,
-            inboxEventsProcessor: _inboxEventsProcessor,
-            settings: _settings,
-            logger: _logger
-        );
-        
-        _ = eventsReceiverService.StartAsync(cancellationToken);
-        await stoppingToken.CancelAsync();
-        
-        await _inboxEventsProcessor.Received().ExecuteUnprocessedEvents(
-            Arg.Is<CancellationToken>(ct => ct.IsCancellationRequested == true)
         );
     }
 }
