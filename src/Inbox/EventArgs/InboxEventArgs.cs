@@ -16,7 +16,7 @@ public class InboxEventArgs : EventArgs
     public required IInboxEvent Event { get; init; }
 
     /// <summary>
-    /// The concrete event handler type that will handle the event.
+    /// The event handler type that will handle the event.
     /// </summary>
     public required Type EventHandlerType { get; init; }
 
