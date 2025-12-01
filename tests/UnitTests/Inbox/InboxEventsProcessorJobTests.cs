@@ -71,9 +71,6 @@ public class InboxEventsProcessorJobTests
         var inboxRepository = Substitute.For<IInboxRepository>();
         scope.ServiceProvider.GetService(typeof(IInboxRepository)).Returns(inboxRepository);
 
-        var stoppingToken = new CancellationTokenSource();
-        stoppingToken.CancelAfter(100);
-
         var eventsReceiverService = new InboxEventsProcessorJob(
             services: _serviceProvider,
             inboxEventsProcessor: _inboxEventsProcessor,

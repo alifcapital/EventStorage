@@ -7,6 +7,5 @@ namespace EventStorage.Tests.UnitTests.Outbox;
 /// The class inherits the base class, which contains all the tests
 /// written for the generic type.
 /// </summary>
-[TestFixture]
 internal class CleanUpProcessedOutboxEventsJobTests : 
     BaseCleanUpProcessedEventsJobTests<IOutboxRepository, OutboxMessage>;
