@@ -1,4 +1,6 @@
+using System.Reflection;
 using EventStorage.Configurations;
+using EventStorage.Exceptions;
 using EventStorage.Models;
 using EventStorage.Repositories;
 using EventStorage.Tests.Services;
@@ -8,6 +10,7 @@ using NSubstitute;
 
 namespace EventStorage.Tests.UnitTests;
 
+[TestFixture]
 internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEventBox>
     where TEventBox : class, IBaseMessageBox
     where TEventRepository : class, IBaseEventRepository<TEventBox>
@@ -27,7 +30,7 @@ internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEv
     }
 
     #region StartAsync
-    
+
     [Test]
     public async Task StartAsync_SettingsDaysToCleanIsOne_ShouldDelete()
     {
@@ -43,14 +46,14 @@ internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEv
             logger: _logger
         );
         var cancellationToken = CancellationToken.None;
-        
+
         await cleanUpProcessedEventsService.StartAsync(cancellationToken);
-        
+
         await _eventRepository.Received().DeleteProcessedEventsAsync(
             Arg.Is<DateTime>(d => d.Day == DateTime.Now.AddDays(-1).Day)
         );
     }
-    
+
     [Test]
     public async Task StartAsync_SettingsDaysToCleanIsZero_ShouldNotDelete()
     {
@@ -70,37 +73,44 @@ internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEv
             logger: _logger
         );
         var cancellationToken = CancellationToken.None;
-        
+
         await cleanUpProcessedEventsService.StartAsync(cancellationToken);
-        
+
         await _eventRepository.DidNotReceive().DeleteProcessedEventsAsync(Arg.Any<DateTime>());
     }
-    
+
     [Test]
-    public async Task StartAsync_WhenReceiveExceptionWhileDeleting_ShouldLogException()
+    public void StartAsync_WhenReceiveExceptionWhileDeleting_ShouldLogException()
     {
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
         _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);
         serviceScopeFactory.CreateScope().Returns(scope);
         scope.ServiceProvider.GetService(typeof(TEventRepository)).Returns(_eventRepository);
-
-        var stoppingToken = new CancellationTokenSource();
-        stoppingToken.CancelAfter(100);
+        var stoppingTokenSource = new CancellationTokenSource();
 
         var cleanUpProcessedEventsService = new CleanUpProcessedEventsJob<TEventRepository, TEventBox>(
             services: _serviceProvider,
             settings: _settings,
             logger: _logger
         );
-
-        // Simulate exception in DeleteProcessedEventsAsync
         _eventRepository
             .When(x => x.DeleteProcessedEventsAsync(Arg.Any<DateTime>()))
-            .Throw(new Exception("Simulated exception"));
-        
-        await cleanUpProcessedEventsService.StartAsync(stoppingToken.Token);
-        
+            .Do(_ =>
+            {
+                stoppingTokenSource.Cancel();
+                throw new EventStoreException("Simulated exception");
+            });
+
+        Assert.ThrowsAsync<TaskCanceledException>(async () =>
+        {
+            var executeAsyncTask =
+                (Task)cleanUpProcessedEventsService.GetType().BaseType!.GetMethod("ExecuteAsync",
+                        BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(cleanUpProcessedEventsService, [stoppingTokenSource.Token])!;
+            await executeAsyncTask;
+        });
+
         _logger.Received(1).Log(
             LogLevel.Critical,
             Arg.Any<EventId>(),
@@ -109,5 +119,6 @@ internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEv
             Arg.Any<Func<object, Exception, string>>()!
         );
     }
+
     #endregion
 }

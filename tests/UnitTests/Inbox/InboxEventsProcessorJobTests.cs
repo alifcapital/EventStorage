@@ -1,3 +1,4 @@
+using System.Reflection;
 using EventStorage.Configurations;
 using EventStorage.Inbox;
 using EventStorage.Inbox.BackgroundServices;
@@ -8,12 +9,15 @@ using NSubstitute;
 
 namespace EventStorage.Tests.UnitTests.Inbox;
 
+[TestFixture]
 public class InboxEventsProcessorJobTests
 {
     private IServiceProvider _serviceProvider;
     private IInboxEventsProcessor _inboxEventsProcessor;
     private ILogger<InboxEventsProcessorJob> _logger;
     private InboxAndOutboxSettings _settings;
+
+    #region Setup
 
     [SetUp]
     public void Setup()
@@ -27,6 +31,10 @@ public class InboxEventsProcessorJobTests
                 { MaxConcurrency = 1, TryCount = 3, TryAfterMinutes = 5, TryAfterMinutesIfEventNotFound = 10 }
         };
     }
+
+    #endregion
+
+    #region StartAsync
 
     [Test]
     public async Task StartAsync_WithDefaultSettings_ShouldWork()
@@ -45,9 +53,9 @@ public class InboxEventsProcessorJobTests
             logger: _logger
         );
         var cancellationToken = CancellationToken.None;
-        
+
         await eventsReceiverService.StartAsync(cancellationToken);
-        
+
         inboxRepository.Received(1).CreateTableIfNotExists();
 
         //We cannot test this because it is an asynchronous method
@@ -64,9 +72,6 @@ public class InboxEventsProcessorJobTests
         var inboxRepository = Substitute.For<IInboxRepository>();
         scope.ServiceProvider.GetService(typeof(IInboxRepository)).Returns(inboxRepository);
 
-        var stoppingToken = new CancellationTokenSource();
-        stoppingToken.CancelAfter(100);
-
         var eventsReceiverService = new InboxEventsProcessorJob(
             services: _serviceProvider,
             inboxEventsProcessor: _inboxEventsProcessor,
@@ -78,9 +83,9 @@ public class InboxEventsProcessorJobTests
         _inboxEventsProcessor
             .When(x => x.ExecuteUnprocessedEvents(Arg.Any<CancellationToken>()))
             .Do(_ => throw new Exception("Test exception"));
-        
+
         await eventsReceiverService.StartAsync(CancellationToken.None);
-        
+
         _logger.Received(1).Log(
             LogLevel.Critical,
             Arg.Any<EventId>(),
@@ -90,8 +95,12 @@ public class InboxEventsProcessorJobTests
         );
     }
 
+    #endregion
+
+    #region ExecuteAsync
+    
     [Test]
-    public async Task StartAsync_CancellationRequested_ShouldStopWithCancellationRequestTrue()
+    public async Task ExecuteAsync_CancellationRequested_ShouldStopProcessing()
     {
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
@@ -99,13 +108,11 @@ public class InboxEventsProcessorJobTests
         serviceScopeFactory.CreateScope().Returns(scope);
         var inboxRepository = Substitute.For<IInboxRepository>();
         scope.ServiceProvider.GetService(typeof(IInboxRepository)).Returns(inboxRepository);
-
-        var stoppingToken = new CancellationTokenSource();
-        CancellationToken cancellationToken = stoppingToken.Token;
+        var stoppingTokenSource = new CancellationTokenSource();
 
         _inboxEventsProcessor
-            .ExecuteUnprocessedEvents(cancellationToken)
-            .Returns(async _ => await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken));
+            .When(x => x.ExecuteUnprocessedEvents(Arg.Any<CancellationToken>()))
+            .Do(_ => stoppingTokenSource.Cancel());
 
         var eventsReceiverService = new InboxEventsProcessorJob(
             services: _serviceProvider,
@@ -113,12 +120,20 @@ public class InboxEventsProcessorJobTests
             settings: _settings,
             logger: _logger
         );
-        
-        _ = eventsReceiverService.StartAsync(cancellationToken);
-        await stoppingToken.CancelAsync();
-        
-        await _inboxEventsProcessor.Received().ExecuteUnprocessedEvents(
-            Arg.Is<CancellationToken>(ct => ct.IsCancellationRequested == true)
+
+        Assert.ThrowsAsync<TaskCanceledException>(async () =>
+        {
+            var executeAsyncTask =
+                (Task)eventsReceiverService.GetType().BaseType!.GetMethod("ExecuteAsync",
+                        BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(eventsReceiverService, [stoppingTokenSource.Token])!;
+            await executeAsyncTask;
+        });
+
+        await _inboxEventsProcessor.Received(1).ExecuteUnprocessedEvents(
+            Arg.Is<CancellationToken>(ct => ct.IsCancellationRequested)
         );
     }
+
+    #endregion
 }
