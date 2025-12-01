@@ -9,6 +9,8 @@ using NSubstitute;
 
 namespace EventStorage.Tests.UnitTests.Inbox;
 
+[TestFixture]
+[Parallelizable(ParallelScope.Self)]
 public class InboxEventsProcessorJobTests
 {
     private IServiceProvider _serviceProvider;
