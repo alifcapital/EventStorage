@@ -1,8 +1,10 @@
+using System.Reflection;
 using EventStorage.Configurations;
 using EventStorage.Outbox;
 using EventStorage.Outbox.BackgroundServices;
 using EventStorage.Services;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 
@@ -11,6 +13,7 @@ namespace EventStorage.Tests.UnitTests.Outbox;
 public class OutboxEventsProcessorJobTests
 {
     private IServiceProvider _serviceProvider;
+    private IServiceScopeFactory _serviceScopeFactory;
     private IOutboxEventsProcessor _outboxEventsProcessor;
     private ILogger<OutboxEventsProcessorJob> _logger;
     private InboxAndOutboxSettings _settings;
@@ -21,6 +24,11 @@ public class OutboxEventsProcessorJobTests
     public void SetUp()
     {
         _serviceProvider = Substitute.For<IServiceProvider>();
+        var scope = Substitute.For<IServiceScope>();
+        _serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
+        _serviceScopeFactory.CreateScope().Returns(scope);
+        scope.ServiceProvider.Returns(_serviceProvider);
+
         _outboxEventsProcessor = Substitute.For<IOutboxEventsProcessor>();
         _logger = Substitute.For<ILogger<OutboxEventsProcessorJob>>();
         _settings = new InboxAndOutboxSettings
@@ -37,43 +45,32 @@ public class OutboxEventsProcessorJobTests
     [Test]
     public async Task StartAsync_WithDefaultSettings_ShouldWork()
     {
-        var scope = Substitute.For<IServiceScope>();
-        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
-        serviceScopeFactory.CreateScope().Returns(scope);
-        scope.ServiceProvider.Returns(_serviceProvider);
         var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
         _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
         var eventsReceiverService = new OutboxEventsProcessorJob(
-            scopeFactory: serviceScopeFactory,
+            scopeFactory: _serviceScopeFactory,
             outboxEventsProcessor: _outboxEventsProcessor,
             settings: _settings,
             logger: _logger
         );
         var cancellationToken = CancellationToken.None;
 
-        await eventsReceiverService.StartAsync(cancellationToken);
+        _ = ExecuteBackgroundServiceAsync(eventsReceiverService, cancellationToken);
 
-        await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
-        eventStoreTablesCreator.Received(1).CreateTablesIfNotExists();
-
+        await eventStoreTablesCreator.Received(1).CreateTablesIfNotExistsAsync(cancellationToken);
         //We cannot test this because it is an asynchronous method
         await _outboxEventsProcessor.ExecuteUnprocessedEvents(cancellationToken);
     }
 
     [Test]
-    public async Task StartAsync_ThrowingExceptionOnExecutingUnprocessedEvents_ShouldLogException()
+    public void StartAsync_ThrowingExceptionOnExecutingUnprocessedEvents_ShouldLogException()
     {
-        var scope = Substitute.For<IServiceScope>();
-        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
-        serviceScopeFactory.CreateScope().Returns(scope);
-        scope.ServiceProvider.Returns(_serviceProvider);
         var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
         _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
         var stoppingToken = new CancellationTokenSource();
         stoppingToken.CancelAfter(100);
-
         var eventsPublisherService = new OutboxEventsProcessorJob(
-            scopeFactory: serviceScopeFactory,
+            scopeFactory: _serviceScopeFactory,
             outboxEventsProcessor: _outboxEventsProcessor,
             settings: _settings,
             logger: _logger
@@ -84,7 +81,7 @@ public class OutboxEventsProcessorJobTests
             .When(x => x.ExecuteUnprocessedEvents(Arg.Any<CancellationToken>()))
             .Do(_ => throw new Exception("Test exception"));
 
-        await eventsPublisherService.StartAsync(CancellationToken.None);
+        _ = ExecuteBackgroundServiceAsync(eventsPublisherService, CancellationToken.None);
 
         _logger.Received(1).Log(
             LogLevel.Critical,
@@ -98,32 +95,41 @@ public class OutboxEventsProcessorJobTests
     [Test]
     public async Task StartAsync_CancellationRequested_ShouldStopWithCancellationRequestTrue()
     {
-        var scope = Substitute.For<IServiceScope>();
-        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
-        serviceScopeFactory.CreateScope().Returns(scope);
-        scope.ServiceProvider.Returns(_serviceProvider);
         var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
         _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
-        var stoppingToken = new CancellationTokenSource();
-        CancellationToken cancellationToken = stoppingToken.Token;
+        var stoppingTokenSource = new CancellationTokenSource();
         _outboxEventsProcessor
-            .ExecuteUnprocessedEvents(cancellationToken)
-            .Returns(async _ => await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken));
+            .When(x => x.ExecuteUnprocessedEvents(Arg.Any<CancellationToken>()))
+            .Do(_ => stoppingTokenSource.Cancel());
 
         var eventsPublisherService = new OutboxEventsProcessorJob(
-            scopeFactory: serviceScopeFactory,
+            scopeFactory: _serviceScopeFactory,
             outboxEventsProcessor: _outboxEventsProcessor,
             settings: _settings,
             logger: _logger
         );
 
-        _ = eventsPublisherService.StartAsync(cancellationToken);
-        await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
-        await stoppingToken.CancelAsync();
+        _ = ExecuteBackgroundServiceAsync(eventsPublisherService, stoppingTokenSource.Token);
 
         await _outboxEventsProcessor.Received().ExecuteUnprocessedEvents(
             Arg.Is<CancellationToken>(ct => ct.IsCancellationRequested == true)
         );
+    }
+
+    #endregion
+
+    #region Helper methods
+
+    /// <summary>
+    /// Executes the background service's ExecuteAsync method immediately.
+    /// </summary>
+    private async Task ExecuteBackgroundServiceAsync(BackgroundService service, CancellationToken cancellationToken)
+    {
+        var executeAsyncTask =
+            (Task)service.GetType().BaseType!.GetMethod("ExecuteAsync",
+                    BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(service, [cancellationToken])!;
+        await executeAsyncTask;
     }
 
     #endregion

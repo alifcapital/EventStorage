@@ -359,6 +359,7 @@ The `InboxAndOutbox` is the main section for setting of the Outbox and Inbox fun
 
 ```
 "InboxAndOutbox": {
+    "SecondsToDelayBeforeCreateEventStoreTables": 0,
     "Inbox": {
       //Your inbox settings
     },
@@ -371,7 +372,6 @@ The `InboxAndOutbox` is the main section for setting of the Outbox and Inbox fun
       "TryAfterMinutes": 20,
       "TryAfterMinutesIfEventNotFound": 60,
       "SecondsToDelayProcessEvents": 2,
-      "SecondsToDelayBeforeCreateEventStoreTables": 0,
       "DaysToCleanUpEvents": 30,
       "HoursToDelayCleanUpEvents": 2,
       "ConnectionString": "Connection string of the SQL database"
