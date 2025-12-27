@@ -3,15 +3,14 @@ using EventStorage.Configurations;
 using EventStorage.Inbox.Models;
 using EventStorage.Inbox.Repositories;
 using EventStorage.Outbox.BackgroundServices;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Inbox.BackgroundServices;
 
-internal class CleanUpProcessedInboxEventsJob : BaseCleanUpProcessedEventsJob<IInboxRepository, InboxMessage>
-{
-    public CleanUpProcessedInboxEventsJob(IServiceProvider services,
-        InboxAndOutboxSettings settings, ILogger<OutboxEventsProcessorJob> logger) : base(services, settings.Inbox,
-        logger)
-    {
-    }
-}
+internal class CleanUpProcessedInboxEventsJob(
+    IServiceScopeFactory serviceScopeFactory,
+    InboxAndOutboxSettings settings,
+    ILogger<OutboxEventsProcessorJob> logger)
+    : BaseCleanUpProcessedEventsJob<IInboxRepository, InboxMessage>(serviceScopeFactory, settings.Inbox,
+        logger);

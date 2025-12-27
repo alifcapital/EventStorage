@@ -8,5 +8,5 @@ public interface IEventStoreTablesCreator
     /// <summary>
     /// Creates Inbox and Outbox tables if they do not already exist.
     /// </summary>
-    void CreateTablesIfNotExists();
+    Task CreateTablesIfNotExistsAsync(CancellationToken cancellationToken);
 }

@@ -43,12 +43,6 @@ public record InboxOrOutboxStructure
     public int SecondsToDelayProcessEvents { get; init; } = 1;
 
     /// <summary>
-    /// Seconds to delay before creating event store tables. Default value is "0".
-    /// Sometime, we may need to wait for other systems to create database itself before start processing events.
-    /// </summary>
-    public int SecondsToDelayBeforeCreateEventStoreTables { get; init; } = 0;
-
-    /// <summary>
     /// Days to cleaning up the processed events. Default value is "0". It will work when value is higher than or equal 1.
     /// </summary>
     public int DaysToCleanUpEvents { get; init; }

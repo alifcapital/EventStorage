@@ -44,7 +44,8 @@ internal abstract class BaseEventsProcessorJob(
             }
             finally
             {
-                await Task.Delay(_timeToDelay, stoppingToken);
+                if (!stoppingToken.IsCancellationRequested)
+                    await Task.Delay(_timeToDelay, stoppingToken);
             }
         }
     }
@@ -54,33 +55,13 @@ internal abstract class BaseEventsProcessorJob(
     #region CreateEventStoreTablesIfNotExists
 
     /// <summary>
-    /// Semaphore to limit the number of concurrent table creation to 1.
-    /// This is to prevent multiple instances of the application from trying to run migrations at the same time.
-    /// </summary>
-    private static readonly SemaphoreSlim LimitToExecuteTableCreation = new(1, 1);
-
-    /// <summary>
     /// Creates event store tables if they do not already exist. It waits for a configured delay before attempting to create the tables.
     /// </summary>
     private async Task CreateEventStoreTablesIfNotExistsAsync(CancellationToken cancellationToken)
     {
-        Console.WriteLine("Starting IEventStoreTablesCreator. Seconds to delay: {0}" , functionalitySettings.SecondsToDelayBeforeCreateEventStoreTables);
-        var timeToDelay = TimeSpan.FromSeconds(functionalitySettings.SecondsToDelayBeforeCreateEventStoreTables);
-        await Task.Delay(timeToDelay, cancellationToken);
-        await LimitToExecuteTableCreation.WaitAsync(cancellationToken);
-
-        try
-        {
-            Console.WriteLine("Started IEventStoreTablesCreator...");
-            using var scope = scopeFactory.CreateScope();
-            var eventStoreTablesCreator = scope.ServiceProvider.GetRequiredService<IEventStoreTablesCreator>();
-            eventStoreTablesCreator.CreateTablesIfNotExists();
-            Console.WriteLine("Finished IEventStoreTablesCreator...");
-        }
-        finally
-        {
-            LimitToExecuteTableCreation.Release();
-        }
+        using var scope = scopeFactory.CreateScope();
+        var eventStoreTablesCreator = scope.ServiceProvider.GetRequiredService<IEventStoreTablesCreator>();
+        await eventStoreTablesCreator.CreateTablesIfNotExistsAsync(cancellationToken);
     }
 
     #endregion
