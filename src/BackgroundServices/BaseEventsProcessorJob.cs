@@ -64,15 +64,18 @@ internal abstract class BaseEventsProcessorJob(
     /// </summary>
     private async Task CreateEventStoreTablesIfNotExistsAsync(CancellationToken cancellationToken)
     {
+        Console.WriteLine("Starting IEventStoreTablesCreator. Seconds to delay: {0}" , functionalitySettings.SecondsToDelayBeforeCreateEventStoreTables);
         var timeToDelay = TimeSpan.FromSeconds(functionalitySettings.SecondsToDelayBeforeCreateEventStoreTables);
         await Task.Delay(timeToDelay, cancellationToken);
         await LimitToExecuteTableCreation.WaitAsync(cancellationToken);
 
         try
         {
+            Console.WriteLine("Started IEventStoreTablesCreator...");
             using var scope = scopeFactory.CreateScope();
             var eventStoreTablesCreator = scope.ServiceProvider.GetRequiredService<IEventStoreTablesCreator>();
             eventStoreTablesCreator.CreateTablesIfNotExists();
+            Console.WriteLine("Finished IEventStoreTablesCreator...");
         }
         finally
         {
