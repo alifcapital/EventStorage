@@ -50,6 +50,7 @@ public class OutboxEventsProcessorJobTests
 
         await eventsReceiverService.StartAsync(cancellationToken);
 
+        await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
         eventStoreTablesCreator.Received(1).CreateTablesIfNotExists();
 
         //We cannot test this because it is an asynchronous method
@@ -96,7 +97,7 @@ public class OutboxEventsProcessorJobTests
         CancellationToken cancellationToken = stoppingToken.Token;
         _outboxEventsProcessor
             .ExecuteUnprocessedEvents(cancellationToken)
-            .Returns(async _ => await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken));
+            .Returns(async _ => await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken));
 
         var eventsPublisherService = new OutboxEventsProcessorJob(
             services: _serviceProvider,
@@ -106,6 +107,7 @@ public class OutboxEventsProcessorJobTests
         );
 
         _ = eventsPublisherService.StartAsync(cancellationToken);
+        await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
         await stoppingToken.CancelAsync();
 
         await _outboxEventsProcessor.Received().ExecuteUnprocessedEvents(

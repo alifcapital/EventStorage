@@ -62,6 +62,7 @@ public class InboxEventsProcessorJobTests
     public async Task StartAsync_ThrowingExceptionOnExecutingUnprocessedEvents_ShouldLogException()
     {
         var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
+        _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
         var eventsReceiverService = new InboxEventsProcessorJob(
             services: _serviceProvider,
             inboxEventsProcessor: _inboxEventsProcessor,
@@ -76,6 +77,7 @@ public class InboxEventsProcessorJobTests
 
         await eventsReceiverService.StartAsync(CancellationToken.None);
 
+        await Task.Delay(TimeSpan.FromSeconds(1));
         _logger.Received(1).Log(
             LogLevel.Critical,
             Arg.Any<EventId>(),
