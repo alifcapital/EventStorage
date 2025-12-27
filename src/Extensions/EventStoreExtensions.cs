@@ -16,6 +16,8 @@ using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Providers;
 using EventStorage.Outbox.Providers.EventProviders;
 using EventStorage.Outbox.Repositories;
+using EventStorage.Repositories;
+using EventStorage.Services;
 using Medallion.Threading;
 using Medallion.Threading.Postgres;
 using Microsoft.Extensions.Configuration;
@@ -53,6 +55,7 @@ public static class EventStoreExtensions
 
         services.AddSingleton(settings);
         services.AddScoped<IOutboxEventManager, OutboxEventManager>();
+        services.AddScoped<IEventStoreTablesCreator, EventStoreTablesCreator>();
 
         if (settings.Outbox.IsEnabled)
         {
