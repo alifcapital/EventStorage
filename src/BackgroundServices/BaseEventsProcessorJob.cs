@@ -27,13 +27,15 @@ internal abstract class BaseEventsProcessorJob(
     /// <summary>
     /// The method for creating the table if not exists before starting the application.
     /// </summary>
-    public override Task StartAsync(CancellationToken cancellationToken)
+    public override async Task StartAsync(CancellationToken cancellationToken)
     {
+        await Task.Delay(functionalitySettings.SecondsToDelayBeforeProcessingEvents, cancellationToken);
+        
         using var scope = services.CreateScope();
         var tableCreator = GetTableCreatorService(scope.ServiceProvider);
         tableCreator.CreateTableIfNotExists();
 
-        return base.StartAsync(cancellationToken);
+        await base.StartAsync(cancellationToken);
     }
 
     #endregion
