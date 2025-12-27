@@ -40,10 +40,14 @@ public class InboxEventsProcessorJobTests
     [Test]
     public async Task StartAsync_WithDefaultSettings_ShouldWork()
     {
+        var scope = Substitute.For<IServiceScope>();
+        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
+        serviceScopeFactory.CreateScope().Returns(scope);
+        scope.ServiceProvider.Returns(_serviceProvider);
         var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
         _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
         var eventsReceiverService = new InboxEventsProcessorJob(
-            services: _serviceProvider,
+            scopeFactory: serviceScopeFactory,
             inboxEventsProcessor: _inboxEventsProcessor,
             settings: _settings,
             logger: _logger
@@ -61,10 +65,14 @@ public class InboxEventsProcessorJobTests
     [Test]
     public async Task StartAsync_ThrowingExceptionOnExecutingUnprocessedEvents_ShouldLogException()
     {
+        var scope = Substitute.For<IServiceScope>();
+        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
+        serviceScopeFactory.CreateScope().Returns(scope);
+        scope.ServiceProvider.Returns(_serviceProvider);
         var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
         _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
         var eventsReceiverService = new InboxEventsProcessorJob(
-            services: _serviceProvider,
+            scopeFactory: serviceScopeFactory,
             inboxEventsProcessor: _inboxEventsProcessor,
             settings: _settings,
             logger: _logger
@@ -94,6 +102,10 @@ public class InboxEventsProcessorJobTests
     [Test]
     public async Task ExecuteAsync_CancellationRequested_ShouldStopProcessing()
     {
+        var scope = Substitute.For<IServiceScope>();
+        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
+        serviceScopeFactory.CreateScope().Returns(scope);
+        scope.ServiceProvider.Returns(_serviceProvider);
         var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
         _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
         var stoppingTokenSource = new CancellationTokenSource();
@@ -102,7 +114,7 @@ public class InboxEventsProcessorJobTests
             .Do(_ => stoppingTokenSource.Cancel());
 
         var eventsReceiverService = new InboxEventsProcessorJob(
-            services: _serviceProvider,
+            scopeFactory: serviceScopeFactory,
             inboxEventsProcessor: _inboxEventsProcessor,
             settings: _settings,
             logger: _logger
