@@ -2,6 +2,7 @@ using EventStorage.Configurations;
 using EventStorage.Outbox;
 using EventStorage.Outbox.BackgroundServices;
 using EventStorage.Outbox.Repositories;
+using EventStorage.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
@@ -37,44 +38,32 @@ public class OutboxEventsProcessorJobTests
     [Test]
     public async Task StartAsync_WithDefaultSettings_ShouldWork()
     {
-        var scope = Substitute.For<IServiceScope>();
-        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
-        _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);
-        serviceScopeFactory.CreateScope().Returns(scope);
-        var inboxRepository = Substitute.For<IOutboxRepository>();
-        scope.ServiceProvider.GetService(typeof(IOutboxRepository)).Returns(inboxRepository);
-
+        var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
         var eventsReceiverService = new OutboxEventsProcessorJob(
-            services: _serviceProvider,
+            eventStoreTablesCreator: eventStoreTablesCreator,
             outboxEventsProcessor: _outboxEventsProcessor,
             settings: _settings,
             logger: _logger
         );
         var cancellationToken = CancellationToken.None;
-        
+
         await eventsReceiverService.StartAsync(cancellationToken);
-        
-        inboxRepository.Received(1).CreateTableIfNotExists();
+
+        eventStoreTablesCreator.Received(1).CreateTablesIfNotExists();
 
         //We cannot test this because it is an asynchronous method
         await _outboxEventsProcessor.ExecuteUnprocessedEvents(cancellationToken);
     }
-    
+
     [Test]
     public async Task StartAsync_ThrowingExceptionOnExecutingUnprocessedEvents_ShouldLogException()
     {
-        var scope = Substitute.For<IServiceScope>();
-        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
-        _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);
-        serviceScopeFactory.CreateScope().Returns(scope);
-        var outboxRepository = Substitute.For<IOutboxRepository>();
-        scope.ServiceProvider.GetService(typeof(IOutboxRepository)).Returns(outboxRepository);
-
+        var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
         var stoppingToken = new CancellationTokenSource();
         stoppingToken.CancelAfter(100);
 
         var eventsPublisherService = new OutboxEventsProcessorJob(
-            services: _serviceProvider,
+            eventStoreTablesCreator: eventStoreTablesCreator,
             outboxEventsProcessor: _outboxEventsProcessor,
             settings: _settings,
             logger: _logger
@@ -84,9 +73,9 @@ public class OutboxEventsProcessorJobTests
         _outboxEventsProcessor
             .When(x => x.ExecuteUnprocessedEvents(Arg.Any<CancellationToken>()))
             .Do(_ => throw new Exception("Test exception"));
-        
+
         await eventsPublisherService.StartAsync(CancellationToken.None);
-        
+
         _logger.Received(1).Log(
             LogLevel.Critical,
             Arg.Any<EventId>(),
@@ -99,33 +88,27 @@ public class OutboxEventsProcessorJobTests
     [Test]
     public async Task StartAsync_CancellationRequested_ShouldStopWithCancellationRequestTrue()
     {
-        var scope = Substitute.For<IServiceScope>();
-        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
-        _serviceProvider.GetService(typeof(IServiceScopeFactory)).Returns(serviceScopeFactory);
-        serviceScopeFactory.CreateScope().Returns(scope);
-        var outboxRepository = Substitute.For<IOutboxRepository>();
-        scope.ServiceProvider.GetService(typeof(IOutboxRepository)).Returns(outboxRepository);
-
+        var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
         var stoppingToken = new CancellationTokenSource();
         CancellationToken cancellationToken = stoppingToken.Token;
-
         _outboxEventsProcessor
             .ExecuteUnprocessedEvents(cancellationToken)
             .Returns(async _ => await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken));
 
         var eventsPublisherService = new OutboxEventsProcessorJob(
-            services: _serviceProvider,
+            eventStoreTablesCreator: eventStoreTablesCreator,
             outboxEventsProcessor: _outboxEventsProcessor,
             settings: _settings,
             logger: _logger
         );
-        
+
         _ = eventsPublisherService.StartAsync(cancellationToken);
         await stoppingToken.CancelAsync();
-        
+
         await _outboxEventsProcessor.Received().ExecuteUnprocessedEvents(
             Arg.Is<CancellationToken>(ct => ct.IsCancellationRequested == true)
         );
     }
+
     #endregion
 }
