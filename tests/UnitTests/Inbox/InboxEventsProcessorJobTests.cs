@@ -41,8 +41,9 @@ public class InboxEventsProcessorJobTests
     public async Task StartAsync_WithDefaultSettings_ShouldWork()
     {
         var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
+        _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
         var eventsReceiverService = new InboxEventsProcessorJob(
-            eventStoreTablesCreator: eventStoreTablesCreator,
+            services: _serviceProvider,
             inboxEventsProcessor: _inboxEventsProcessor,
             settings: _settings,
             logger: _logger
@@ -62,7 +63,7 @@ public class InboxEventsProcessorJobTests
     {
         var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
         var eventsReceiverService = new InboxEventsProcessorJob(
-            eventStoreTablesCreator: eventStoreTablesCreator,
+            services: _serviceProvider,
             inboxEventsProcessor: _inboxEventsProcessor,
             settings: _settings,
             logger: _logger
@@ -92,14 +93,14 @@ public class InboxEventsProcessorJobTests
     public async Task ExecuteAsync_CancellationRequested_ShouldStopProcessing()
     {
         var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
+        _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
         var stoppingTokenSource = new CancellationTokenSource();
-
         _inboxEventsProcessor
             .When(x => x.ExecuteUnprocessedEvents(Arg.Any<CancellationToken>()))
             .Do(_ => stoppingTokenSource.Cancel());
 
         var eventsReceiverService = new InboxEventsProcessorJob(
-            eventStoreTablesCreator: eventStoreTablesCreator,
+            services: _serviceProvider,
             inboxEventsProcessor: _inboxEventsProcessor,
             settings: _settings,
             logger: _logger

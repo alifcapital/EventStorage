@@ -1,5 +1,6 @@
 using EventStorage.Configurations;
 using EventStorage.Services;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -8,12 +9,12 @@ namespace EventStorage.BackgroundServices;
 /// <summary>
 /// The base background service for creating table if not exists and process unprocessed events.
 /// </summary>
-/// <param name="eventStoreTablesCreator">The event store tables creator service.</param>
+/// <param name="services">The service provider to inject a table creator service.</param>
 /// <param name="eventsProcessor">The events executor service to process unprocessed events.</param>
 /// <param name="functionalitySettings">The functionality settings for delay configuration.</param>
 /// <param name="logger">The logger instance.</param>
 internal abstract class BaseEventsProcessorJob(
-    IEventStoreTablesCreator eventStoreTablesCreator,
+    IServiceProvider services,
     IEventsProcessor eventsProcessor,
     InboxOrOutboxStructure functionalitySettings,
     ILogger logger)
@@ -29,7 +30,7 @@ internal abstract class BaseEventsProcessorJob(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await CreateEventStoreTablesIfNotExistsAsync(stoppingToken);
-        
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -66,9 +67,10 @@ internal abstract class BaseEventsProcessorJob(
         var timeToDelay = TimeSpan.FromSeconds(functionalitySettings.SecondsToDelayBeforeCreateEventStoreTables);
         await Task.Delay(timeToDelay, cancellationToken);
         await LimitToExecuteTableCreation.WaitAsync(cancellationToken);
-        
+
         try
         {
+            var eventStoreTablesCreator = services.GetRequiredService<IEventStoreTablesCreator>();
             eventStoreTablesCreator.CreateTablesIfNotExists();
         }
         finally

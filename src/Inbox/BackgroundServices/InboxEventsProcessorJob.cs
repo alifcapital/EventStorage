@@ -8,10 +8,10 @@ using Microsoft.Extensions.Logging;
 namespace EventStorage.Inbox.BackgroundServices;
 
 internal class InboxEventsProcessorJob(
-    IEventStoreTablesCreator eventStoreTablesCreator,
+    IServiceProvider services,
     IInboxEventsProcessor inboxEventsProcessor,
     InboxAndOutboxSettings settings,
     ILogger<InboxEventsProcessorJob> logger)
-    : BaseEventsProcessorJob(eventStoreTablesCreator, inboxEventsProcessor, settings.Inbox, logger)
+    : BaseEventsProcessorJob(services, inboxEventsProcessor, settings.Inbox, logger)
 {
 }
