@@ -1,7 +1,6 @@
 using EventStorage.Configurations;
 using EventStorage.Outbox;
 using EventStorage.Outbox.BackgroundServices;
-using EventStorage.Outbox.Repositories;
 using EventStorage.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -38,10 +37,14 @@ public class OutboxEventsProcessorJobTests
     [Test]
     public async Task StartAsync_WithDefaultSettings_ShouldWork()
     {
+        var scope = Substitute.For<IServiceScope>();
+        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
+        serviceScopeFactory.CreateScope().Returns(scope);
+        scope.ServiceProvider.Returns(_serviceProvider);
         var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
         _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
         var eventsReceiverService = new OutboxEventsProcessorJob(
-            services: _serviceProvider,
+            scopeFactory: serviceScopeFactory,
             outboxEventsProcessor: _outboxEventsProcessor,
             settings: _settings,
             logger: _logger
@@ -60,13 +63,17 @@ public class OutboxEventsProcessorJobTests
     [Test]
     public async Task StartAsync_ThrowingExceptionOnExecutingUnprocessedEvents_ShouldLogException()
     {
+        var scope = Substitute.For<IServiceScope>();
+        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
+        serviceScopeFactory.CreateScope().Returns(scope);
+        scope.ServiceProvider.Returns(_serviceProvider);
         var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
         _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
         var stoppingToken = new CancellationTokenSource();
         stoppingToken.CancelAfter(100);
 
         var eventsPublisherService = new OutboxEventsProcessorJob(
-            services: _serviceProvider,
+            scopeFactory: serviceScopeFactory,
             outboxEventsProcessor: _outboxEventsProcessor,
             settings: _settings,
             logger: _logger
@@ -91,6 +98,10 @@ public class OutboxEventsProcessorJobTests
     [Test]
     public async Task StartAsync_CancellationRequested_ShouldStopWithCancellationRequestTrue()
     {
+        var scope = Substitute.For<IServiceScope>();
+        var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
+        serviceScopeFactory.CreateScope().Returns(scope);
+        scope.ServiceProvider.Returns(_serviceProvider);
         var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
         _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
         var stoppingToken = new CancellationTokenSource();
@@ -100,7 +111,7 @@ public class OutboxEventsProcessorJobTests
             .Returns(async _ => await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken));
 
         var eventsPublisherService = new OutboxEventsProcessorJob(
-            services: _serviceProvider,
+            scopeFactory: serviceScopeFactory,
             outboxEventsProcessor: _outboxEventsProcessor,
             settings: _settings,
             logger: _logger

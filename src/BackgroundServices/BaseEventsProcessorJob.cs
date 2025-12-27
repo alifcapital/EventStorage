@@ -9,12 +9,12 @@ namespace EventStorage.BackgroundServices;
 /// <summary>
 /// The base background service for creating table if not exists and process unprocessed events.
 /// </summary>
-/// <param name="services">The service provider to inject a table creator service.</param>
+/// <param name="scopeFactory">The service scope factory.</param>
 /// <param name="eventsProcessor">The events executor service to process unprocessed events.</param>
 /// <param name="functionalitySettings">The functionality settings for delay configuration.</param>
 /// <param name="logger">The logger instance.</param>
 internal abstract class BaseEventsProcessorJob(
-    IServiceProvider services,
+    IServiceScopeFactory scopeFactory,
     IEventsProcessor eventsProcessor,
     InboxOrOutboxStructure functionalitySettings,
     ILogger logger)
@@ -70,7 +70,8 @@ internal abstract class BaseEventsProcessorJob(
 
         try
         {
-            var eventStoreTablesCreator = services.GetRequiredService<IEventStoreTablesCreator>();
+            using var scope = scopeFactory.CreateScope();
+            var eventStoreTablesCreator = scope.ServiceProvider.GetRequiredService<IEventStoreTablesCreator>();
             eventStoreTablesCreator.CreateTablesIfNotExists();
         }
         finally
