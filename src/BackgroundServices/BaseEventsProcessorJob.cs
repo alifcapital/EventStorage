@@ -29,7 +29,7 @@ internal abstract class BaseEventsProcessorJob(
     /// </summary>
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        await Task.Delay(functionalitySettings.SecondsToDelayBeforeProcessingEvents, cancellationToken);
+        await Task.Delay(TimeSpan.FromSeconds(functionalitySettings.SecondsToDelayBeforeProcessingEvents), cancellationToken);
         
         using var scope = services.CreateScope();
         var tableCreator = GetTableCreatorService(scope.ServiceProvider);
