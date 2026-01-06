@@ -58,7 +58,7 @@ internal class OutboxEventManager : IOutboxEventManager
 
         if (_repository is null)
         {
-            _logger.LogError("The system trying to store an event into the outbox table, but the outbox functionality is not enabled.");
+            _logger.LogWarning("The system trying to store an event into the Outbox table, but the Outbox functionality is not enabled.");
             return false;
         }
 

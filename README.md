@@ -359,7 +359,7 @@ The `InboxAndOutbox` is the main section for setting of the Outbox and Inbox fun
 
 ```
 "InboxAndOutbox": {
-    "SecondsToDelayBeforeCreateEventStoreTables": 0,
+    "SecondsToDelayBeforeCreatingEventStoreTables": 0,
     "Inbox": {
       //Your inbox settings
     },

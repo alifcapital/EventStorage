@@ -20,7 +20,7 @@ public class InboxEventManagerTests
     {
         _inboxRepository = Substitute.For<IInboxRepository>();
         var logger = Substitute.For<ILogger<InboxEventManager>>();
-        _manager = new InboxEventManager(_inboxRepository, logger);
+        _manager = new InboxEventManager(logger, _inboxRepository);
     }
 
     #region ReceivedWithGeneric
