@@ -1,4 +1,5 @@
 using System.Reflection;
+using EventStorage.BackgroundServices;
 using EventStorage.Configurations;
 using EventStorage.Constants;
 using EventStorage.Exceptions;
@@ -16,7 +17,6 @@ using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Providers;
 using EventStorage.Outbox.Providers.EventProviders;
 using EventStorage.Outbox.Repositories;
-using EventStorage.Repositories;
 using EventStorage.Services;
 using Medallion.Threading;
 using Medallion.Threading.Postgres;
@@ -54,9 +54,10 @@ public static class EventStoreExtensions
             throw new EventStoreException("The table name for the inbox and outbox events cannot be the same.");
 
         services.AddSingleton(settings);
-        services.AddScoped<IOutboxEventManager, OutboxEventManager>();
+        services.AddHostedService<EventStorageNotifier>();
         services.AddScoped<IEventStoreTablesCreator, EventStoreTablesCreator>();
 
+        services.AddScoped<IOutboxEventManager, OutboxEventManager>();
         if (settings.Outbox.IsEnabled)
         {
             services.AddScoped<IOutboxRepository, OutboxRepository>();
@@ -75,9 +76,9 @@ public static class EventStoreExtensions
                 new PostgresDistributedSynchronizationProvider(settings.Outbox.ConnectionString));
         }
 
+        services.AddScoped<IInboxEventManager, InboxEventManager>();
         if (settings.Inbox.IsEnabled)
         {
-            services.AddScoped<IInboxEventManager, InboxEventManager>();
             services.AddScoped<IInboxRepository, InboxRepository>();
 
             if (executingInboxEvents != null)
@@ -100,8 +101,10 @@ public static class EventStoreExtensions
             services.AddHostedService<InboxEventsProcessorJob>();
             services.AddHostedService<CleanUpProcessedInboxEventsJob>();
             services.AddKeyedSingleton<IDistributedLockProvider>(FunctionalityNames.Inbox,
-               new PostgresDistributedSynchronizationProvider(settings.Inbox.ConnectionString));
+                new PostgresDistributedSynchronizationProvider(settings.Inbox.ConnectionString));
         }
+
+        return;
 
         InboxAndOutboxSettings GetDefaultSettings()
         {

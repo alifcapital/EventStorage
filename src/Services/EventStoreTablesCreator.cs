@@ -17,7 +17,7 @@ internal class EventStoreTablesCreator(
     
     public async Task CreateTablesIfNotExistsAsync(CancellationToken cancellationToken)
     {
-        var timeToDelay = TimeSpan.FromSeconds(settings.SecondsToDelayBeforeCreateEventStoreTables);
+        var timeToDelay = TimeSpan.FromSeconds(settings.SecondsToDelayBeforeCreatingEventStoreTables);
         await Task.Delay(timeToDelay, cancellationToken);
         
         await LimitToExecuteTableCreation.WaitAsync(cancellationToken);

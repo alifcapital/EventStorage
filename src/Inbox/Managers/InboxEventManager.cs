@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Inbox.Managers;
 
-internal class InboxEventManager(IInboxRepository repository, ILogger<InboxEventManager> logger)
+internal class InboxEventManager(ILogger<InboxEventManager> logger, IInboxRepository repository = null)
     : IInboxEventManager
 {
     public bool Store<TInboxEvent>(TInboxEvent inboxEvent, EventProviderType eventProvider,
@@ -55,6 +55,13 @@ internal class InboxEventManager(IInboxRepository repository, ILogger<InboxEvent
     {
         try
         {
+            if (repository is null)
+            {
+                logger.LogWarning(
+                    "The system trying to store an event into the Inbox table, but the Inbox functionality is not enabled.");
+                return false;
+            }
+
             var inboxEvent = new InboxMessage
             {
                 Id = eventId,
