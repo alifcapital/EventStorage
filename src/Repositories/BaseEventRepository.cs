@@ -43,7 +43,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
                     provider VARCHAR(50) NOT NULL,
                     event_name VARCHAR(100) NOT NULL,
                     event_path VARCHAR(255),
-                    payload TEXT,
+                    payload JSONB,
                     headers TEXT,
                     additional_data TEXT,
                     naming_policy_type VARCHAR(15),
@@ -53,6 +53,21 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
                     processed_at TIMESTAMP(0) DEFAULT NULL
                 );";
 
+    private string MigratePayloadColumnToJsonbScript => $@"
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                            AND table_name = '{TableName}'
+                            AND column_name = 'payload'
+                            AND data_type = 'text'
+                    ) THEN
+                        ALTER TABLE {TableName} ALTER COLUMN payload TYPE JSONB USING payload::jsonb;
+                    END IF;
+                END
+                $$;";
+
     public void CreateTableIfNotExists()
     {
         try
@@ -60,13 +75,17 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
             using var dbConnection = new NpgsqlConnection(_connectionString);
             dbConnection.Open();
 
+            var tableAlreadyExists = dbConnection.ExecuteScalar<bool>(
+                $"SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = '{TableName}')");
+
+            var scriptToExecute = tableAlreadyExists ? MigratePayloadColumnToJsonbScript : CreateTableSqlScript;
+            dbConnection.Execute(scriptToExecute);
+
             var createIndexScripts = $@"CREATE INDEX IF NOT EXISTS idx_for_get_unprocessed_events_of_{TableName}
                     ON public.{TableName} (processed_at, try_after_at);
 
                 CREATE INDEX IF NOT EXISTS idx_for_delete_processed_events_of_{TableName}
                     ON public.{TableName} (processed_at);";
-
-            dbConnection.Execute(CreateTableSqlScript);
             dbConnection.Execute(createIndexScripts);
         }
         catch (Exception e)
@@ -87,7 +106,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
                     id, provider, event_name, event_path, payload, headers, 
                     additional_data, naming_policy_type, created_at, try_count, try_after_at
                 ) VALUES (
-                    @Id, @Provider, @EventName, @EventPath, @Payload, @Headers, 
+                    @Id, @Provider, @EventName, @EventPath, @Payload::jsonb, @Headers,
                     @AdditionalData, @NamingPolicyType, @CreatedAt, @TryCount, @TryAfterAt
                 )";
 
@@ -188,7 +207,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
     protected virtual string SqlQueryToGetUnprocessedEvents => $@"
                 SELECT id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"", 
                         event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"", 
-                        payload as ""{nameof(IBaseMessageBox.Payload)}"", headers as ""{nameof(IBaseMessageBox.Headers)}"", 
+                        payload::text as ""{nameof(IBaseMessageBox.Payload)}"", headers as ""{nameof(IBaseMessageBox.Headers)}"",
                         naming_policy_type as ""{nameof(IBaseMessageBox.NamingPolicyType)}"", 
                         additional_data as ""{nameof(IBaseMessageBox.AdditionalData)}"", created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"", 
                         try_count as ""{nameof(IBaseMessageBox.TryCount)}"", try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"", 
