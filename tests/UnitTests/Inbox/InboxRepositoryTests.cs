@@ -31,7 +31,7 @@ namespace EventStorage.Tests.UnitTests.Inbox
                 Provider = "TestProvider",
                 EventName = "TestEvent1",
                 EventPath = "/test/path",
-                Payload = "TestPayload",
+                Payload = "{}",
                 Headers = "TestHeaders",
                 AdditionalData = "TestAdditionalData",
                 TryCount = 0,
