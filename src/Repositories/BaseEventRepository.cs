@@ -21,7 +21,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
     where TBaseMessage : class, IBaseMessageBox
 {
     private readonly string _connectionString = settings.ConnectionString;
-    
+
     /// <summary>
     /// The name of the table for connecting repository to the correct table in the database.
     /// </summary>
@@ -32,7 +32,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
     /// </summary>
     protected abstract string TraceMessageTag { get; }
 
-    #region CreateTableIfNotExists
+    #region Create tables or indexes if not exists
 
     /// <summary>
     /// The SQL script for creating the table for storing events if it does not exist.
@@ -53,6 +53,10 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
                     processed_at TIMESTAMP(0) DEFAULT NULL
                 );";
 
+    /// <summary>
+    /// The SQL script for migrating the payload column from text to jsonb type if the column exists and has text type.
+    /// This is for supporting the old versions of the library which used text type for payload column.
+    /// </summary>
     private string MigratePayloadColumnToJsonbScript => $@"
                 DO $$
                 BEGIN
@@ -68,6 +72,15 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
                 END
                 $$;";
 
+    /// <summary>
+    /// The SQL script for creating indexes for the table. It creates an index for getting unprocessed events and another index for deleting processed events.
+    /// </summary>
+    private string CreateIndexesScript => $@"CREATE INDEX IF NOT EXISTS idx_for_get_unprocessed_events_of_{TableName}
+                    ON public.{TableName} (processed_at, try_after_at);
+
+                CREATE INDEX IF NOT EXISTS idx_for_delete_processed_events_of_{TableName}
+                    ON public.{TableName} (processed_at);";
+
     public void CreateTableIfNotExists()
     {
         try
@@ -75,18 +88,9 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
             using var dbConnection = new NpgsqlConnection(_connectionString);
             dbConnection.Open();
 
-            var tableAlreadyExists = dbConnection.ExecuteScalar<bool>(
-                $"SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = '{TableName}')");
-
-            var scriptToExecute = tableAlreadyExists ? MigratePayloadColumnToJsonbScript : CreateTableSqlScript;
-            dbConnection.Execute(scriptToExecute);
-
-            var createIndexScripts = $@"CREATE INDEX IF NOT EXISTS idx_for_get_unprocessed_events_of_{TableName}
-                    ON public.{TableName} (processed_at, try_after_at);
-
-                CREATE INDEX IF NOT EXISTS idx_for_delete_processed_events_of_{TableName}
-                    ON public.{TableName} (processed_at);";
-            dbConnection.Execute(createIndexScripts);
+            dbConnection.Execute(CreateTableSqlScript);
+            dbConnection.Execute(MigratePayloadColumnToJsonbScript);
+            dbConnection.Execute(CreateIndexesScript);
         }
         catch (Exception e)
         {
