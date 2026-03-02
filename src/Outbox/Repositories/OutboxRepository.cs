@@ -22,7 +22,7 @@ internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutbox
                     provider VARCHAR(50) NOT NULL,
                     event_name VARCHAR(100) NOT NULL,
                     event_path VARCHAR(255),
-                    payload TEXT,
+                    payload JSONB,
                     headers TEXT,
                     additional_data TEXT,
                     created_at TIMESTAMP(0) NOT NULL,
@@ -39,7 +39,7 @@ internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutbox
                     id, provider, event_name, event_path, payload, headers, 
                     additional_data, created_at, try_count, try_after_at
                 ) VALUES (
-                    @Id, @Provider, @EventName, @EventPath, @Payload, @Headers, 
+                    @Id, @Provider, @EventName, @EventPath, @Payload::jsonb, @Headers,
                     @AdditionalData, @CreatedAt, @TryCount, @TryAfterAt
                 )";
     
@@ -49,7 +49,7 @@ internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutbox
     protected override string SqlQueryToGetUnprocessedEvents => $@"
                 SELECT id as ""{nameof(OutboxMessage.Id)}"", provider as ""{nameof(OutboxMessage.Provider)}"", 
                         event_name as ""{nameof(OutboxMessage.EventName)}"", event_path as ""{nameof(OutboxMessage.EventPath)}"", 
-                        payload as ""{nameof(OutboxMessage.Payload)}"", headers as ""{nameof(OutboxMessage.Headers)}"", 
+                        payload::text as ""{nameof(OutboxMessage.Payload)}"", headers as ""{nameof(OutboxMessage.Headers)}"",
                         additional_data as ""{nameof(OutboxMessage.AdditionalData)}"", created_at as ""{nameof(OutboxMessage.CreatedAt)}"", 
                         try_count as ""{nameof(OutboxMessage.TryCount)}"", try_after_at as ""{nameof(OutboxMessage.TryAfterAt)}"", 
                         processed_at as ""{nameof(OutboxMessage.ProcessedAt)}""
