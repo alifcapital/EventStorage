@@ -189,3 +189,7 @@ FakesAssemblies/
 # Ignoring application files
 appsettings.Development.*
 SwaggerDocs.*
+
+
+# Ignoring Claude files
+*.claude
