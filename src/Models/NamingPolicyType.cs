@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using EventStorage.Converters;
 
 namespace EventStorage.Models;
 
@@ -23,7 +24,7 @@ public struct NamingPolicyTypeNames
     public const string KebabCaseUpper = nameof(NamingPolicyType.KebabCaseUpper);
     
     /// <summary>
-    /// Create a JsonSerializerOptions to use on naming police for serializing and deserializing properties of Event 
+    /// Create a JsonSerializerOptions to use on naming police for serializing and deserializing properties of Event
     /// </summary>
     public static JsonSerializerOptions CreateJsonSerializer(string namingPolicyType)
     {
@@ -32,6 +33,9 @@ public struct NamingPolicyTypeNames
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
             PropertyNamingPolicy = GetEventNamingPolicy(namingPolicyType)
         };
+
+        foreach (var converter in EventJsonConverters.All)
+            jsonSerializerOptions.Converters.Add(converter);
 
         return jsonSerializerOptions;
     }
