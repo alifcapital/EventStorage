@@ -1,4 +1,3 @@
-using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Repositories;
 using EventStorage.Tests.Configs;
@@ -530,144 +529,15 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
 
     #endregion
 
-    #region GetEventsAsync
-
-    // Each test uses a unique event name to not see the events of other tests, and a future try time,
-    // so the events do not affect the tests of getting unprocessed events.
-
-    [Test]
-    public async Task GetEventsAsync_FilterByEventNameAndStatuses_ShouldReturnOnlyMatchingEvents()
-    {
-        var eventName = CreateUniqueEventName();
-        var pendingEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
-        var failedEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
-        var rejectedEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
-        var otherEvent = CreateEvent(DateTime.Now.AddHours(1));
-        await Repository.BulkInsertEventsAsync([pendingEvent, failedEvent, rejectedEvent, otherEvent]);
-        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
-        rejectedEvent.Rejected();
-        await Repository.UpdateEventsAsync([failedEvent, rejectedEvent]);
-
-        var (events, totalCount) = await Repository.GetEventsAsync(new EventsFilter
-        {
-            EventName = eventName,
-            Statuses = [EventStatus.Failed, EventStatus.Rejected]
-        });
-
-        Assert.That(totalCount, Is.EqualTo(2));
-        Assert.That(events.Select(e => e.Id), Is.EquivalentTo(new[] { failedEvent.Id, rejectedEvent.Id }));
-        Assert.That(events.Single(e => e.Id == failedEvent.Id).FailureReason, Is.EqualTo("Test failure"));
-    }
-
-    [Test]
-    public async Task GetEventsAsync_FilterByProvider_ShouldMatchEventsWithMultipleProviders()
-    {
-        var eventName = CreateUniqueEventName();
-        var singleProviderEvent = CreateEvent(DateTime.Now.AddHours(1), eventName, provider: "Sms");
-        var multipleProvidersEvent = CreateEvent(DateTime.Now.AddHours(1), eventName, provider: "MessageBroker,Sms");
-        var otherProviderEvent = CreateEvent(DateTime.Now.AddHours(1), eventName, provider: "Email");
-        await Repository.BulkInsertEventsAsync([singleProviderEvent, multipleProvidersEvent, otherProviderEvent]);
-
-        var (events, totalCount) = await Repository.GetEventsAsync(new EventsFilter
-        {
-            EventName = eventName,
-            Provider = "Sms"
-        });
-
-        Assert.That(totalCount, Is.EqualTo(2));
-        Assert.That(events.Select(e => e.Id),
-            Is.EquivalentTo(new[] { singleProviderEvent.Id, multipleProvidersEvent.Id }));
-    }
-
-    [Test]
-    public async Task GetEventsAsync_FilterByFailureReasonWithSpecialCharacters_ShouldMatchTextAsItIs()
-    {
-        var eventName = CreateUniqueEventName();
-        var matchingEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
-        var notMatchingEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
-        await Repository.BulkInsertEventsAsync([matchingEvent, notMatchingEvent]);
-        matchingEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Timeout: 100% of pool_size used");
-        notMatchingEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Timeout: 100 of pool size used");
-        await Repository.UpdateEventsAsync([matchingEvent, notMatchingEvent]);
-
-        var (events, _) = await Repository.GetEventsAsync(new EventsFilter
-        {
-            EventName = eventName,
-            FailureReasonContains = "100% OF POOL_SIZE"
-        });
-
-        Assert.That(events.Select(e => e.Id), Is.EquivalentTo(new[] { matchingEvent.Id }));
-    }
-
-    [Test]
-    public async Task GetEventsAsync_FilterByIdsMinTryCountAndCreatedAt_ShouldReturnOnlyMatchingEvents()
-    {
-        var eventName = CreateUniqueEventName();
-        var triedEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
-        var notTriedEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
-        await Repository.BulkInsertEventsAsync([triedEvent, notTriedEvent]);
-        triedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
-        await Repository.UpdateEventAsync(triedEvent);
-
-        var (events, totalCount) = await Repository.GetEventsAsync(new EventsFilter
-        {
-            Ids = [triedEvent.Id, notTriedEvent.Id],
-            MinTryCount = 1,
-            CreatedFrom = DateTime.Now.AddMinutes(-1),
-            CreatedTo = DateTime.Now.AddMinutes(1)
-        });
-
-        Assert.That(totalCount, Is.EqualTo(1));
-        Assert.That(events.Single().Id, Is.EqualTo(triedEvent.Id));
-    }
-
-    [Test]
-    public async Task GetEventsAsync_SkipAndTake_ShouldReturnPageWithTotalCount()
-    {
-        var eventName = CreateUniqueEventName();
-        await Repository.BulkInsertEventsAsync([
-            CreateEvent(DateTime.Now.AddHours(1), eventName),
-            CreateEvent(DateTime.Now.AddHours(1), eventName),
-            CreateEvent(DateTime.Now.AddHours(1), eventName)
-        ]);
-
-        var (firstPage, totalCount) = await Repository.GetEventsAsync(new EventsFilter
-            { EventName = eventName, Skip = 0, Take = 2 });
-        var (secondPage, _) = await Repository.GetEventsAsync(new EventsFilter
-            { EventName = eventName, Skip = 2, Take = 2 });
-
-        Assert.That(totalCount, Is.EqualTo(3));
-        Assert.That(firstPage, Has.Length.EqualTo(2));
-        Assert.That(secondPage, Has.Length.EqualTo(1));
-        Assert.That(firstPage.Select(e => e.Id), Does.Not.Contain(secondPage.Single().Id));
-    }
-
-    [Test]
-    public async Task GetEventsAsync_SkipIsHigherThanCount_ShouldReturnEmptyPageWithTotalCount()
-    {
-        var eventName = CreateUniqueEventName();
-        await Repository.InsertEventAsync(CreateEvent(DateTime.Now.AddHours(1), eventName));
-
-        var (events, totalCount) = await Repository.GetEventsAsync(new EventsFilter
-            { EventName = eventName, Skip = 10 });
-
-        Assert.That(events, Is.Empty);
-        Assert.That(totalCount, Is.EqualTo(1));
-    }
-
-    #endregion
-
     #region Helper methods
 
-    private static string CreateUniqueEventName() => $"TestEvent_{Guid.NewGuid():N}";
-
-    private static TEvent CreateEvent(DateTime tryAfterAt, string eventName = null, string provider = "TestProvider")
+    private static TEvent CreateEvent(DateTime tryAfterAt)
     {
         return new TEvent
         {
             Id = Guid.NewGuid(),
-            Provider = provider,
-            EventName = eventName ?? "TestEvent" + typeof(TEvent).FullName,
+            Provider = "TestProvider",
+            EventName = "TestEvent" + typeof(TEvent).FullName,
             EventPath = "/test/path",
             Payload = "{}",
             Headers = "TestHeaders",

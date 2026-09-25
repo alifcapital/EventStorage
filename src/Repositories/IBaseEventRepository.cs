@@ -1,4 +1,3 @@
-using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Services;
 
@@ -72,13 +71,6 @@ internal interface IBaseEventRepository<TBaseMessage> : ITableCreator
     /// <param name="id">The id of the event.</param>
     /// <returns>Returns the event or null if there is no event with the specified id.</returns>
     Task<TBaseMessage> GetEventByIdAsync(Guid id);
-
-    /// <summary>
-    /// Gets a page of events that match the filter, sorted by the creation time in descending order.
-    /// </summary>
-    /// <param name="filter">The filter of the events.</param>
-    /// <returns>Returns the events of the page and the total count of the events that match the filter.</returns>
-    Task<(TBaseMessage[] Events, long TotalCount)> GetEventsAsync(EventsFilter filter);
 
     /// <summary>
     /// Deletes all processed events which processed before the specified date.

@@ -4,7 +4,6 @@ using EventStorage.Configurations;
 using EventStorage.Exceptions;
 using EventStorage.Extensions;
 using EventStorage.Instrumentation.Trace;
-using EventStorage.Management.Models;
 using EventStorage.Models;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -318,44 +317,6 @@ internal abstract class BaseEventRepository<TBaseMessage>(
 
     #endregion
 
-    #region GetEventsAsync
-
-    public async Task<(TBaseMessage[] Events, long TotalCount)> GetEventsAsync(EventsFilter filter)
-    {
-        var (whereClause, parameters) = BuildFilterConditions(filter);
-        parameters.Add("Skip", filter.GetSkip());
-        parameters.Add("Take", filter.GetTake());
-
-        var sqlQuery = $@"
-                SELECT COUNT(*) FROM {TableName} {whereClause};
-
-                SELECT {SqlSelectColumns}
-                FROM {TableName}
-                {whereClause}
-                ORDER BY created_at DESC
-                OFFSET @Skip
-                LIMIT @Take";
-
-        try
-        {
-            await using var dbConnection = new NpgsqlConnection(ConnectionString);
-            await dbConnection.OpenAsync();
-
-            await using var result = await dbConnection.QueryMultipleAsync(sqlQuery, parameters);
-            var totalCount = await result.ReadSingleAsync<long>();
-            var events = await result.ReadAsync<TBaseMessage>();
-
-            //TODO: Instead of attaching total count, just add indicator to know there is more items or not. 
-            return (events.ToArray(), totalCount);
-        }
-        catch (Exception e)
-        {
-            throw new EventStoreException(e, $"Error while getting events from the {TableName} table.");
-        }
-    }
-    
-    #endregion
-
     #region DeleteProcessedEventsAsync
 
     private readonly string _sqlDeleteEventQuery = $@"
@@ -426,73 +387,6 @@ internal abstract class BaseEventRepository<TBaseMessage>(
 
         return activity;
     }
-
-    /// <summary>
-    /// Builds the WHERE clause and its parameters from the filter. Only parameters are used for the values of the filter.
-    /// </summary>
-    private static (string WhereClause, DynamicParameters Parameters) BuildFilterConditions(EventsFilter filter)
-    {
-        var conditions = new List<string>();
-        var parameters = new DynamicParameters();
-
-        if (filter.Ids?.Length > 0)
-        {
-            conditions.Add("id = ANY(@Ids)");
-            parameters.Add("Ids", filter.Ids);
-        }
-
-        if (!string.IsNullOrWhiteSpace(filter.EventName))
-        {
-            conditions.Add("event_name = @EventName");
-            parameters.Add("EventName", filter.EventName);
-        }
-
-        if (!string.IsNullOrWhiteSpace(filter.Provider))
-        {
-            // The outbox events may have multiple providers separated by comma.
-            conditions.Add("@Provider = ANY(string_to_array(provider, ','))");
-            parameters.Add("Provider", filter.Provider);
-        }
-
-        if (filter.Statuses?.Length > 0)
-        {
-            conditions.Add("status = ANY(@Statuses)");
-            parameters.Add("Statuses", filter.Statuses.Select(s => s.ToString()).ToArray());
-        }
-
-        if (filter.CreatedFrom.HasValue)
-        {
-            conditions.Add("created_at >= @CreatedFrom");
-            parameters.Add("CreatedFrom", filter.CreatedFrom.Value);
-        }
-
-        if (filter.CreatedTo.HasValue)
-        {
-            conditions.Add("created_at <= @CreatedTo");
-            parameters.Add("CreatedTo", filter.CreatedTo.Value);
-        }
-
-        if (filter.MinTryCount.HasValue)
-        {
-            conditions.Add("try_count >= @MinTryCount");
-            parameters.Add("MinTryCount", filter.MinTryCount.Value);
-        }
-
-        if (!string.IsNullOrWhiteSpace(filter.FailureReasonContains))
-        {
-            conditions.Add("failure_reason ILIKE @FailureReasonPattern");
-            parameters.Add("FailureReasonPattern", $"%{EscapeLikePattern(filter.FailureReasonContains)}%");
-        }
-
-        var whereClause = conditions.Count == 0 ? string.Empty : $"WHERE {string.Join(" AND ", conditions)}";
-        return (whereClause, parameters);
-    }
-
-    /// <summary>
-    /// Escapes the special characters of the LIKE pattern, so the text is matched as it is.
-    /// </summary>
-    private static string EscapeLikePattern(string text) =>
-        text.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
 
     #endregion
 }
