@@ -1,8 +1,8 @@
-using System.Reflection;
 using EventStorage.Models;
 using EventStorage.Repositories;
 using EventStorage.Tests.Configs;
 using EventStorage.Tests.Infrastructure;
+using EventStorage.Tests.Infrastructure.Extensions;
 
 namespace EventStorage.Tests.UnitTests;
 
@@ -235,6 +235,40 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         Assert.That(firstEvent.TryAfterAt, Is.EqualTo(baseEventBox1.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
     }
 
+    [Test]
+    public async Task GetUnprocessedEventsAsync_ProcessedFailedAndRejectedEvents_ShouldReturnOnlyPendingAndFailedEvents()
+    {
+        var pendingEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
+        var failedEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
+        var processedEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
+        var rejectedEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
+        await Repository.BulkInsertEventsAsync([pendingEvent, failedEvent, processedEvent, rejectedEvent]);
+
+        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5);
+        processedEvent.Processed();
+        rejectedEvent.SetPropertyValue(nameof(BaseMessageBox.Status), nameof(EventStatus.Rejected));
+        await Repository.UpdateEventsAsync([failedEvent, processedEvent, rejectedEvent]);
+
+        try
+        {
+            var result = await Repository.GetUnprocessedEventsAsync(500);
+            var resultIds = result.Select(e => e.Id).ToArray();
+
+            Assert.That(resultIds, Does.Contain(pendingEvent.Id));
+            Assert.That(resultIds, Does.Contain(failedEvent.Id));
+            Assert.That(resultIds, Does.Not.Contain(processedEvent.Id));
+            Assert.That(resultIds, Does.Not.Contain(rejectedEvent.Id));
+            Assert.That(result.Single(e => e.Id == failedEvent.Id).Status, Is.EqualTo(nameof(EventStatus.Failed)));
+        }
+        finally
+        {
+            // The table is shared by the tests of the fixture, so we do not leave unprocessed events for other tests.
+            pendingEvent.Processed();
+            failedEvent.Processed();
+            await Repository.UpdateEventsAsync([pendingEvent, failedEvent]);
+        }
+    }
+
     #endregion
 
     #region UpdateEventAsync
@@ -269,7 +303,8 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
 
         Assert.That(updatedEvent.TryCount, Is.EqualTo(outboxEvent.TryCount));
         Assert.That(updatedEvent.TryAfterAt, Is.EqualTo(outboxEvent.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
-        Assert.That(updatedEvent.ProcessedAt, Is.EqualTo(outboxEvent.ProcessedAt).Within(TimeSpan.FromSeconds(1)));
+        Assert.That(updatedEvent.Status, Is.EqualTo(nameof(EventStatus.Processed)));
+        Assert.That(updatedEvent.UpdatedAt, Is.EqualTo(outboxEvent.UpdatedAt).Within(TimeSpan.FromSeconds(1)));
     }
 
     #endregion
@@ -323,11 +358,13 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
 
         Assert.That(updatedEvent1.TryCount, Is.EqualTo(outboxEvent1.TryCount));
         Assert.That(updatedEvent1.TryAfterAt, Is.EqualTo(outboxEvent1.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
-        Assert.That(updatedEvent1.ProcessedAt, Is.EqualTo(outboxEvent1.ProcessedAt).Within(TimeSpan.FromSeconds(1)));
+        Assert.That(updatedEvent1.Status, Is.EqualTo(nameof(EventStatus.Processed)));
+        Assert.That(updatedEvent1.UpdatedAt, Is.EqualTo(outboxEvent1.UpdatedAt).Within(TimeSpan.FromSeconds(1)));
 
         Assert.That(updatedEvent2.TryCount, Is.EqualTo(outboxEvent2.TryCount));
         Assert.That(updatedEvent2.TryAfterAt, Is.EqualTo(outboxEvent2.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
-        Assert.That(updatedEvent2.ProcessedAt, Is.EqualTo(outboxEvent2.ProcessedAt).Within(TimeSpan.FromSeconds(1)));
+        Assert.That(updatedEvent2.Status, Is.EqualTo(nameof(EventStatus.Processed)));
+        Assert.That(updatedEvent2.UpdatedAt, Is.EqualTo(outboxEvent2.UpdatedAt).Within(TimeSpan.FromSeconds(1)));
     }
 
     #endregion
@@ -392,6 +429,20 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         Assert.That(isProcessed, Is.True);
     }
 
+    [Test]
+    public async Task IsEventProcessedAsync_EventIsRejected_ShouldReturnTrue()
+    {
+        var rejectedEvent = CreateEvent(DateTime.Now);
+        await Repository.InsertEventAsync(rejectedEvent);
+
+        rejectedEvent.SetPropertyValue(nameof(BaseMessageBox.Status), nameof(EventStatus.Rejected));
+        await Repository.UpdateEventAsync(rejectedEvent);
+
+        var isProcessed = await Repository.IsEventProcessedAsync(rejectedEvent.Id);
+
+        Assert.That(isProcessed, Is.True);
+    }
+
     #endregion
 
     #region DeleteProcessedEventsAsync
@@ -437,24 +488,48 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         Assert.That(DataContext.ExistsById(event2.Id), Is.True);
     }
 
+    [Test]
+    public async Task DeleteProcessedEventsAsync_RejectedEvent_ShouldNotBeDeleted()
+    {
+        var rejectedEvent = CreateEvent(DateTime.Now);
+        await Repository.InsertEventAsync(rejectedEvent);
+
+        rejectedEvent.SetPropertyValue(nameof(BaseMessageBox.Status), nameof(EventStatus.Rejected));
+        rejectedEvent.SetPropertyValue(nameof(BaseMessageBox.UpdatedAt), DateTime.Now.AddDays(-1));
+        await Repository.UpdateEventAsync(rejectedEvent);
+
+        await Repository.DeleteProcessedEventsAsync(DateTime.Now);
+
+        Assert.That(DataContext.ExistsById(rejectedEvent.Id), Is.True);
+    }
+
     #endregion
 
     #region Helper methods
 
-    /// <summary>
-    /// Sets the processed time of the event. Since ProcessedAt has a private setter, we use reflection to set its value.
-    /// </summary>
-    private void SetProcessedTimeOfEvent(TEvent eventBox, DateTime processedAt)
+    private static TEvent CreateEvent(DateTime tryAfterAt)
     {
-        const string nameOfProperty = nameof(BaseMessageBox.ProcessedAt);
-        var property = typeof(TEvent).GetProperty(nameOfProperty,
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        return new TEvent
+        {
+            Id = Guid.NewGuid(),
+            Provider = "TestProvider",
+            EventName = "TestEvent" + typeof(TEvent).FullName,
+            EventPath = "/test/path",
+            Payload = "{}",
+            Headers = "TestHeaders",
+            AdditionalData = "TestAdditionalData",
+            TryCount = 0,
+            TryAfterAt = tryAfterAt
+        };
+    }
 
-        var setter = property?.GetSetMethod(nonPublic: true);
-        if (setter == null)
-            throw new InvalidOperationException($"Private setter for {nameOfProperty} not found in {typeof(TEvent).Name}");
-
-        setter.Invoke(eventBox, new object[] { processedAt });
+    /// <summary>
+    /// Marks the event as processed at the given time. Since the properties have non-public setters, we use reflection to set their values.
+    /// </summary>
+    private static void SetProcessedTimeOfEvent(TEvent eventBox, DateTime processedAt)
+    {
+        eventBox.SetPropertyValue(nameof(BaseMessageBox.Status), nameof(EventStatus.Processed));
+        eventBox.SetPropertyValue(nameof(BaseMessageBox.UpdatedAt), processedAt);
     }
 
     #endregion

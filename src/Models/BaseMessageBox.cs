@@ -15,13 +15,20 @@ internal abstract class BaseMessageBox : IBaseMessageBox
     public int TryCount { get; set; }
     public string NamingPolicyType { get; init; } = NamingPolicyTypeNames.PascalCase;
     public DateTime TryAfterAt { get; set; } = DateTime.Now;
-    public DateTime? ProcessedAt { get; protected set; }
+    public string Status { get; protected set; } = nameof(EventStatus.Pending);
+    public string FailureReason { get; protected set; }
+    public DateTime? UpdatedAt { get; protected set; }
+    public string UpdatedBy { get; protected set; }
+    public string StatusComment { get; protected set; }
 
     public void Failed(int maxTryCount, int tryAfterMinutes)
     {
         IncreaseTryCount();
         if (TryCount > maxTryCount)
             TryAfterAt = DateTime.Now.AddMinutes(tryAfterMinutes);
+
+        Status = nameof(EventStatus.Failed);
+        UpdatedAt = DateTime.Now;
     }
 
     private void IncreaseTryCount()
@@ -31,7 +38,8 @@ internal abstract class BaseMessageBox : IBaseMessageBox
 
     public void Processed()
     {
-        ProcessedAt = DateTime.Now;
+        Status = nameof(EventStatus.Processed);
+        UpdatedAt = DateTime.Now;
     }
 
     private JsonSerializerOptions _jsonSerializerOptions;

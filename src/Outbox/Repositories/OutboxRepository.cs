@@ -1,5 +1,6 @@
 using EventStorage.Configurations;
 using EventStorage.Instrumentation;
+using EventStorage.Models;
 using EventStorage.Outbox.Models;
 using EventStorage.Repositories;
 using Microsoft.Extensions.Logging;
@@ -7,7 +8,8 @@ using Microsoft.Extensions.Logging;
 namespace EventStorage.Outbox.Repositories;
 
 internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutboxSettings settings)
-    : BaseEventRepository<OutboxMessage>(logger, settings.Outbox), IOutboxRepository
+    : BaseEventRepository<OutboxMessage>(logger, settings.Outbox, settings.SecondsToWaitForMigrationLock),
+        IOutboxRepository
 {
     protected override string TraceMessageTag => EventStorageInvestigationTagNames.OutboxEventTag;
 
@@ -28,7 +30,11 @@ internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutbox
                     created_at TIMESTAMP(0) NOT NULL,
                     try_count integer DEFAULT 0 NOT NULL,
                     try_after_at TIMESTAMP(0) NOT NULL,
-                    processed_at TIMESTAMP(0) DEFAULT NULL
+                    status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+                    failure_reason TEXT,
+                    updated_at TIMESTAMP(0),
+                    updated_by VARCHAR(100),
+                    status_comment TEXT
                 );";
 
     /// <summary>
@@ -37,10 +43,10 @@ internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutbox
     protected override string SqlQueryToInsertEvent => $@"
                 INSERT INTO {TableName} (
                     id, provider, event_name, event_path, payload, headers, 
-                    additional_data, created_at, try_count, try_after_at
+                    additional_data, created_at, try_count, try_after_at, status
                 ) VALUES (
                     @Id, @Provider, @EventName, @EventPath, @Payload::jsonb, @Headers,
-                    @AdditionalData, @CreatedAt, @TryCount, @TryAfterAt
+                    @AdditionalData, @CreatedAt, @TryCount, @TryAfterAt, @Status
                 )";
     
     /// <summary>
@@ -52,10 +58,12 @@ internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutbox
                         payload::text as ""{nameof(OutboxMessage.Payload)}"", headers as ""{nameof(OutboxMessage.Headers)}"",
                         additional_data as ""{nameof(OutboxMessage.AdditionalData)}"", created_at as ""{nameof(OutboxMessage.CreatedAt)}"", 
                         try_count as ""{nameof(OutboxMessage.TryCount)}"", try_after_at as ""{nameof(OutboxMessage.TryAfterAt)}"", 
-                        processed_at as ""{nameof(OutboxMessage.ProcessedAt)}""
+                        status as ""{nameof(OutboxMessage.Status)}"", failure_reason as ""{nameof(OutboxMessage.FailureReason)}"",
+                        updated_at as ""{nameof(OutboxMessage.UpdatedAt)}"", updated_by as ""{nameof(OutboxMessage.UpdatedBy)}"",
+                        status_comment as ""{nameof(OutboxMessage.StatusComment)}""
                 FROM {TableName}
                 WHERE 
-                    processed_at IS NULL
+                    status IN ('{nameof(EventStatus.Pending)}', '{nameof(EventStatus.Failed)}')
                     AND try_after_at <= @CurrentTime
                 ORDER BY created_at ASC
                 LIMIT @Limit";

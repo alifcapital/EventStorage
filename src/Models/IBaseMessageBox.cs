@@ -63,9 +63,29 @@ internal interface  IBaseMessageBox
     public DateTime TryAfterAt { get; set; }
 
     /// <summary>
-    /// Gets the processed time of the event.
+    /// Gets the processing status of the event. It is one of the <see cref="EventStatus"/> names.
     /// </summary>
-    DateTime? ProcessedAt { get; }
+    string Status { get; }
+
+    /// <summary>
+    /// Gets the reason of the last processing failure of the event.
+    /// </summary>
+    string FailureReason { get; }
+
+    /// <summary>
+    /// Gets the time of the last status change of the event. For the processed event, it is the processed time.
+    /// </summary>
+    DateTime? UpdatedAt { get; }
+
+    /// <summary>
+    /// Gets the user name of who changed the status manually. It is null when the status is changed by the processor.
+    /// </summary>
+    string UpdatedBy { get; }
+
+    /// <summary>
+    /// Gets the comment of the last manual status change.
+    /// </summary>
+    string StatusComment { get; }
 
     /// <summary>
     /// To increase the TryCount and TryAfterAt when it is failed

@@ -56,9 +56,23 @@ internal class DataContext<TEvent> where TEvent : BaseMessageBox, new()
                 TryAfterAt = reader.GetDateTime(reader.GetOrdinal("try_after_at"))
             };
 
-            var processedOrdinal = reader.GetOrdinal("processed_at");
-            if (!reader.IsDBNull(processedOrdinal))
-                message.Processed();
+            message.SetPropertyValue(nameof(BaseMessageBox.Status), reader.GetString(reader.GetOrdinal("status")));
+
+            var failureReasonOrdinal = reader.GetOrdinal("failure_reason");
+            if (!reader.IsDBNull(failureReasonOrdinal))
+                message.SetPropertyValue(nameof(BaseMessageBox.FailureReason), reader.GetString(failureReasonOrdinal));
+
+            var updatedAtOrdinal = reader.GetOrdinal("updated_at");
+            if (!reader.IsDBNull(updatedAtOrdinal))
+                message.SetPropertyValue(nameof(BaseMessageBox.UpdatedAt), reader.GetDateTime(updatedAtOrdinal));
+
+            var updatedByOrdinal = reader.GetOrdinal("updated_by");
+            if (!reader.IsDBNull(updatedByOrdinal))
+                message.SetPropertyValue(nameof(BaseMessageBox.UpdatedBy), reader.GetString(updatedByOrdinal));
+
+            var statusCommentOrdinal = reader.GetOrdinal("status_comment");
+            if (!reader.IsDBNull(statusCommentOrdinal))
+                message.SetPropertyValue(nameof(BaseMessageBox.StatusComment), reader.GetString(statusCommentOrdinal));
         }
         else
         {
