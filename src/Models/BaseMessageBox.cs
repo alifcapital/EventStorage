@@ -15,11 +15,20 @@ internal abstract class BaseMessageBox : IBaseMessageBox
     public int TryCount { get; set; }
     public string NamingPolicyType { get; init; } = NamingPolicyTypeNames.PascalCase;
     public DateTime TryAfterAt { get; set; } = DateTime.Now;
-    public string Status { get; protected set; } = nameof(EventStatus.Pending);
+    public EventStatus Status { get; protected set; } = EventStatus.Pending;
+
+    /// <summary>
+    /// The name of the <see cref="Status"/> to store it as a string in the table,
+    /// since Dapper would pass the enum value as a number.
+    /// </summary>
+    public string StatusName => Status.ToString();
+
     public string FailureReason { get; protected set; }
     public DateTime? UpdatedAt { get; protected set; }
     public string UpdatedBy { get; protected set; }
     public string StatusComment { get; protected set; }
+
+    #region Status changing methods
 
     public void Failed(int maxTryCount, int tryAfterMinutes)
     {
@@ -27,8 +36,7 @@ internal abstract class BaseMessageBox : IBaseMessageBox
         if (TryCount > maxTryCount)
             TryAfterAt = DateTime.Now.AddMinutes(tryAfterMinutes);
 
-        Status = nameof(EventStatus.Failed);
-        UpdatedAt = DateTime.Now;
+        ChangeStatus(EventStatus.Failed);
     }
 
     private void IncreaseTryCount()
@@ -38,9 +46,31 @@ internal abstract class BaseMessageBox : IBaseMessageBox
 
     public void Processed()
     {
-        Status = nameof(EventStatus.Processed);
+        ChangeStatus(EventStatus.Processed);
+    }
+
+    public void Rejected()
+    {
+        ChangeStatus(EventStatus.Rejected);
+    }
+
+    public void Rescheduled(DateTime tryAfterAt)
+    {
+        TryAfterAt = tryAfterAt;
+        ChangeStatus(EventStatus.Pending);
+    }
+
+    /// <summary>
+    /// Changes the status of the event and sets the time of the change.
+    /// </summary>
+    /// <param name="status">The new status of the event.</param>
+    private void ChangeStatus(EventStatus status)
+    {
+        Status = status;
         UpdatedAt = DateTime.Now;
     }
+
+    #endregion
 
     private JsonSerializerOptions _jsonSerializerOptions;
 

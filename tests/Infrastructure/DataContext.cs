@@ -56,7 +56,8 @@ internal class DataContext<TEvent> where TEvent : BaseMessageBox, new()
                 TryAfterAt = reader.GetDateTime(reader.GetOrdinal("try_after_at"))
             };
 
-            message.SetPropertyValue(nameof(BaseMessageBox.Status), reader.GetString(reader.GetOrdinal("status")));
+            message.SetPropertyValue(nameof(BaseMessageBox.Status),
+                Enum.Parse<EventStatus>(reader.GetString(reader.GetOrdinal("status"))));
 
             var failureReasonOrdinal = reader.GetOrdinal("failure_reason");
             if (!reader.IsDBNull(failureReasonOrdinal))
@@ -82,6 +83,19 @@ internal class DataContext<TEvent> where TEvent : BaseMessageBox, new()
         return message;
     }
     
+    /// <summary>
+    /// Gets the raw value of the status column of the event, as it is stored in the table.
+    /// </summary>
+    public string GetStoredStatusById(Guid id)
+    {
+        var sql = $"SELECT status FROM {_tableName} where id = @id";
+        var command = _dataSource.CreateCommand(sql);
+
+        command.Parameters.Add(new NpgsqlParameter("@id", id));
+
+        return command.ExecuteScalar() as string;
+    }
+
     public bool ExistsById(Guid id)
     {
         var sql = $"SELECT COUNT(*) FROM {_tableName} where id = @id";

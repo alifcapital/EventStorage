@@ -46,7 +46,7 @@ internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutbox
                     additional_data, created_at, try_count, try_after_at, status
                 ) VALUES (
                     @Id, @Provider, @EventName, @EventPath, @Payload::jsonb, @Headers,
-                    @AdditionalData, @CreatedAt, @TryCount, @TryAfterAt, @Status
+                    @AdditionalData, @CreatedAt, @TryCount, @TryAfterAt, @StatusName
                 )";
     
     /// <summary>

@@ -222,7 +222,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
                     additional_data, naming_policy_type, created_at, try_count, try_after_at, status
                 ) VALUES (
                     @Id, @Provider, @EventName, @EventPath, @Payload::jsonb, @Headers,
-                    @AdditionalData, @NamingPolicyType, @CreatedAt, @TryCount, @TryAfterAt, @Status
+                    @AdditionalData, @NamingPolicyType, @CreatedAt, @TryCount, @TryAfterAt, @StatusName
                 )";
 
     public bool InsertEvent(TBaseMessage message)
@@ -366,7 +366,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
                 SET 
                     try_count = @TryCount,
                     try_after_at = @TryAfterAt,
-                    status = @Status,
+                    status = @StatusName,
                     failure_reason = @FailureReason,
                     updated_at = @UpdatedAt,
                     updated_by = @UpdatedBy,

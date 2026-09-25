@@ -246,7 +246,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
 
         failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5);
         processedEvent.Processed();
-        rejectedEvent.SetPropertyValue(nameof(BaseMessageBox.Status), nameof(EventStatus.Rejected));
+        rejectedEvent.Rejected();
         await Repository.UpdateEventsAsync([failedEvent, processedEvent, rejectedEvent]);
 
         try
@@ -258,7 +258,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             Assert.That(resultIds, Does.Contain(failedEvent.Id));
             Assert.That(resultIds, Does.Not.Contain(processedEvent.Id));
             Assert.That(resultIds, Does.Not.Contain(rejectedEvent.Id));
-            Assert.That(result.Single(e => e.Id == failedEvent.Id).Status, Is.EqualTo(nameof(EventStatus.Failed)));
+            Assert.That(result.Single(e => e.Id == failedEvent.Id).Status, Is.EqualTo(EventStatus.Failed));
         }
         finally
         {
@@ -303,8 +303,22 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
 
         Assert.That(updatedEvent.TryCount, Is.EqualTo(outboxEvent.TryCount));
         Assert.That(updatedEvent.TryAfterAt, Is.EqualTo(outboxEvent.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
-        Assert.That(updatedEvent.Status, Is.EqualTo(nameof(EventStatus.Processed)));
+        Assert.That(updatedEvent.Status, Is.EqualTo(EventStatus.Processed));
         Assert.That(updatedEvent.UpdatedAt, Is.EqualTo(outboxEvent.UpdatedAt).Within(TimeSpan.FromSeconds(1)));
+    }
+
+    [Test]
+    public async Task UpdateEventAsync_EventIsRejected_ShouldStoreStatusNameAsString()
+    {
+        var rejectedEvent = CreateEvent(DateTime.Now);
+        await Repository.InsertEventAsync(rejectedEvent);
+        Assert.That(DataContext.GetStoredStatusById(rejectedEvent.Id), Is.EqualTo(nameof(EventStatus.Pending)));
+
+        rejectedEvent.Rejected();
+        await Repository.UpdateEventAsync(rejectedEvent);
+
+        Assert.That(DataContext.GetStoredStatusById(rejectedEvent.Id), Is.EqualTo(nameof(EventStatus.Rejected)));
+        Assert.That(DataContext.GetById(rejectedEvent.Id).Status, Is.EqualTo(EventStatus.Rejected));
     }
 
     #endregion
@@ -358,12 +372,12 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
 
         Assert.That(updatedEvent1.TryCount, Is.EqualTo(outboxEvent1.TryCount));
         Assert.That(updatedEvent1.TryAfterAt, Is.EqualTo(outboxEvent1.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
-        Assert.That(updatedEvent1.Status, Is.EqualTo(nameof(EventStatus.Processed)));
+        Assert.That(updatedEvent1.Status, Is.EqualTo(EventStatus.Processed));
         Assert.That(updatedEvent1.UpdatedAt, Is.EqualTo(outboxEvent1.UpdatedAt).Within(TimeSpan.FromSeconds(1)));
 
         Assert.That(updatedEvent2.TryCount, Is.EqualTo(outboxEvent2.TryCount));
         Assert.That(updatedEvent2.TryAfterAt, Is.EqualTo(outboxEvent2.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
-        Assert.That(updatedEvent2.Status, Is.EqualTo(nameof(EventStatus.Processed)));
+        Assert.That(updatedEvent2.Status, Is.EqualTo(EventStatus.Processed));
         Assert.That(updatedEvent2.UpdatedAt, Is.EqualTo(outboxEvent2.UpdatedAt).Within(TimeSpan.FromSeconds(1)));
     }
 
@@ -435,7 +449,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         var rejectedEvent = CreateEvent(DateTime.Now);
         await Repository.InsertEventAsync(rejectedEvent);
 
-        rejectedEvent.SetPropertyValue(nameof(BaseMessageBox.Status), nameof(EventStatus.Rejected));
+        rejectedEvent.Rejected();
         await Repository.UpdateEventAsync(rejectedEvent);
 
         var isProcessed = await Repository.IsEventProcessedAsync(rejectedEvent.Id);
@@ -494,7 +508,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         var rejectedEvent = CreateEvent(DateTime.Now);
         await Repository.InsertEventAsync(rejectedEvent);
 
-        rejectedEvent.SetPropertyValue(nameof(BaseMessageBox.Status), nameof(EventStatus.Rejected));
+        rejectedEvent.Rejected();
         rejectedEvent.SetPropertyValue(nameof(BaseMessageBox.UpdatedAt), DateTime.Now.AddDays(-1));
         await Repository.UpdateEventAsync(rejectedEvent);
 
@@ -524,11 +538,11 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     }
 
     /// <summary>
-    /// Marks the event as processed at the given time. Since the properties have non-public setters, we use reflection to set their values.
+    /// Marks the event as processed at the given time. Since UpdatedAt has a non-public setter, we use reflection to set its value.
     /// </summary>
     private static void SetProcessedTimeOfEvent(TEvent eventBox, DateTime processedAt)
     {
-        eventBox.SetPropertyValue(nameof(BaseMessageBox.Status), nameof(EventStatus.Processed));
+        eventBox.Processed();
         eventBox.SetPropertyValue(nameof(BaseMessageBox.UpdatedAt), processedAt);
     }
 
