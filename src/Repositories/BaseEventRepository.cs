@@ -24,201 +24,46 @@ internal abstract class BaseEventRepository<TBaseMessage>(
     : IBaseEventRepository<TBaseMessage>
     where TBaseMessage : class, IBaseMessageBox
 {
-    private readonly string _connectionString = settings.ConnectionString;
+    /// <summary>
+    /// The connection string of the database where the table is located.
+    /// </summary>
+    internal readonly string ConnectionString = settings.ConnectionString;
 
     /// <summary>
     /// The name of the table for connecting repository to the correct table in the database.
     /// </summary>
-    protected readonly string TableName = settings.TableName;
+    protected internal readonly string TableName = settings.TableName;
+
+    /// <summary>
+    /// Seconds to wait for the exclusive lock of the table while migrating its old schema.
+    /// </summary>
+    internal readonly int SecondsToWaitForMigrationLock = secondsToWaitForMigrationLock;
+
+    /// <summary>
+    /// The logger instance.
+    /// </summary>
+    internal ILogger Logger => logger;
 
     /// <summary>
     /// The tag/prefix of the trace message for logging purposes.
     /// </summary>
     protected abstract string TraceMessageTag { get; }
 
-    #region Create tables or indexes if not exists
+    /// <summary>
+    /// The tag/prefix of the storage type (inbox or outbox) for logging purposes.
+    /// </summary>
+    internal string StorageTypeTag => TraceMessageTag;
 
     /// <summary>
-    /// The SQL script for creating the table for storing events if it does not exist.
+    /// Whether the table has the naming policy column. The outbox table does not have it.
     /// </summary>
-    protected virtual string CreateTableSqlScript => $@"CREATE TABLE IF NOT EXISTS {TableName}
-                (
-                    id UUID NOT NULL PRIMARY KEY,
-                    provider VARCHAR(50) NOT NULL,
-                    event_name VARCHAR(100) NOT NULL,
-                    event_path VARCHAR(255),
-                    payload JSONB,
-                    headers TEXT,
-                    additional_data TEXT,
-                    naming_policy_type VARCHAR(15),
-                    created_at TIMESTAMP(0) NOT NULL,
-                    try_count integer DEFAULT 0 NOT NULL,
-                    try_after_at TIMESTAMP(0) NOT NULL,
-                    status VARCHAR(20) NOT NULL DEFAULT 'Pending',
-                    failure_reason TEXT,
-                    updated_at TIMESTAMP(0),
-                    updated_by VARCHAR(100),
-                    status_comment TEXT
-                );";
+    internal virtual bool HasNamingPolicyColumn => true;
 
     /// <summary>
-    /// The SQL script for migrating the payload column from text to jsonb type if the column exists and has text type.
-    /// This is for supporting the old versions of the library which used text type for payload column.
+    /// Creates the table if it does not exist and migrates its schema. All schema changes must be added to the
+    /// <see cref="BaseEventRepositorySchemaExtensions"/> instead of this class.
     /// </summary>
-    private string MigratePayloadColumnToJsonbScript => $@"
-                DO $$
-                BEGIN
-                    IF EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_schema = 'public'
-                            AND table_name = '{TableName}'
-                            AND column_name = 'payload'
-                            AND data_type = 'text'
-                    ) THEN
-                        ALTER TABLE {TableName} ALTER COLUMN payload TYPE JSONB USING payload::jsonb;
-                    END IF;
-                END
-                $$;";
-
-    /// <summary>
-    /// The SQL script for creating indexes for the table: for getting unprocessed events, for deleting processed events
-    /// and for filtering events by the creation time and the event name.
-    /// </summary>
-    private string CreateIndexesScript => $@"CREATE INDEX IF NOT EXISTS idx_{TableName}_status_try_after_at
-                    ON public.{TableName} (status, try_after_at);
-
-                CREATE INDEX IF NOT EXISTS idx_{TableName}_status_updated_at
-                    ON public.{TableName} (status, updated_at);
-
-                CREATE INDEX IF NOT EXISTS idx_{TableName}_created_at
-                    ON public.{TableName} (created_at);
-
-                CREATE INDEX IF NOT EXISTS idx_{TableName}_event_name_created_at
-                    ON public.{TableName} (event_name, created_at);";
-
-    public void CreateTableIfNotExists()
-    {
-        try
-        {
-            using var dbConnection = new NpgsqlConnection(_connectionString);
-            dbConnection.Open();
-
-            dbConnection.Execute(CreateTableSqlScript);
-            dbConnection.Execute(MigratePayloadColumnToJsonbScript);
-            MigrateToStatusSchemaIfNeeded(dbConnection);
-            dbConnection.Execute(CreateIndexesScript);
-        }
-        catch (EventStoreException)
-        {
-            throw;
-        }
-        catch (Exception e)
-        {
-            throw new EventStoreException(e, $"Error while checking/creating {TableName} table.");
-        }
-    }
-
-    #endregion
-
-    #region Migrate to status schema
-
-    /// <summary>
-    /// The SQL query for checking whether the table already has the "status" column. If not, the table has the old schema.
-    /// </summary>
-    private string SqlQueryToCheckStatusColumnExists => $@"
-                SELECT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_schema = 'public'
-                        AND table_name = '{TableName}'
-                        AND column_name = 'status'
-                )";
-
-    /// <summary>
-    /// The SQL script for adding all new columns of the status schema.
-    /// </summary>
-    private string AddStatusColumnsScript => $@"
-                ALTER TABLE {TableName}
-                    ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'Pending',
-                    ADD COLUMN IF NOT EXISTS failure_reason TEXT,
-                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP(0),
-                    ADD COLUMN IF NOT EXISTS updated_by VARCHAR(100),
-                    ADD COLUMN IF NOT EXISTS status_comment TEXT;";
-
-    /// <summary>
-    /// The SQL script for migrating the existing events to the status schema:
-    /// processed events become "Processed" (keeping the processed time), unprocessed events become "Pending"
-    /// if their try time already came, otherwise "Failed".
-    /// </summary>
-    private string MigrateExistingEventsToStatusScript => $@"
-                UPDATE {TableName}
-                SET
-                    status = CASE
-                        WHEN processed_at IS NOT NULL THEN '{nameof(EventStatus.Processed)}'
-                        WHEN try_after_at <= @CurrentTime THEN '{nameof(EventStatus.Pending)}'
-                        ELSE '{nameof(EventStatus.Failed)}'
-                    END,
-                    updated_at = processed_at;";
-
-    /// <summary>
-    /// The SQL script for removing the old "processed_at" column.
-    /// </summary>
-    private string DropProcessedAtColumnScript => $@"ALTER TABLE {TableName} DROP COLUMN IF EXISTS processed_at;";
-
-    /// <summary>
-    /// The SQL script for removing the indexes of the old schema if they still exist. PostgreSQL drops them together
-    /// with the "processed_at" column, but they are dropped explicitly to not depend on it.
-    /// </summary>
-    private string DropOldIndexesScript => $@"
-                DROP INDEX IF EXISTS public.idx_for_get_unprocessed_events_of_{TableName};
-                DROP INDEX IF EXISTS public.idx_for_delete_processed_events_of_{TableName};";
-
-    /// <summary>
-    /// Migrates the table from the old schema (with the "processed_at" column) to the status schema if it is needed.
-    /// It runs in a single transaction and locks the table exclusively, so no event can be read or written while migrating.
-    /// </summary>
-    private void MigrateToStatusSchemaIfNeeded(NpgsqlConnection dbConnection)
-    {
-        using var transaction = dbConnection.BeginTransaction();
-
-        // Only one application instance migrates at a time; the others wait and then find the table already migrated.
-        dbConnection.Execute("SELECT pg_advisory_xact_lock(hashtext(@LockName))",
-            new { LockName = $"{TableName}_schema_migration" }, transaction, commandTimeout: 0);
-
-        var hasStatusColumn = dbConnection.ExecuteScalar<bool>(SqlQueryToCheckStatusColumnExists,
-            transaction: transaction);
-        if (hasStatusColumn)
-        {
-            transaction.Commit();
-            return;
-        }
-
-        logger.LogWarning("{StorageType}: Migrating the {TableName} table to the status schema.", TraceMessageTag,
-            TableName);
-        try
-        {
-            dbConnection.Execute($"SET LOCAL lock_timeout = '{secondsToWaitForMigrationLock}s'",
-                transaction: transaction);
-            dbConnection.Execute($"LOCK TABLE {TableName} IN ACCESS EXCLUSIVE MODE", transaction: transaction,
-                commandTimeout: 0);
-        }
-        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.LockNotAvailable)
-        {
-            throw new EventStoreException(e,
-                $"Could not lock the {TableName} table within {secondsToWaitForMigrationLock} seconds to migrate it to the status schema. The migration is rolled back and will be retried on the next start.");
-        }
-
-        dbConnection.Execute(AddStatusColumnsScript, transaction: transaction, commandTimeout: 0);
-        dbConnection.Execute(MigrateExistingEventsToStatusScript, new { CurrentTime = DateTime.Now }, transaction,
-            commandTimeout: 0);
-        dbConnection.Execute(DropProcessedAtColumnScript, transaction: transaction, commandTimeout: 0);
-        dbConnection.Execute(DropOldIndexesScript, transaction: transaction, commandTimeout: 0);
-
-        transaction.Commit();
-        logger.LogWarning("{StorageType}: The {TableName} table is migrated to the status schema.", TraceMessageTag,
-            TableName);
-    }
-
-    #endregion
+    public void CreateTableIfNotExists() => this.CreateOrMigrateTableSchema();
 
     #region InsertEventAsync
 
@@ -239,7 +84,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
         using var activity = CreateLogsForInvestigation(message);
         try
         {
-            using var dbConnection = new NpgsqlConnection(_connectionString);
+            using var dbConnection = new NpgsqlConnection(ConnectionString);
             dbConnection.Open();
             dbConnection.Execute(SqlQueryToInsertEvent, message);
 
@@ -260,7 +105,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
         using var activity = CreateLogsForInvestigation(message);
         try
         {
-            await using var dbConnection = new NpgsqlConnection(_connectionString);
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
             await dbConnection.OpenAsync();
 
             var affectedRows = await dbConnection.ExecuteAsync(SqlQueryToInsertEvent, message);
@@ -285,7 +130,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
         using var activity = CreateActivityAndAddLogForBulkInsertIfEnabled(events);
         try
         {
-            await using var dbConnection = new NpgsqlConnection(_connectionString);
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
             await dbConnection.OpenAsync();
 
             var affectedRows = await dbConnection.ExecuteAsync(SqlQueryToInsertEvent, events);
@@ -307,7 +152,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
         using var activity = CreateActivityAndAddLogForBulkInsertIfEnabled(events);
         try
         {
-            using var dbConnection = new NpgsqlConnection(_connectionString);
+            using var dbConnection = new NpgsqlConnection(ConnectionString);
             dbConnection.Open();
 
             var affectedRows = dbConnection.Execute(SqlQueryToInsertEvent, events);
@@ -349,7 +194,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
     {
         try
         {
-            await using var dbConnection = new NpgsqlConnection(_connectionString);
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
             await dbConnection.OpenAsync();
 
             var unprocessedEvents = await dbConnection.QueryAsync<TBaseMessage>(SqlQueryToGetUnprocessedEvents, new
@@ -386,7 +231,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
     {
         try
         {
-            await using var dbConnection = new NpgsqlConnection(_connectionString);
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
             await dbConnection.OpenAsync();
 
             var affectedRows = await dbConnection.ExecuteAsync(_sqlUpdateEventQuery, @event);
@@ -403,7 +248,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
     {
         try
         {
-            await using var dbConnection = new NpgsqlConnection(_connectionString);
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
             await dbConnection.OpenAsync();
 
             var affectedRows = await dbConnection.ExecuteAsync(_sqlUpdateEventQuery, events);
@@ -427,7 +272,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
     {
         try
         {
-            await using var dbConnection = new NpgsqlConnection(_connectionString);
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
             dbConnection.Open();
 
             var result = await dbConnection.QuerySingleOrDefaultAsync<bool?>(_sqlCheckEventQuery, new { Id = id });
@@ -450,7 +295,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
 
     public async Task<bool> DeleteProcessedEventsAsync(DateTime processedAt)
     {
-        await using var dbConnection = new NpgsqlConnection(_connectionString);
+        await using var dbConnection = new NpgsqlConnection(ConnectionString);
         try
         {
             await dbConnection.OpenAsync();

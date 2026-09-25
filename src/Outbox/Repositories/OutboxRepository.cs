@@ -16,26 +16,9 @@ internal class OutboxRepository(ILogger<OutboxRepository> logger, InboxAndOutbox
     #region Overriden queries
 
     /// <summary>
-    /// Since the outbox message does not have a property naming policy, we override the base class implementation to not create column for that.
+    /// Since the outbox message does not have a property naming policy, the table is created without a column for that.
     /// </summary>
-    protected override string CreateTableSqlScript => $@"CREATE TABLE IF NOT EXISTS {TableName}
-                (
-                    id UUID NOT NULL PRIMARY KEY,
-                    provider VARCHAR(50) NOT NULL,
-                    event_name VARCHAR(100) NOT NULL,
-                    event_path VARCHAR(255),
-                    payload JSONB,
-                    headers TEXT,
-                    additional_data TEXT,
-                    created_at TIMESTAMP(0) NOT NULL,
-                    try_count integer DEFAULT 0 NOT NULL,
-                    try_after_at TIMESTAMP(0) NOT NULL,
-                    status VARCHAR(20) NOT NULL DEFAULT 'Pending',
-                    failure_reason TEXT,
-                    updated_at TIMESTAMP(0),
-                    updated_by VARCHAR(100),
-                    status_comment TEXT
-                );";
+    internal override bool HasNamingPolicyColumn => false;
 
     /// <summary>
     /// The SQL query for inserting a new event to the database without the naming policy column.

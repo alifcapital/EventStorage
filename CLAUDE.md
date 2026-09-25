@@ -162,6 +162,8 @@ builder.Services.AddEventStore(
 
 **Table schema:** each event row has a string `status` (`Pending` · `Failed` · `Processed` · `Rejected`) plus `failure_reason`, `updated_at` (processed time for processed events), `updated_by` (user name) and `status_comment`. Only `Pending`/`Failed` rows are fetched for processing. Tables on the old schema (with `processed_at`, no `status`) are migrated on startup in one transaction under `LOCK TABLE ... ACCESS EXCLUSIVE` (bounded by `SecondsToWaitForMigrationLock`); `processed_at` is dropped afterwards.
 
+**Schema changes rule:** all table creation, index and schema migration SQL lives in `src/Extensions/BaseEventRepositorySchemaExtensions.cs` (called from `BaseEventRepository.CreateTableIfNotExists()`). Add any future schema change there as a new `#region` — do **not** change `BaseEventRepository` for schema changes.
+
 ### Project Structure
 
 ```
