@@ -394,6 +394,22 @@ The `InboxAndOutbox` is the main section for setting of the Outbox and Inbox fun
 
 All options of the Inbox and Outbox are optional, if we don't pass the value of them, it will use the default value of the option.
 
+`SecondsToDelayBeforeCreatingEventStoreTables` - Seconds to delay before creating the event store tables. Default value is 0.<br/>
+`SecondsToWaitForMigrationLock` - Seconds to wait for the exclusive lock of the Inbox/Outbox table while migrating its old schema (see below). If the lock cannot be taken in time, the migration is rolled back and an exception is thrown, it will be retried on the next start. The `0` value means waiting without a limit. Default value is 30.<br/>
+
+### Event statuses and the table schema
+
+Each Inbox/Outbox event has a `status` column, stored as a string:
+
+| Status | Meaning |
+|---|---|
+| `Pending` | The event is waiting to be processed. |
+| `Failed` | Processing failed; the event is retried once its `try_after_at` time comes. |
+| `Processed` | The event is processed. `updated_at` holds the processed time. |
+| `Rejected` | The event is ignored and never processed. |
+
+Besides `status`, the tables have the `failure_reason`, `updated_at`, `updated_by` (the user name of who changed the status manually) and `status_comment` columns. Only `Pending` and `Failed` events are fetched for processing, and the clean-up job deletes only `Processed` events.
+
 ### Can we create multiple event publishers for the same event type?
 No, we can't. If we try to create multiple event publishers for the same event type, it will throw an exception. The library is designed to work with a single event publisher for each event type.
 

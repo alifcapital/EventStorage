@@ -63,9 +63,29 @@ internal interface  IBaseMessageBox
     public DateTime TryAfterAt { get; set; }
 
     /// <summary>
-    /// Gets the processed time of the event.
+    /// Gets the processing status of the event. It is stored as a string in the table.
     /// </summary>
-    DateTime? ProcessedAt { get; }
+    EventStatus Status { get; }
+
+    /// <summary>
+    /// Gets the reason of the last processing failure of the event.
+    /// </summary>
+    string FailureReason { get; }
+
+    /// <summary>
+    /// Gets the time of the last status change of the event. For the processed event, it is the processed time.
+    /// </summary>
+    DateTime? UpdatedAt { get; }
+
+    /// <summary>
+    /// Gets the user name of who changed the status manually. It is null when the status is changed by the processor.
+    /// </summary>
+    string UpdatedBy { get; }
+
+    /// <summary>
+    /// Gets the comment of the last manual status change.
+    /// </summary>
+    string StatusComment { get; }
 
     /// <summary>
     /// To increase the TryCount and TryAfterAt when it is failed
@@ -76,6 +96,17 @@ internal interface  IBaseMessageBox
     /// For marking the event is processed
     /// </summary>
     void Processed();
+
+    /// <summary>
+    /// For marking the event is rejected, so it will not be processed.
+    /// </summary>
+    void Rejected();
+
+    /// <summary>
+    /// For marking the event as pending again to be processed at the given time.
+    /// </summary>
+    /// <param name="tryAfterAt">The time after which the event should be processed.</param>
+    void Rescheduled(DateTime tryAfterAt);
 
     /// <summary>
     /// Gets JsonSerializerOptions to use on naming police for serializing and deserializing properties of Event 

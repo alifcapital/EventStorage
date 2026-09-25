@@ -15,8 +15,12 @@ namespace EventStorage.Repositories;
 /// </summary>
 /// <param name="logger">The logger instance.</param>
 /// <param name="settings">The inbox or outbox settings.</param>
+/// <param name="secondsToWaitForMigrationLock">Seconds to wait for the exclusive lock of the table while migrating its old schema.</param>
 /// <typeparam name="TBaseMessage">The type of the message to store.</typeparam>
-internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxOrOutboxStructure settings)
+internal abstract class BaseEventRepository<TBaseMessage>(
+    ILogger logger,
+    InboxOrOutboxStructure settings,
+    int secondsToWaitForMigrationLock)
     : IBaseEventRepository<TBaseMessage>
     where TBaseMessage : class, IBaseMessageBox
 {
@@ -50,7 +54,11 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
                     created_at TIMESTAMP(0) NOT NULL,
                     try_count integer DEFAULT 0 NOT NULL,
                     try_after_at TIMESTAMP(0) NOT NULL,
-                    processed_at TIMESTAMP(0) DEFAULT NULL
+                    status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+                    failure_reason TEXT,
+                    updated_at TIMESTAMP(0),
+                    updated_by VARCHAR(100),
+                    status_comment TEXT
                 );";
 
     /// <summary>
@@ -73,13 +81,20 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
                 $$;";
 
     /// <summary>
-    /// The SQL script for creating indexes for the table. It creates an index for getting unprocessed events and another index for deleting processed events.
+    /// The SQL script for creating indexes for the table: for getting unprocessed events, for deleting processed events
+    /// and for filtering events by the creation time and the event name.
     /// </summary>
-    private string CreateIndexesScript => $@"CREATE INDEX IF NOT EXISTS idx_for_get_unprocessed_events_of_{TableName}
-                    ON public.{TableName} (processed_at, try_after_at);
+    private string CreateIndexesScript => $@"CREATE INDEX IF NOT EXISTS idx_{TableName}_status_try_after_at
+                    ON public.{TableName} (status, try_after_at);
 
-                CREATE INDEX IF NOT EXISTS idx_for_delete_processed_events_of_{TableName}
-                    ON public.{TableName} (processed_at);";
+                CREATE INDEX IF NOT EXISTS idx_{TableName}_status_updated_at
+                    ON public.{TableName} (status, updated_at);
+
+                CREATE INDEX IF NOT EXISTS idx_{TableName}_created_at
+                    ON public.{TableName} (created_at);
+
+                CREATE INDEX IF NOT EXISTS idx_{TableName}_event_name_created_at
+                    ON public.{TableName} (event_name, created_at);";
 
     public void CreateTableIfNotExists()
     {
@@ -90,12 +105,117 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
 
             dbConnection.Execute(CreateTableSqlScript);
             dbConnection.Execute(MigratePayloadColumnToJsonbScript);
+            MigrateToStatusSchemaIfNeeded(dbConnection);
             dbConnection.Execute(CreateIndexesScript);
+        }
+        catch (EventStoreException)
+        {
+            throw;
         }
         catch (Exception e)
         {
             throw new EventStoreException(e, $"Error while checking/creating {TableName} table.");
         }
+    }
+
+    #endregion
+
+    #region Migrate to status schema
+
+    /// <summary>
+    /// The SQL query for checking whether the table already has the "status" column. If not, the table has the old schema.
+    /// </summary>
+    private string SqlQueryToCheckStatusColumnExists => $@"
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                        AND table_name = '{TableName}'
+                        AND column_name = 'status'
+                )";
+
+    /// <summary>
+    /// The SQL script for adding all new columns of the status schema.
+    /// </summary>
+    private string AddStatusColumnsScript => $@"
+                ALTER TABLE {TableName}
+                    ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+                    ADD COLUMN IF NOT EXISTS failure_reason TEXT,
+                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP(0),
+                    ADD COLUMN IF NOT EXISTS updated_by VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS status_comment TEXT;";
+
+    /// <summary>
+    /// The SQL script for migrating the existing events to the status schema:
+    /// processed events become "Processed" (keeping the processed time), unprocessed events become "Pending"
+    /// if their try time already came, otherwise "Failed".
+    /// </summary>
+    private string MigrateExistingEventsToStatusScript => $@"
+                UPDATE {TableName}
+                SET
+                    status = CASE
+                        WHEN processed_at IS NOT NULL THEN '{nameof(EventStatus.Processed)}'
+                        WHEN try_after_at <= @CurrentTime THEN '{nameof(EventStatus.Pending)}'
+                        ELSE '{nameof(EventStatus.Failed)}'
+                    END,
+                    updated_at = processed_at;";
+
+    /// <summary>
+    /// The SQL script for removing the old "processed_at" column.
+    /// </summary>
+    private string DropProcessedAtColumnScript => $@"ALTER TABLE {TableName} DROP COLUMN IF EXISTS processed_at;";
+
+    /// <summary>
+    /// The SQL script for removing the indexes of the old schema if they still exist. PostgreSQL drops them together
+    /// with the "processed_at" column, but they are dropped explicitly to not depend on it.
+    /// </summary>
+    private string DropOldIndexesScript => $@"
+                DROP INDEX IF EXISTS public.idx_for_get_unprocessed_events_of_{TableName};
+                DROP INDEX IF EXISTS public.idx_for_delete_processed_events_of_{TableName};";
+
+    /// <summary>
+    /// Migrates the table from the old schema (with the "processed_at" column) to the status schema if it is needed.
+    /// It runs in a single transaction and locks the table exclusively, so no event can be read or written while migrating.
+    /// </summary>
+    private void MigrateToStatusSchemaIfNeeded(NpgsqlConnection dbConnection)
+    {
+        using var transaction = dbConnection.BeginTransaction();
+
+        // Only one application instance migrates at a time; the others wait and then find the table already migrated.
+        dbConnection.Execute("SELECT pg_advisory_xact_lock(hashtext(@LockName))",
+            new { LockName = $"{TableName}_schema_migration" }, transaction, commandTimeout: 0);
+
+        var hasStatusColumn = dbConnection.ExecuteScalar<bool>(SqlQueryToCheckStatusColumnExists,
+            transaction: transaction);
+        if (hasStatusColumn)
+        {
+            transaction.Commit();
+            return;
+        }
+
+        logger.LogWarning("{StorageType}: Migrating the {TableName} table to the status schema.", TraceMessageTag,
+            TableName);
+        try
+        {
+            dbConnection.Execute($"SET LOCAL lock_timeout = '{secondsToWaitForMigrationLock}s'",
+                transaction: transaction);
+            dbConnection.Execute($"LOCK TABLE {TableName} IN ACCESS EXCLUSIVE MODE", transaction: transaction,
+                commandTimeout: 0);
+        }
+        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.LockNotAvailable)
+        {
+            throw new EventStoreException(e,
+                $"Could not lock the {TableName} table within {secondsToWaitForMigrationLock} seconds to migrate it to the status schema. The migration is rolled back and will be retried on the next start.");
+        }
+
+        dbConnection.Execute(AddStatusColumnsScript, transaction: transaction, commandTimeout: 0);
+        dbConnection.Execute(MigrateExistingEventsToStatusScript, new { CurrentTime = DateTime.Now }, transaction,
+            commandTimeout: 0);
+        dbConnection.Execute(DropProcessedAtColumnScript, transaction: transaction, commandTimeout: 0);
+        dbConnection.Execute(DropOldIndexesScript, transaction: transaction, commandTimeout: 0);
+
+        transaction.Commit();
+        logger.LogWarning("{StorageType}: The {TableName} table is migrated to the status schema.", TraceMessageTag,
+            TableName);
     }
 
     #endregion
@@ -108,10 +228,10 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
     protected virtual string SqlQueryToInsertEvent => $@"
                 INSERT INTO {TableName} (
                     id, provider, event_name, event_path, payload, headers, 
-                    additional_data, naming_policy_type, created_at, try_count, try_after_at
+                    additional_data, naming_policy_type, created_at, try_count, try_after_at, status
                 ) VALUES (
                     @Id, @Provider, @EventName, @EventPath, @Payload::jsonb, @Headers,
-                    @AdditionalData, @NamingPolicyType, @CreatedAt, @TryCount, @TryAfterAt
+                    @AdditionalData, @NamingPolicyType, @CreatedAt, @TryCount, @TryAfterAt, @StatusName
                 )";
 
     public bool InsertEvent(TBaseMessage message)
@@ -215,10 +335,12 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
                         naming_policy_type as ""{nameof(IBaseMessageBox.NamingPolicyType)}"", 
                         additional_data as ""{nameof(IBaseMessageBox.AdditionalData)}"", created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"", 
                         try_count as ""{nameof(IBaseMessageBox.TryCount)}"", try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"", 
-                        processed_at as ""{nameof(IBaseMessageBox.ProcessedAt)}""
+                        status as ""{nameof(IBaseMessageBox.Status)}"", failure_reason as ""{nameof(IBaseMessageBox.FailureReason)}"",
+                        updated_at as ""{nameof(IBaseMessageBox.UpdatedAt)}"", updated_by as ""{nameof(IBaseMessageBox.UpdatedBy)}"",
+                        status_comment as ""{nameof(IBaseMessageBox.StatusComment)}""
                 FROM {TableName}
                 WHERE 
-                    processed_at IS NULL
+                    status IN ('{nameof(EventStatus.Pending)}', '{nameof(EventStatus.Failed)}')
                     AND try_after_at <= @CurrentTime
                 ORDER BY created_at ASC
                 LIMIT @Limit";
@@ -253,7 +375,11 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
                 SET 
                     try_count = @TryCount,
                     try_after_at = @TryAfterAt,
-                    processed_at = @ProcessedAt
+                    status = @StatusName,
+                    failure_reason = @FailureReason,
+                    updated_at = @UpdatedAt,
+                    updated_by = @UpdatedBy,
+                    status_comment = @StatusComment
                 WHERE id = @Id";
 
     public async Task<bool> UpdateEventAsync(TBaseMessage @event)
@@ -294,7 +420,8 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
     #region IsEventProcessedAsync
 
     private readonly string _sqlCheckEventQuery = $@"
-                SELECT processed_at IS NOT NULL FROM {settings.TableName} WHERE id = @Id";
+                SELECT status NOT IN ('{nameof(EventStatus.Pending)}', '{nameof(EventStatus.Failed)}')
+                FROM {settings.TableName} WHERE id = @Id";
 
     public async Task<bool> IsEventProcessedAsync(Guid id)
     {
@@ -319,7 +446,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
 
     private readonly string _sqlDeleteEventQuery = $@"
                 DELETE FROM {settings.TableName}
-                WHERE processed_at < @ProcessedAt";
+                WHERE status = '{nameof(EventStatus.Processed)}' AND updated_at < @ProcessedAt";
 
     public async Task<bool> DeleteProcessedEventsAsync(DateTime processedAt)
     {

@@ -137,6 +137,7 @@ builder.Services.AddEventStore(
 ```json
 "InboxAndOutbox": {
   "SecondsToDelayBeforeCreatingEventStoreTables": 0,
+  "SecondsToWaitForMigrationLock": 30,
   "Inbox": {
     "IsEnabled": true,
     "TableName": "inbox",
@@ -157,7 +158,9 @@ builder.Services.AddEventStore(
 **Key constraints:**
 - `IsEnabled` defaults to `false` — must be explicitly set
 - Inbox and Outbox **cannot share the same `TableName`**
-- `DaysToCleanUpEvents` must be ≥ 1 to activate cleanup
+- `DaysToCleanUpEvents` must be ≥ 1 to activate cleanup (only `Processed` events are deleted)
+
+**Table schema:** each event row has a string `status` (`Pending` · `Failed` · `Processed` · `Rejected`) plus `failure_reason`, `updated_at` (processed time for processed events), `updated_by` (user name) and `status_comment`. Only `Pending`/`Failed` rows are fetched for processing. Tables on the old schema (with `processed_at`, no `status`) are migrated on startup in one transaction under `LOCK TABLE ... ACCESS EXCLUSIVE` (bounded by `SecondsToWaitForMigrationLock`); `processed_at` is dropped afterwards.
 
 ### Project Structure
 
