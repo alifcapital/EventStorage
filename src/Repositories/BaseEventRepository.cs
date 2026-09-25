@@ -345,6 +345,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
             var totalCount = await result.ReadSingleAsync<long>();
             var events = await result.ReadAsync<TBaseMessage>();
 
+            //TODO: Instead of attaching total count, just add indicator to know there is more items or not. 
             return (events.ToArray(), totalCount);
         }
         catch (Exception e)

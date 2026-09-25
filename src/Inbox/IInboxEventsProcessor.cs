@@ -1,3 +1,4 @@
+using EventStorage.Inbox.Models;
 using EventStorage.Services;
 
 namespace EventStorage.Inbox;
@@ -5,4 +6,4 @@ namespace EventStorage.Inbox;
 /// <summary>
 /// Service for executing event handlers of inbox events.
 /// </summary>
-internal interface IInboxEventsProcessor : IEventsProcessor;
+internal interface IInboxEventsProcessor : IEventsProcessor<InboxMessage>;

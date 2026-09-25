@@ -46,30 +46,34 @@ internal abstract class BaseMessageBox : IBaseMessageBox
         TryCount++;
     }
 
-    public void Processed()
+    public void Processed(string performedBy = null, string comment = null)
     {
-        ChangeStatus(EventStatus.Processed);
+        ChangeStatus(EventStatus.Processed, performedBy, comment);
     }
 
-    public void Rejected()
+    public void Rejected(string performedBy = null, string comment = null)
     {
-        ChangeStatus(EventStatus.Rejected);
+        ChangeStatus(EventStatus.Rejected, performedBy, comment);
     }
 
-    public void Rescheduled(DateTime tryAfterAt)
+    public void Rescheduled(DateTime tryAfterAt, string performedBy = null, string comment = null)
     {
         TryAfterAt = tryAfterAt;
-        ChangeStatus(EventStatus.Pending);
+        ChangeStatus(EventStatus.Pending, performedBy, comment);
     }
 
     /// <summary>
-    /// Changes the status of the event and sets the time of the change.
+    /// Changes the status of the event and sets the time, the user and the comment of the change.
     /// </summary>
     /// <param name="status">The new status of the event.</param>
-    private void ChangeStatus(EventStatus status)
+    /// <param name="performedBy">The user name of who changed the status manually. Null when the processor changed it.</param>
+    /// <param name="comment">The comment of the manual change.</param>
+    private void ChangeStatus(EventStatus status, string performedBy, string comment)
     {
         Status = status;
         UpdatedAt = DateTime.Now;
+        UpdatedBy = performedBy;
+        StatusComment = comment;
     }
 
     #endregion

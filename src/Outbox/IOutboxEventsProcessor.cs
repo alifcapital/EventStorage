@@ -6,7 +6,7 @@ namespace EventStorage.Outbox;
 /// <summary>
 /// Service for executing event handlers of outbox events.
 /// </summary>
-internal interface IOutboxEventsProcessor : IEventsProcessor
+internal interface IOutboxEventsProcessor : IEventsProcessor<OutboxMessage>
 {
     /// <summary>
     /// Get the publisher types of the event as combined string.
