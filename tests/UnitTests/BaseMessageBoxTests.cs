@@ -33,7 +33,7 @@ internal class BaseMessageBoxTests : BaseTestEntity
     {
         var message = new InboxMessage();
 
-        message.Failed(maxTryCount: 10, tryAfterMinutes: 5);
+        message.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
 
         Assert.That(message.Status, Is.EqualTo(EventStatus.Failed));
         Assert.That(message.TryCount, Is.EqualTo(1));
@@ -64,6 +64,55 @@ internal class BaseMessageBoxTests : BaseTestEntity
         Assert.That(message.Status, Is.EqualTo(EventStatus.Pending));
         Assert.That(message.TryAfterAt, Is.EqualTo(tryAfterAt));
         Assert.That(message.UpdatedAt, Is.EqualTo(DateTime.Now).Within(TimeSpan.FromSeconds(1)));
+    }
+
+    [Test]
+    public void Failed_ShouldSetFailureReasonAndManualChangeInfo()
+    {
+        var message = new InboxMessage();
+
+        message.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "System.Exception: Test failure",
+            performedBy: "operator", comment: "Manual execution");
+
+        Assert.That(message.FailureReason, Is.EqualTo("System.Exception: Test failure"));
+        Assert.That(message.UpdatedBy, Is.EqualTo("operator"));
+        Assert.That(message.StatusComment, Is.EqualTo("Manual execution"));
+    }
+
+    [Test]
+    public void Processed_FailedEvent_ShouldKeepFailureReasonAndClearManualChangeInfo()
+    {
+        var message = new InboxMessage();
+        message.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure", performedBy: "operator",
+            comment: "Manual execution");
+
+        message.Processed();
+
+        Assert.That(message.Status, Is.EqualTo(EventStatus.Processed));
+        Assert.That(message.FailureReason, Is.EqualTo("Test failure"));
+        Assert.That(message.UpdatedBy, Is.Null);
+        Assert.That(message.StatusComment, Is.Null);
+    }
+
+    [Test]
+    public void Rejected_WithPerformedByAndComment_ShouldSetThem()
+    {
+        var message = new InboxMessage();
+
+        message.Rejected(performedBy: "operator", comment: "Duplicate event");
+
+        Assert.That(message.UpdatedBy, Is.EqualTo("operator"));
+        Assert.That(message.StatusComment, Is.EqualTo("Duplicate event"));
+    }
+
+    [Test]
+    public void Rejected_PerformedByIsLongerThanColumn_ShouldTruncateIt()
+    {
+        var message = new InboxMessage();
+
+        message.Rejected(performedBy: new string('a', 150));
+
+        Assert.That(message.UpdatedBy, Has.Length.EqualTo(100));
     }
 
     #endregion

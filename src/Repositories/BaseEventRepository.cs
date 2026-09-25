@@ -4,6 +4,7 @@ using EventStorage.Configurations;
 using EventStorage.Exceptions;
 using EventStorage.Extensions;
 using EventStorage.Instrumentation.Trace;
+using EventStorage.Management.Models;
 using EventStorage.Models;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -68,15 +69,15 @@ internal abstract class BaseEventRepository<TBaseMessage>(
     #region InsertEventAsync
 
     /// <summary>
-    /// The SQL query for inserting a new event to the database.
+    /// The SQL query for inserting a new event to the database. The naming policy column is included only if the table has it.
     /// </summary>
-    protected virtual string SqlQueryToInsertEvent => $@"
+    private string SqlQueryToInsertEvent => $@"
                 INSERT INTO {TableName} (
-                    id, provider, event_name, event_path, payload, headers, 
-                    additional_data, naming_policy_type, created_at, try_count, try_after_at, status
+                    id, provider, event_name, event_path, payload, headers,
+                    additional_data,{(HasNamingPolicyColumn ? " naming_policy_type," : string.Empty)} created_at, try_count, try_after_at, status
                 ) VALUES (
                     @Id, @Provider, @EventName, @EventPath, @Payload::jsonb, @Headers,
-                    @AdditionalData, @NamingPolicyType, @CreatedAt, @TryCount, @TryAfterAt, @StatusName
+                    @AdditionalData,{(HasNamingPolicyColumn ? " @NamingPolicyType," : string.Empty)} @CreatedAt, @TryCount, @TryAfterAt, @StatusName
                 )";
 
     public bool InsertEvent(TBaseMessage message)
@@ -173,16 +174,23 @@ internal abstract class BaseEventRepository<TBaseMessage>(
 
     #region GetUnprocessedEventsAsync
 
-    protected virtual string SqlQueryToGetUnprocessedEvents => $@"
-                SELECT id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"", 
-                        event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"", 
+    /// <summary>
+    /// The columns of the table to select, mapped to the properties of the message.
+    /// The naming policy column is included only if the table has it.
+    /// </summary>
+    private string SqlSelectColumns => $@"
+                        id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"",
+                        event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"",
                         payload::text as ""{nameof(IBaseMessageBox.Payload)}"", headers as ""{nameof(IBaseMessageBox.Headers)}"",
-                        naming_policy_type as ""{nameof(IBaseMessageBox.NamingPolicyType)}"", 
-                        additional_data as ""{nameof(IBaseMessageBox.AdditionalData)}"", created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"", 
-                        try_count as ""{nameof(IBaseMessageBox.TryCount)}"", try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"", 
+                        {(HasNamingPolicyColumn ? $@"naming_policy_type as ""{nameof(IBaseMessageBox.NamingPolicyType)}""," : string.Empty)}
+                        additional_data as ""{nameof(IBaseMessageBox.AdditionalData)}"", created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"",
+                        try_count as ""{nameof(IBaseMessageBox.TryCount)}"", try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"",
                         status as ""{nameof(IBaseMessageBox.Status)}"", failure_reason as ""{nameof(IBaseMessageBox.FailureReason)}"",
                         updated_at as ""{nameof(IBaseMessageBox.UpdatedAt)}"", updated_by as ""{nameof(IBaseMessageBox.UpdatedBy)}"",
-                        status_comment as ""{nameof(IBaseMessageBox.StatusComment)}""
+                        status_comment as ""{nameof(IBaseMessageBox.StatusComment)}""";
+
+    private string SqlQueryToGetUnprocessedEvents => $@"
+                SELECT {SqlSelectColumns}
                 FROM {TableName}
                 WHERE 
                     status IN ('{nameof(EventStatus.Pending)}', '{nameof(EventStatus.Failed)}')
@@ -262,29 +270,89 @@ internal abstract class BaseEventRepository<TBaseMessage>(
 
     #endregion
 
-    #region IsEventProcessedAsync
+    #region GetEventStatusByIdAsync
 
-    private readonly string _sqlCheckEventQuery = $@"
-                SELECT status NOT IN ('{nameof(EventStatus.Pending)}', '{nameof(EventStatus.Failed)}')
-                FROM {settings.TableName} WHERE id = @Id";
+    private readonly string _sqlGetEventStatusQuery = $@"
+                SELECT status FROM {settings.TableName} WHERE id = @Id";
 
-    public async Task<bool> IsEventProcessedAsync(Guid id)
+    public async Task<EventStatus?> GetEventStatusByIdAsync(Guid id)
     {
         try
         {
             await using var dbConnection = new NpgsqlConnection(ConnectionString);
-            dbConnection.Open();
+            await dbConnection.OpenAsync();
 
-            var result = await dbConnection.QuerySingleOrDefaultAsync<bool?>(_sqlCheckEventQuery, new { Id = id });
-            return result ?? true;
+            var status = await dbConnection.QuerySingleOrDefaultAsync<string>(_sqlGetEventStatusQuery, new { Id = id });
+            return status is null ? null : Enum.Parse<EventStatus>(status);
         }
         catch (Exception e)
         {
             throw new EventStoreException(e,
-                $"Error while checking if the event with id {id} is processed in the {TableName} table.");
+                $"Error while getting the status of the event with id {id} from the {TableName} table.");
         }
     }
 
+    #endregion
+
+    #region GetEventByIdAsync
+
+    private string SqlQueryToGetEventById => $@"
+                SELECT {SqlSelectColumns}
+                FROM {TableName}
+                WHERE id = @Id";
+
+    public async Task<TBaseMessage> GetEventByIdAsync(Guid id)
+    {
+        try
+        {
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
+            await dbConnection.OpenAsync();
+
+            return await dbConnection.QuerySingleOrDefaultAsync<TBaseMessage>(SqlQueryToGetEventById, new { Id = id });
+        }
+        catch (Exception e)
+        {
+            throw new EventStoreException(e, $"Error while getting the event with id {id} from the {TableName} table.");
+        }
+    }
+
+    #endregion
+
+    #region GetEventsAsync
+
+    public async Task<(TBaseMessage[] Events, long TotalCount)> GetEventsAsync(EventsFilter filter)
+    {
+        var (whereClause, parameters) = BuildFilterConditions(filter);
+        parameters.Add("Skip", filter.GetSkip());
+        parameters.Add("Take", filter.GetTake());
+
+        var sqlQuery = $@"
+                SELECT COUNT(*) FROM {TableName} {whereClause};
+
+                SELECT {SqlSelectColumns}
+                FROM {TableName}
+                {whereClause}
+                ORDER BY created_at DESC
+                OFFSET @Skip
+                LIMIT @Take";
+
+        try
+        {
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
+            await dbConnection.OpenAsync();
+
+            await using var result = await dbConnection.QueryMultipleAsync(sqlQuery, parameters);
+            var totalCount = await result.ReadSingleAsync<long>();
+            var events = await result.ReadAsync<TBaseMessage>();
+
+            return (events.ToArray(), totalCount);
+        }
+        catch (Exception e)
+        {
+            throw new EventStoreException(e, $"Error while getting events from the {TableName} table.");
+        }
+    }
+    
     #endregion
 
     #region DeleteProcessedEventsAsync
@@ -357,6 +425,73 @@ internal abstract class BaseEventRepository<TBaseMessage>(
 
         return activity;
     }
+
+    /// <summary>
+    /// Builds the WHERE clause and its parameters from the filter. Only parameters are used for the values of the filter.
+    /// </summary>
+    private static (string WhereClause, DynamicParameters Parameters) BuildFilterConditions(EventsFilter filter)
+    {
+        var conditions = new List<string>();
+        var parameters = new DynamicParameters();
+
+        if (filter.Ids?.Length > 0)
+        {
+            conditions.Add("id = ANY(@Ids)");
+            parameters.Add("Ids", filter.Ids);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.EventName))
+        {
+            conditions.Add("event_name = @EventName");
+            parameters.Add("EventName", filter.EventName);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Provider))
+        {
+            // The outbox events may have multiple providers separated by comma.
+            conditions.Add("@Provider = ANY(string_to_array(provider, ','))");
+            parameters.Add("Provider", filter.Provider);
+        }
+
+        if (filter.Statuses?.Length > 0)
+        {
+            conditions.Add("status = ANY(@Statuses)");
+            parameters.Add("Statuses", filter.Statuses.Select(s => s.ToString()).ToArray());
+        }
+
+        if (filter.CreatedFrom.HasValue)
+        {
+            conditions.Add("created_at >= @CreatedFrom");
+            parameters.Add("CreatedFrom", filter.CreatedFrom.Value);
+        }
+
+        if (filter.CreatedTo.HasValue)
+        {
+            conditions.Add("created_at <= @CreatedTo");
+            parameters.Add("CreatedTo", filter.CreatedTo.Value);
+        }
+
+        if (filter.MinTryCount.HasValue)
+        {
+            conditions.Add("try_count >= @MinTryCount");
+            parameters.Add("MinTryCount", filter.MinTryCount.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.FailureReasonContains))
+        {
+            conditions.Add("failure_reason ILIKE @FailureReasonPattern");
+            parameters.Add("FailureReasonPattern", $"%{EscapeLikePattern(filter.FailureReasonContains)}%");
+        }
+
+        var whereClause = conditions.Count == 0 ? string.Empty : $"WHERE {string.Join(" AND ", conditions)}";
+        return (whereClause, parameters);
+    }
+
+    /// <summary>
+    /// Escapes the special characters of the LIKE pattern, so the text is matched as it is.
+    /// </summary>
+    private static string EscapeLikePattern(string text) =>
+        text.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
 
     #endregion
 }

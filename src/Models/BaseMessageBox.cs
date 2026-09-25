@@ -30,13 +30,15 @@ internal abstract class BaseMessageBox : IBaseMessageBox
 
     #region Status changing methods
 
-    public void Failed(int maxTryCount, int tryAfterMinutes)
+    public void Failed(int maxTryCount, int tryAfterMinutes, string failureReason, string performedBy = null,
+        string comment = null)
     {
         IncreaseTryCount();
         if (TryCount > maxTryCount)
             TryAfterAt = DateTime.Now.AddMinutes(tryAfterMinutes);
 
-        ChangeStatus(EventStatus.Failed);
+        FailureReason = failureReason;
+        ChangeStatus(EventStatus.Failed, performedBy, comment);
     }
 
     private void IncreaseTryCount()

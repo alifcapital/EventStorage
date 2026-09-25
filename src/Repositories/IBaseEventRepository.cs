@@ -1,3 +1,4 @@
+using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Services;
 
@@ -59,11 +60,25 @@ internal interface IBaseEventRepository<TBaseMessage> : ITableCreator
     Task<bool> UpdateEventsAsync(IEnumerable<TBaseMessage> events);
     
     /// <summary>
-    /// For checking if the event is already processed.
+    /// Gets the current status of the event by its id.
     /// </summary>
-    /// <param name="id">The id of the event to check.</param>
-    /// <returns>Returns true if the event is already processed or there is no event with the specified id, otherwise false.</returns>
-    Task<bool> IsEventProcessedAsync(Guid id);
+    /// <param name="id">The id of the event.</param>
+    /// <returns>Returns the status of the event or null if there is no event with the specified id.</returns>
+    Task<EventStatus?> GetEventStatusByIdAsync(Guid id);
+
+    /// <summary>
+    /// Gets the event by its id.
+    /// </summary>
+    /// <param name="id">The id of the event.</param>
+    /// <returns>Returns the event or null if there is no event with the specified id.</returns>
+    Task<TBaseMessage> GetEventByIdAsync(Guid id);
+
+    /// <summary>
+    /// Gets a page of events that match the filter, sorted by the creation time in descending order.
+    /// </summary>
+    /// <param name="filter">The filter of the events.</param>
+    /// <returns>Returns the events of the page and the total count of the events that match the filter.</returns>
+    Task<(TBaseMessage[] Events, long TotalCount)> GetEventsAsync(EventsFilter filter);
 
     /// <summary>
     /// Deletes all processed events which processed before the specified date.

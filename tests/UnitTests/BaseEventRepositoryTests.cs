@@ -1,3 +1,4 @@
+using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Repositories;
 using EventStorage.Tests.Configs;
@@ -245,7 +246,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         var rejectedEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
         await Repository.BulkInsertEventsAsync([pendingEvent, failedEvent, processedEvent, rejectedEvent]);
 
-        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5);
+        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
         processedEvent.Processed();
         rejectedEvent.Rejected();
         await Repository.UpdateEventsAsync([failedEvent, processedEvent, rejectedEvent]);
@@ -384,75 +385,89 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
 
     #endregion
 
-    #region IsEventProcessedAsync
+    #region GetEventStatusAsync
 
+    // The events are created with a future try time, so they do not affect the tests of getting unprocessed events.
     [Test]
-    public async Task IsEventProcessedAsync_EventExistsAndProcessed_ShouldReturnTrue()
+    public async Task GetEventStatusAsync_EventExistsAndProcessed_ShouldReturnProcessed()
     {
-        var processedEvent = new TEvent
-        {
-            Id = Guid.NewGuid(),
-            Provider = "TestProvider",
-            EventName = "ProcessedEvent",
-            EventPath = "/test/path",
-            Payload = "{}",
-            Headers = "TestHeaders",
-            AdditionalData = "TestAdditionalData",
-            TryCount = 1,
-            TryAfterAt = DateTime.Now
-        };
+        var processedEvent = CreateEvent(DateTime.Now.AddHours(1));
         await Repository.InsertEventAsync(processedEvent);
 
         processedEvent.Processed();
         await Repository.UpdateEventAsync(processedEvent);
 
-        var isProcessed = await Repository.IsEventProcessedAsync(processedEvent.Id);
+        var status = await Repository.GetEventStatusByIdAsync(processedEvent.Id);
 
-        Assert.That(isProcessed, Is.True);
+        Assert.That(status, Is.EqualTo(EventStatus.Processed));
     }
 
     [Test]
-    public async Task IsEventProcessedAsync_EventExistsButNotProcessed_ShouldReturnFalse()
+    public async Task GetEventStatusAsync_EventExistsButNotProcessed_ShouldReturnPending()
     {
-        var unprocessedEvent = new TEvent
-        {
-            Id = Guid.NewGuid(),
-            Provider = "TestProvider",
-            EventName = "UnprocessedEvent",
-            EventPath = "/test/path",
-            Payload = "{}",
-            Headers = "TestHeaders",
-            AdditionalData = "TestAdditionalData",
-            TryCount = 0,
-            TryAfterAt = DateTime.Now
-        };
-
+        var unprocessedEvent = CreateEvent(DateTime.Now.AddHours(1));
         await Repository.InsertEventAsync(unprocessedEvent);
 
-        var isProcessed = await Repository.IsEventProcessedAsync(unprocessedEvent.Id);
-        Assert.That(isProcessed, Is.False);
+        var status = await Repository.GetEventStatusByIdAsync(unprocessedEvent.Id);
+
+        Assert.That(status, Is.EqualTo(EventStatus.Pending));
     }
 
     [Test]
-    public async Task IsEventProcessedAsync_EventDoesNotExist_ShouldReturnTrue()
+    public async Task GetEventStatusAsync_EventDoesNotExist_ShouldReturnNull()
     {
-        var nonExistentId = Guid.NewGuid();
+        var status = await Repository.GetEventStatusByIdAsync(Guid.NewGuid());
 
-        var isProcessed = await Repository.IsEventProcessedAsync(nonExistentId);
-        Assert.That(isProcessed, Is.True);
+        Assert.That(status, Is.Null);
     }
 
     [Test]
-    public async Task IsEventProcessedAsync_EventIsRejected_ShouldReturnTrue()
+    public async Task GetEventStatusAsync_EventIsRejected_ShouldReturnRejected()
     {
-        var rejectedEvent = CreateEvent(DateTime.Now);
+        var rejectedEvent = CreateEvent(DateTime.Now.AddHours(1));
         await Repository.InsertEventAsync(rejectedEvent);
 
         rejectedEvent.Rejected();
         await Repository.UpdateEventAsync(rejectedEvent);
 
-        var isProcessed = await Repository.IsEventProcessedAsync(rejectedEvent.Id);
-        Assert.That(isProcessed, Is.True);
+        var status = await Repository.GetEventStatusByIdAsync(rejectedEvent.Id);
+
+        Assert.That(status, Is.EqualTo(EventStatus.Rejected));
+    }
+
+    #endregion
+
+    #region GetEventByIdAsync
+
+    [Test]
+    public async Task GetEventByIdAsync_EventIsFailed_ShouldReturnEventWithFailureReasonAndManualChangeInfo()
+    {
+        var failedEvent = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(failedEvent);
+
+        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "System.Exception: Test failure",
+            performedBy: "operator", comment: "Manual execution");
+        await Repository.UpdateEventAsync(failedEvent);
+
+        var result = await Repository.GetEventByIdAsync(failedEvent.Id);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result.Id, Is.EqualTo(failedEvent.Id));
+        Assert.That(result.EventName, Is.EqualTo(failedEvent.EventName));
+        Assert.That(result.Payload, Is.EqualTo(failedEvent.Payload));
+        Assert.That(result.TryCount, Is.EqualTo(1));
+        Assert.That(result.Status, Is.EqualTo(EventStatus.Failed));
+        Assert.That(result.FailureReason, Is.EqualTo("System.Exception: Test failure"));
+        Assert.That(result.UpdatedBy, Is.EqualTo("operator"));
+        Assert.That(result.StatusComment, Is.EqualTo("Manual execution"));
+    }
+
+    [Test]
+    public async Task GetEventByIdAsync_EventDoesNotExist_ShouldReturnNull()
+    {
+        var result = await Repository.GetEventByIdAsync(Guid.NewGuid());
+
+        Assert.That(result, Is.Null);
     }
 
     #endregion
@@ -515,15 +530,144 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
 
     #endregion
 
+    #region GetEventsAsync
+
+    // Each test uses a unique event name to not see the events of other tests, and a future try time,
+    // so the events do not affect the tests of getting unprocessed events.
+
+    [Test]
+    public async Task GetEventsAsync_FilterByEventNameAndStatuses_ShouldReturnOnlyMatchingEvents()
+    {
+        var eventName = CreateUniqueEventName();
+        var pendingEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
+        var failedEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
+        var rejectedEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
+        var otherEvent = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.BulkInsertEventsAsync([pendingEvent, failedEvent, rejectedEvent, otherEvent]);
+        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
+        rejectedEvent.Rejected();
+        await Repository.UpdateEventsAsync([failedEvent, rejectedEvent]);
+
+        var (events, totalCount) = await Repository.GetEventsAsync(new EventsFilter
+        {
+            EventName = eventName,
+            Statuses = [EventStatus.Failed, EventStatus.Rejected]
+        });
+
+        Assert.That(totalCount, Is.EqualTo(2));
+        Assert.That(events.Select(e => e.Id), Is.EquivalentTo(new[] { failedEvent.Id, rejectedEvent.Id }));
+        Assert.That(events.Single(e => e.Id == failedEvent.Id).FailureReason, Is.EqualTo("Test failure"));
+    }
+
+    [Test]
+    public async Task GetEventsAsync_FilterByProvider_ShouldMatchEventsWithMultipleProviders()
+    {
+        var eventName = CreateUniqueEventName();
+        var singleProviderEvent = CreateEvent(DateTime.Now.AddHours(1), eventName, provider: "Sms");
+        var multipleProvidersEvent = CreateEvent(DateTime.Now.AddHours(1), eventName, provider: "MessageBroker,Sms");
+        var otherProviderEvent = CreateEvent(DateTime.Now.AddHours(1), eventName, provider: "Email");
+        await Repository.BulkInsertEventsAsync([singleProviderEvent, multipleProvidersEvent, otherProviderEvent]);
+
+        var (events, totalCount) = await Repository.GetEventsAsync(new EventsFilter
+        {
+            EventName = eventName,
+            Provider = "Sms"
+        });
+
+        Assert.That(totalCount, Is.EqualTo(2));
+        Assert.That(events.Select(e => e.Id),
+            Is.EquivalentTo(new[] { singleProviderEvent.Id, multipleProvidersEvent.Id }));
+    }
+
+    [Test]
+    public async Task GetEventsAsync_FilterByFailureReasonWithSpecialCharacters_ShouldMatchTextAsItIs()
+    {
+        var eventName = CreateUniqueEventName();
+        var matchingEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
+        var notMatchingEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
+        await Repository.BulkInsertEventsAsync([matchingEvent, notMatchingEvent]);
+        matchingEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Timeout: 100% of pool_size used");
+        notMatchingEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Timeout: 100 of pool size used");
+        await Repository.UpdateEventsAsync([matchingEvent, notMatchingEvent]);
+
+        var (events, _) = await Repository.GetEventsAsync(new EventsFilter
+        {
+            EventName = eventName,
+            FailureReasonContains = "100% OF POOL_SIZE"
+        });
+
+        Assert.That(events.Select(e => e.Id), Is.EquivalentTo(new[] { matchingEvent.Id }));
+    }
+
+    [Test]
+    public async Task GetEventsAsync_FilterByIdsMinTryCountAndCreatedAt_ShouldReturnOnlyMatchingEvents()
+    {
+        var eventName = CreateUniqueEventName();
+        var triedEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
+        var notTriedEvent = CreateEvent(DateTime.Now.AddHours(1), eventName);
+        await Repository.BulkInsertEventsAsync([triedEvent, notTriedEvent]);
+        triedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
+        await Repository.UpdateEventAsync(triedEvent);
+
+        var (events, totalCount) = await Repository.GetEventsAsync(new EventsFilter
+        {
+            Ids = [triedEvent.Id, notTriedEvent.Id],
+            MinTryCount = 1,
+            CreatedFrom = DateTime.Now.AddMinutes(-1),
+            CreatedTo = DateTime.Now.AddMinutes(1)
+        });
+
+        Assert.That(totalCount, Is.EqualTo(1));
+        Assert.That(events.Single().Id, Is.EqualTo(triedEvent.Id));
+    }
+
+    [Test]
+    public async Task GetEventsAsync_SkipAndTake_ShouldReturnPageWithTotalCount()
+    {
+        var eventName = CreateUniqueEventName();
+        await Repository.BulkInsertEventsAsync([
+            CreateEvent(DateTime.Now.AddHours(1), eventName),
+            CreateEvent(DateTime.Now.AddHours(1), eventName),
+            CreateEvent(DateTime.Now.AddHours(1), eventName)
+        ]);
+
+        var (firstPage, totalCount) = await Repository.GetEventsAsync(new EventsFilter
+            { EventName = eventName, Skip = 0, Take = 2 });
+        var (secondPage, _) = await Repository.GetEventsAsync(new EventsFilter
+            { EventName = eventName, Skip = 2, Take = 2 });
+
+        Assert.That(totalCount, Is.EqualTo(3));
+        Assert.That(firstPage, Has.Length.EqualTo(2));
+        Assert.That(secondPage, Has.Length.EqualTo(1));
+        Assert.That(firstPage.Select(e => e.Id), Does.Not.Contain(secondPage.Single().Id));
+    }
+
+    [Test]
+    public async Task GetEventsAsync_SkipIsHigherThanCount_ShouldReturnEmptyPageWithTotalCount()
+    {
+        var eventName = CreateUniqueEventName();
+        await Repository.InsertEventAsync(CreateEvent(DateTime.Now.AddHours(1), eventName));
+
+        var (events, totalCount) = await Repository.GetEventsAsync(new EventsFilter
+            { EventName = eventName, Skip = 10 });
+
+        Assert.That(events, Is.Empty);
+        Assert.That(totalCount, Is.EqualTo(1));
+    }
+
+    #endregion
+
     #region Helper methods
 
-    private static TEvent CreateEvent(DateTime tryAfterAt)
+    private static string CreateUniqueEventName() => $"TestEvent_{Guid.NewGuid():N}";
+
+    private static TEvent CreateEvent(DateTime tryAfterAt, string eventName = null, string provider = "TestProvider")
     {
         return new TEvent
         {
             Id = Guid.NewGuid(),
-            Provider = "TestProvider",
-            EventName = "TestEvent" + typeof(TEvent).FullName,
+            Provider = provider,
+            EventName = eventName ?? "TestEvent" + typeof(TEvent).FullName,
             EventPath = "/test/path",
             Payload = "{}",
             Headers = "TestHeaders",
