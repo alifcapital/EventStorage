@@ -390,6 +390,8 @@ The `InboxAndOutbox` is the main section for setting of the Outbox and Inbox fun
 `SecondsToDelayProcessEvents` - The delay in seconds before processing events. Default value is 1.<br/>
 `DaysToCleanUpEvents` - Number of days after which processed events are cleaned up. Cleanup only occurs if this value is 1 or higher. Default value is 0.<br/>
 `HoursToDelayCleanUpEvents` - Specifies the delay in hours before cleaning up processed events. Default value is 1.<br/>
+`MaxFailureReasonLength` - The maximum length of the stored failure reason. Longer reasons are truncated. The `0` value means no limit. Default value is 4000.<br/>
+`StoreFailureStackTrace` - Stores the stack trace of the exception in the failure reason. Default value is false, since stack traces and exception messages may carry personal or account data.<br/>
 `ConnectionString` - The connection string for the PostgreSQL database used to store or read received/sent events.<br/>
 
 All options of the Inbox and Outbox are optional, if we don't pass the value of them, it will use the default value of the option.
@@ -409,6 +411,47 @@ Each Inbox/Outbox event has a `status` column, stored as a string:
 | `Rejected` | The event is ignored and never processed. |
 
 Besides `status`, the tables have the `failure_reason`, `updated_at`, `updated_by` (the user name of who changed the status manually) and `status_comment` columns. Only `Pending` and `Failed` events are fetched for processing, and the clean-up job deletes only `Processed` events.
+
+When an event fails, its `failure_reason` holds the exception chain formatted as `Type: Message` (see the `MaxFailureReasonLength` and `StoreFailureStackTrace` options). The last failure reason is kept when the event is processed later.
+
+### Managing events (for an admin UI)
+
+The library registers the `IInboxEventsService` and `IOutboxEventsService` scoped services to inspect and manage events. The library does not ship any controller or authorization: each application writes its own endpoints and protects every operation with its own permissions. If the Inbox/Outbox is not enabled, their methods throw an `EventStoreException`.
+
+```csharp
+[ApiController]
+[Route("api/inbox-events")]
+public class InboxEventsController(IInboxEventsService inboxEventsService) : ControllerBase
+{
+    [HttpGet("{id:guid}")]
+    [Authorize(Policy = "InboxEvents.Read")]
+    public async Task<IActionResult> GetEvent(Guid id, CancellationToken ct)
+    {
+        var eventDetails = await inboxEventsService.GetEventAsync(id, ct);
+        return eventDetails is null ? NotFound() : Ok(eventDetails);
+    }
+
+    [HttpPost("{id:guid}/reject")]
+    [Authorize(Policy = "InboxEvents.Reject")]
+    public async Task<IActionResult> Reject(Guid id, [FromBody] string comment, CancellationToken ct)
+    {
+        var result = await inboxEventsService.RejectAsync(id,
+            new EventActionRequest { PerformedBy = User.Identity?.Name, Comment = comment }, ct);
+
+        return result.IsSuccess ? Ok() : BadRequest(result);
+    }
+}
+```
+
+| Method | Allowed statuses | Result status |
+|---|---|---|
+| `GetEventAsync(id)` | any | — |
+| `ExecuteAsync(id, request)` — runs the event now and waits for the result | `Pending`, `Failed` (`Processed` only with `Force = true`) | `Processed` or `Failed` |
+| `RescheduleAsync(id, tryAfterAt, request)` | `Rejected` | `Pending` |
+| `RejectAsync(id, request)` | `Pending`, `Failed` | `Rejected` |
+| `MarkAsProcessedAsync(id, request)` | `Pending`, `Failed`, `Rejected` | `Processed` |
+
+Each action returns an `EventActionResult` with one of the `Success`, `NotFound`, `Locked`, `InvalidState` or `Failed` statuses and a `FailureReason`. The actions take the same distributed lock as the background processor, so `Locked` is returned while the event is being processed. Re-running a processed event with `Force` may cause duplicate side effects (for example, double posting), so protect it with a separate permission.
 
 ### Can we create multiple event publishers for the same event type?
 No, we can't. If we try to create multiple event publishers for the same event type, it will throw an exception. The library is designed to work with a single event publisher for each event type.

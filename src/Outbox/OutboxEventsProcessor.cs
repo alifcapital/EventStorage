@@ -6,6 +6,7 @@ using EventStorage.Exceptions;
 using EventStorage.Extensions;
 using EventStorage.Instrumentation;
 using EventStorage.Instrumentation.Trace;
+using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Providers;
@@ -98,9 +99,13 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
         await _singleExecutionLock.WaitAsync(stoppingToken);
         try
         {
-            using var scope = _serviceProvider.CreateScope();
-            var repository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
-            var eventsToPublish = await repository.GetUnprocessedEventsAsync(_settings.MaxEventsToFetch);
+            OutboxMessage[] eventsToPublish;
+            using (var scope = _serviceProvider.CreateScope())
+            {
+                var repository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
+                eventsToPublish = await repository.GetUnprocessedEventsAsync(_settings.MaxEventsToFetch);
+            }
+
             if (eventsToPublish.Length == 0)
                 return;
 
@@ -109,38 +114,13 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
 
             var tasks = eventsToPublish.Select(async eventToPublish =>
             {
-                var lockName = $"ProcessingOutboxEvent_{eventToPublish.Id}";
-                await using var distributedLock =
-                    await _lockProvider.TryAcquireLockAsync(lockName, cancellationToken: stoppingToken);
-                if (distributedLock is null)
-                {
-                    _logger.LogDebug(
-                        "Could not open distributed lock for processing outbox event with ID: {EventId}. It may be processing by another instance.",
-                        eventToPublish.Id);
-                    return;
-                }
-
+                await _semaphore.WaitAsync(stoppingToken);
                 try
                 {
-                    await _semaphore.WaitAsync(stoppingToken);
-                    stoppingToken.ThrowIfCancellationRequested();
-                    var isEventProcessed = await repository.IsEventProcessedAsync(eventToPublish.Id);
-                    if (isEventProcessed)
-                    {
-                        _logger.LogDebug("The outbox event with id {EventId} is already processed. Skipping execution.",
-                            eventToPublish.Id);
-                        return;
-                    }
-
-                    await ExecuteEventPublisher(eventToPublish, scope.ServiceProvider, activity);
-                }
-                catch
-                {
-                    eventToPublish.Failed(_settings.TryCount, _settings.TryAfterMinutes);
+                    await ProcessSingleEventAsync(eventToPublish, manualRequest: null, activity, stoppingToken);
                 }
                 finally
                 {
-                    await repository.UpdateEventAsync(eventToPublish);
                     _semaphore.Release();
                 }
             }).ToArray();
@@ -153,75 +133,157 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
         }
     }
 
-    private async Task ExecuteEventPublisher(IOutboxMessage outboxMessage, IServiceProvider serviceProvider,
+    public Task<EventActionResult> ProcessSingleEventAsync(OutboxMessage message, EventActionRequest manualRequest,
+        CancellationToken cancellationToken)
+    {
+        return ProcessSingleEventAsync(message, manualRequest, parentActivity: Activity.Current, cancellationToken);
+    }
+    
+    #endregion
+    
+    #region Helper methods
+
+    /// <summary>
+    /// Process single event if that is already not processing.
+    /// Each event is processed in a separate scope to avoid conflicts in scoped services like DbContext.
+    /// </summary>
+    /// <param name="message"></param>
+    /// <param name="manualRequest"></param>
+    /// <param name="parentActivity"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    private async Task<EventActionResult> ProcessSingleEventAsync(OutboxMessage message,
+        EventActionRequest manualRequest, Activity parentActivity, CancellationToken cancellationToken)
+    {
+        var lockName = FunctionalityNames.GetEventLockName(FunctionalityNames.Outbox, message.Id);
+        await using var distributedLock =
+            await _lockProvider.TryAcquireLockAsync(lockName, cancellationToken: cancellationToken);
+        if (distributedLock is null)
+        {
+            _logger.LogInformation(
+                "Could not open distributed lock for processing outbox event with ID: {EventId}. It may be processing by another instance.",
+                message.Id);
+            return EventActionResult.AlreadyProcessing(message.Id);
+        }
+
+        using var scope = _serviceProvider.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
+
+        // The status is read again under the lock, since the event could be changed after it was fetched.
+        var currentStatus = await repository.GetEventStatusByIdAsync(message.Id);
+        if (currentStatus is null)
+            return EventActionResult.NotFound(message.Id);
+
+        var force = manualRequest?.Force == true;
+        if (!EventStatusTransitions.CanBeExecuted(currentStatus.Value, force))
+        {
+            _logger.LogInformation("The outbox event with id {EventId} has the {Status} status. Skipping execution.",
+                message.Id, currentStatus.Value);
+            return EventActionResult.InvalidState(
+                $"The outbox event with the {currentStatus.Value} status cannot be executed{(currentStatus == EventStatus.Processed ? " without the force option" : string.Empty)}.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var performedBy = manualRequest?.PerformedBy;
+        var comment = manualRequest?.Comment;
+        try
+        {
+            var isSuccessfullyExecuted = await ExecuteEventPublisher(message, scope.ServiceProvider, parentActivity);
+            if (isSuccessfullyExecuted)
+                message.Processed(performedBy, comment);
+            else
+                message.Failed(0, _settings.TryAfterMinutesIfEventNotFound,
+                    $"No publisher configured for the {message.EventName} event with the {message.Provider} provider(s).", performedBy, comment);
+        }
+        catch (Exception e)
+        {
+            message.Failed(_settings.TryCount, _settings.TryAfterMinutes, e.ToFailureReason(_settings), performedBy,
+                comment);
+        }
+        finally
+        {
+            await repository.UpdateEventAsync(message); 
+        }
+
+        return message.Status == EventStatus.Processed
+            ? EventActionResult.Success()
+            : EventActionResult.Failed(message.FailureReason);
+    }
+
+    /// <summary>
+    /// Executes all publishers of the outbox event.
+    /// </summary>
+    /// <returns>Returns true if the publishers are executed, or false if there is no publisher for the event.</returns>
+    private async Task<bool> ExecuteEventPublisher(IOutboxMessage outboxMessage, IServiceProvider serviceProvider,
         Activity parentActivity)
     {
         try
         {
             var publisherKey = GetPublisherKey(outboxMessage.EventName, outboxMessage.EventPath);
-            if (_allPublishers.TryGetValue(publisherKey, out var publishers))
+            var eventPublishersToExecute = _allPublishers.TryGetValue(publisherKey, out var publishers)
+                ? publishers.Values.Where(x => outboxMessage.Provider.Contains(x.ProviderType)).ToArray()
+                : [];
+            if (eventPublishersToExecute.Length == 0)
             {
-                var eventPublishersToExecute =
-                    publishers.Values.Where(x => outboxMessage.Provider.Contains(x.ProviderType)).ToArray();
-                if (eventPublishersToExecute.Length == 0)
-                {
-                    MarkEventAsFailedWhenThereIsNoPublisher();
-                    return;
-                }
-
-                _logger.LogDebug("{StorageType}: Executing publishers of the event '{EventName}' (ID: {MessageId})",
-                    EventStorageInvestigationTagNames.OutboxEventTag, outboxMessage.EventName, outboxMessage.Id);
-                using var activity = CreateActivityForExecutingPublishersIfEnabled(outboxMessage, parentActivity);
-
-                var firstEventInfo = publishers.First().Value;
-                var jsonSerializerSetting = outboxMessage.GetJsonSerializer();
-                var eventToPublish =
-                    JsonSerializer.Deserialize(outboxMessage.Payload, firstEventInfo.EventType, jsonSerializerSetting)
-                        as IOutboxEvent;
-                if (firstEventInfo.HasHeaders && outboxMessage.Headers is not null)
-                    ((IHasHeaders)eventToPublish)!.Headers =
-                        JsonSerializer.Deserialize<Dictionary<string, string>>(outboxMessage.Headers);
-
-                if (firstEventInfo.HasAdditionalData && outboxMessage.AdditionalData is not null)
-                    ((IHasAdditionalData)eventToPublish)!.AdditionalData =
-                        JsonSerializer.Deserialize<Dictionary<string, string>>(outboxMessage!.AdditionalData);
-
-                foreach (var publisherInformation in eventPublishersToExecute)
-                {
-                    var eventHandlerSubscriber =
-                        serviceProvider.GetRequiredService(publisherInformation.EventPublisherType);
-
-                    await ((Task)publisherInformation.PublishMethod.Invoke(eventHandlerSubscriber, [eventToPublish]))!;
-                }
-
-                outboxMessage.Processed();
-
-                return;
+                _logger.LogError(
+                    "The {EventType} outbox event with ID {EventId} requested to publish with {ProviderType} provider(s), but no publisher configured for this event.",
+                    outboxMessage.EventName, outboxMessage.Id, outboxMessage.Provider);
+                return false;
             }
 
-            MarkEventAsFailedWhenThereIsNoPublisher();
+            _logger.LogDebug("{StorageType}: Executing publishers of the event '{EventName}' (ID: {MessageId})",
+                EventStorageInvestigationTagNames.OutboxEventTag, outboxMessage.EventName, outboxMessage.Id);
+            using var activity = CreateActivityForExecutingPublishersIfEnabled(outboxMessage, parentActivity);
+
+            var eventToPublish = LoadOutboxEvent(outboxMessage, publishers!.First().Value);
+            foreach (var publisherInformation in eventPublishersToExecute)
+            {
+                var eventHandlerSubscriber =
+                    serviceProvider.GetRequiredService(publisherInformation.EventPublisherType);
+
+                await ((Task)publisherInformation.PublishMethod.Invoke(eventHandlerSubscriber, [eventToPublish]))!;
+            }
+
+            return true;
         }
         catch (Exception e)
         {
-            var exception = new EventStoreException(e, $"Error while publishing event with ID: {outboxMessage.Id}");
-            _logger.LogError(exception, exception.Message);
-            throw exception;
-        }
-
-        return;
-
-        void MarkEventAsFailedWhenThereIsNoPublisher()
-        {
-            outboxMessage.Failed(0, _settings.TryAfterMinutesIfEventNotFound);
-            _logger.LogError(
-                "The {EventType} outbox event with ID {EventId} requested to publish with {ProviderType} provider(s), but no publisher configured for this event.",
-                outboxMessage.EventName, outboxMessage.Id, outboxMessage.Provider);
+            _logger.LogError(e, "Error while publishing event with ID: {EventId}", outboxMessage.Id);
+            throw;
         }
     }
 
-    #endregion
+    /// <summary>
+    /// Load the event to publish from the outbox message.
+    /// </summary>
+    /// <param name="message">The outbox message.</param>
+    /// <param name="eventPublisherInformation">The publisher information of the event.</param>
+    /// <returns>Loaded instance of event</returns>
+    private static IOutboxEvent LoadOutboxEvent(IOutboxMessage message,
+        EventPublisherInformation eventPublisherInformation)
+    {
+        try
+        {
+            var jsonSerializerSetting = message.GetJsonSerializer();
+            var eventToPublish =
+                JsonSerializer.Deserialize(message.Payload, eventPublisherInformation.EventType, jsonSerializerSetting)
+                    as IOutboxEvent;
+            if (eventPublisherInformation.HasHeaders && message.Headers is not null)
+                ((IHasHeaders)eventToPublish)!.Headers =
+                    JsonSerializer.Deserialize<Dictionary<string, string>>(message.Headers);
 
-    #region Helper methods
+            if (eventPublisherInformation.HasAdditionalData && message.AdditionalData is not null)
+                ((IHasAdditionalData)eventToPublish)!.AdditionalData =
+                    JsonSerializer.Deserialize<Dictionary<string, string>>(message.AdditionalData);
+
+            return eventToPublish;
+        }
+        catch (Exception e) when (e is JsonException or NotSupportedException)
+        {
+            throw new EventStoreException(e,
+                $"Could not deserialize the outbox event to the {eventPublisherInformation.EventType.FullName} type.");
+        }
+    }
 
     /// <summary>
     /// Cache the event publisher types.
