@@ -100,18 +100,19 @@ internal abstract class BaseEventRepository<TBaseMessage>(
         }
     }
 
-    public async Task<bool> InsertEventAsync(TBaseMessage message)
+    public async Task<bool> InsertEventAsync(TBaseMessage message, CancellationToken cancellationToken)
     {
         using var activity = CreateLogsForInvestigation(message);
         try
         {
             await using var dbConnection = new NpgsqlConnection(ConnectionString);
-            await dbConnection.OpenAsync();
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var affectedRows = await dbConnection.ExecuteAsync(SqlQueryToInsertEvent, message);
+            var affectedRows = await dbConnection.ExecuteAsync(
+                new CommandDefinition(SqlQueryToInsertEvent, message, cancellationToken: cancellationToken));
             return affectedRows > 0;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             if (e is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
                 return false;
@@ -125,18 +126,19 @@ internal abstract class BaseEventRepository<TBaseMessage>(
 
     #region BulkInsertEventsAsync
 
-    public async Task<bool> BulkInsertEventsAsync(TBaseMessage[] events)
+    public async Task<bool> BulkInsertEventsAsync(TBaseMessage[] events, CancellationToken cancellationToken)
     {
         using var activity = CreateActivityAndAddLogForBulkInsertIfEnabled(events);
         try
         {
             await using var dbConnection = new NpgsqlConnection(ConnectionString);
-            await dbConnection.OpenAsync();
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var affectedRows = await dbConnection.ExecuteAsync(SqlQueryToInsertEvent, events);
+            var affectedRows = await dbConnection.ExecuteAsync(
+                new CommandDefinition(SqlQueryToInsertEvent, events, cancellationToken: cancellationToken));
             return affectedRows > 0;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             if (e is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
                 return false;
@@ -197,22 +199,23 @@ internal abstract class BaseEventRepository<TBaseMessage>(
                 ORDER BY created_at ASC
                 LIMIT @Limit";
 
-    public async Task<TBaseMessage[]> GetUnprocessedEventsAsync(int limit)
+    public async Task<TBaseMessage[]> GetUnprocessedEventsAsync(int limit, CancellationToken cancellationToken)
     {
         try
         {
             await using var dbConnection = new NpgsqlConnection(ConnectionString);
-            await dbConnection.OpenAsync();
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var unprocessedEvents = await dbConnection.QueryAsync<TBaseMessage>(SqlQueryToGetUnprocessedEvents, new
-            {
-                CurrentTime = DateTime.Now,
-                Limit = limit
-            });
+            var unprocessedEvents = await dbConnection.QueryAsync<TBaseMessage>(new CommandDefinition(
+                SqlQueryToGetUnprocessedEvents, new
+                {
+                    CurrentTime = DateTime.Now,
+                    Limit = limit
+                }, cancellationToken: cancellationToken));
 
             return unprocessedEvents.ToArray();
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             throw new EventStoreException(e, $"Error while retrieving unprocessed events from the {TableName} table.");
         }
@@ -234,34 +237,37 @@ internal abstract class BaseEventRepository<TBaseMessage>(
                     status_comment = @StatusComment
                 WHERE id = @Id";
 
-    public async Task<bool> UpdateEventAsync(TBaseMessage @event)
+    public async Task<bool> UpdateEventAsync(TBaseMessage @event, CancellationToken cancellationToken)
     {
         try
         {
             await using var dbConnection = new NpgsqlConnection(ConnectionString);
-            await dbConnection.OpenAsync();
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var affectedRows = await dbConnection.ExecuteAsync(_sqlUpdateEventQuery, @event);
+            var command = new CommandDefinition(_sqlUpdateEventQuery, @event, cancellationToken: cancellationToken);
+            var affectedRows = await dbConnection.ExecuteAsync(command);
             return affectedRows > 0;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             throw new EventStoreException(e,
                 $"Error while updating the event in the {TableName} table with the {@event.Id} id.");
         }
     }
 
-    public async Task<bool> UpdateEventsAsync(IEnumerable<TBaseMessage> events)
+    public async Task<bool> UpdateEventsAsync(IEnumerable<TBaseMessage> events,
+        CancellationToken cancellationToken)
     {
         try
         {
             await using var dbConnection = new NpgsqlConnection(ConnectionString);
-            await dbConnection.OpenAsync();
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var affectedRows = await dbConnection.ExecuteAsync(_sqlUpdateEventQuery, events);
+            var affectedRows = await dbConnection.ExecuteAsync(
+                new CommandDefinition(_sqlUpdateEventQuery, events, cancellationToken: cancellationToken));
             return affectedRows > 0;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             throw new EventStoreException(e, $"Error while updating events of the {TableName} table.");
         }
@@ -274,17 +280,18 @@ internal abstract class BaseEventRepository<TBaseMessage>(
     private readonly string _sqlGetEventStatusQuery = $@"
                 SELECT status FROM {settings.TableName} WHERE id = @Id";
 
-    public async Task<EventStatus?> GetEventStatusByIdAsync(Guid id)
+    public async Task<EventStatus?> GetEventStatusByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         try
         {
             await using var dbConnection = new NpgsqlConnection(ConnectionString);
-            await dbConnection.OpenAsync();
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var status = await dbConnection.QuerySingleOrDefaultAsync<string>(_sqlGetEventStatusQuery, new { Id = id });
+            var status = await dbConnection.QuerySingleOrDefaultAsync<string>(
+                new CommandDefinition(_sqlGetEventStatusQuery, new { Id = id }, cancellationToken: cancellationToken));
             return status is null ? null : Enum.Parse<EventStatus>(status);
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             throw new EventStoreException(e,
                 $"Error while getting the status of the event with id {id} from the {TableName} table.");
@@ -300,16 +307,18 @@ internal abstract class BaseEventRepository<TBaseMessage>(
                 FROM {TableName}
                 WHERE id = @Id";
 
-    public async Task<TBaseMessage> GetEventByIdAsync(Guid id)
+    public async Task<TBaseMessage> GetEventByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         try
         {
             await using var dbConnection = new NpgsqlConnection(ConnectionString);
-            await dbConnection.OpenAsync();
+            await dbConnection.OpenAsync(cancellationToken);
 
-            return await dbConnection.QuerySingleOrDefaultAsync<TBaseMessage>(SqlQueryToGetEventById, new { Id = id });
+            var command = new CommandDefinition(SqlQueryToGetEventById, new { Id = id },
+                cancellationToken: cancellationToken);
+            return await dbConnection.QuerySingleOrDefaultAsync<TBaseMessage>(command);
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             throw new EventStoreException(e, $"Error while getting the event with id {id} from the {TableName} table.");
         }
@@ -323,17 +332,19 @@ internal abstract class BaseEventRepository<TBaseMessage>(
                 DELETE FROM {settings.TableName}
                 WHERE status = '{nameof(EventStatus.Processed)}' AND updated_at < @ProcessedAt";
 
-    public async Task<bool> DeleteProcessedEventsAsync(DateTime processedAt)
+    public async Task<bool> DeleteProcessedEventsAsync(DateTime processedAt, CancellationToken cancellationToken)
     {
         await using var dbConnection = new NpgsqlConnection(ConnectionString);
         try
         {
-            await dbConnection.OpenAsync();
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var deletedRows = await dbConnection.ExecuteAsync(_sqlDeleteEventQuery, new { ProcessedAt = processedAt });
+            var deletedRows = await dbConnection.ExecuteAsync(
+                new CommandDefinition(_sqlDeleteEventQuery, new { ProcessedAt = processedAt },
+                    cancellationToken: cancellationToken));
             return deletedRows > 0;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             throw new EventStoreException(e, $"Error while deleting processed events from the {TableName} table.");
         }

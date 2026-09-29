@@ -30,7 +30,7 @@ internal abstract class BaseCleanUpProcessedEventsJob<TEventRepository, TEventBo
                 using var scope = scopeFactory.CreateScope();
                 var repository = scope.ServiceProvider.GetRequiredService<TEventRepository>();
                 var processedAt = DateTime.Now.AddDays(-settings.DaysToCleanUpEvents);
-                await repository.DeleteProcessedEventsAsync(processedAt);
+                await repository.DeleteProcessedEventsAsync(processedAt, stoppingToken);
             }
             catch (Exception e)
             {

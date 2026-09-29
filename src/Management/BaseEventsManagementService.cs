@@ -43,12 +43,12 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
 
     #region Get events
 
-    public async Task<EventDetails> GetEventByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<EventDetails> GetEventByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         EnsureIsEnabled();
         cancellationToken.ThrowIfCancellationRequested();
 
-        var message = await Repository.GetEventByIdAsync(id);
+        var message = await Repository.GetEventByIdAsync(id, cancellationToken);
         return message is null ? null : ToEventDetails(message);
     }
 
@@ -57,12 +57,12 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
     #region Actions
 
     public async Task<EventActionResult> ExecuteAsync(Guid id, EventActionRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
         EnsureIsEnabled();
         request ??= new EventActionRequest();
 
-        var message = await Repository.GetEventByIdAsync(id);
+        var message = await Repository.GetEventByIdAsync(id, cancellationToken);
         if (message is null)
             return EventActionResult.NotFound(id);
 
@@ -74,7 +74,7 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
     }
 
     public Task<EventActionResult> RescheduleAsync(Guid id, DateTime tryAfterAt, EventActionRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
         request ??= new EventActionRequest();
         return ChangeStatusAsync(id, request, "rescheduled", EventStatusTransitions.CanBeRescheduled,
@@ -82,7 +82,7 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
     }
 
     public Task<EventActionResult> RejectAsync(Guid id, EventActionRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
         request ??= new EventActionRequest();
         return ChangeStatusAsync(id, request, "rejected", EventStatusTransitions.CanBeRejected,
@@ -90,12 +90,16 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
     }
 
     public Task<EventActionResult> MarkAsProcessedAsync(Guid id, EventActionRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
         request ??= new EventActionRequest();
         return ChangeStatusAsync(id, request, "marked as processed", EventStatusTransitions.CanBeMarkedAsProcessed,
             message => message.Processed(request.PerformedBy, request.Comment), cancellationToken);
     }
+
+    #endregion
+
+    #region Helper methods
 
     /// <summary>
     /// Changes the status of the event under its distributed lock if the current status allows it.
@@ -118,7 +122,7 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
             return EventActionResult.AlreadyProcessing(id);
 
         // The event is read under the lock, so the processor cannot change it until the action is stored.
-        var message = await Repository.GetEventByIdAsync(id);
+        var message = await Repository.GetEventByIdAsync(id, cancellationToken);
         if (message is null)
             return EventActionResult.NotFound(id);
 
@@ -127,17 +131,13 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
                 $"The {functionalityName.ToLower()} event with the {message.Status} status cannot be {actionName}.");
 
         changeStatus(message);
-        await Repository.UpdateEventAsync(message);
+        await Repository.UpdateEventAsync(message, cancellationToken);
 
         var result = EventActionResult.Success();
         LogActionResult(actionName, id, request, result);
 
         return result;
     }
-
-    #endregion
-
-    #region Helper methods
 
     /// <summary>
     /// Throws an exception if the functionality is not enabled, since its services are not registered in that case.
