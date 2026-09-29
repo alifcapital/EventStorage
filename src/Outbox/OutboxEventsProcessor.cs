@@ -94,7 +94,7 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
     /// <summary>
     /// The method to execute unprocessed events. We are locking the logic to prevent re-entry into the method while processing is ongoing.
     /// </summary>
-    public async Task ExecuteUnprocessedEvents(CancellationToken stoppingToken)
+    public async Task ExecuteUnprocessedEventsAsync(CancellationToken stoppingToken)
     {
         await _singleExecutionLock.WaitAsync(stoppingToken);
         try
@@ -103,7 +103,7 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
             using (var scope = _serviceProvider.CreateScope())
             {
                 var repository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
-                eventsToPublish = await repository.GetUnprocessedEventsAsync(_settings.MaxEventsToFetch);
+                eventsToPublish = await repository.GetUnprocessedEventsAsync(_settings.MaxEventsToFetch, stoppingToken);
             }
 
             if (eventsToPublish.Length == 0)
@@ -170,7 +170,7 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
         var repository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
 
         // The status is read again under the lock, since the event could be changed after it was fetched.
-        var currentStatus = await repository.GetEventStatusByIdAsync(message.Id);
+        var currentStatus = await repository.GetEventStatusByIdAsync(message.Id, cancellationToken);
         if (currentStatus is null)
             return EventActionResult.NotFound(message.Id);
 

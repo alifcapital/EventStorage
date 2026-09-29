@@ -109,7 +109,7 @@ internal class InboxEventsProcessorTests
         scope.ServiceProvider.GetService(typeof(SimpleEntityWasCreatedHandler))
             .Returns(new SimpleEntityWasCreatedHandler());
 
-        await _inboxEventsProcessor.ExecuteUnprocessedEvents(CancellationToken.None);
+        await _inboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None);
 
         await _inboxRepository
             .DidNotReceive()
@@ -160,7 +160,7 @@ internal class InboxEventsProcessorTests
         _inboxEventsProcessor.AddHandler(typeof(SimpleEntityWasCreated), typeof(SimpleEntityWasCreatedHandler),
             EventProviderType.Unknown);
 
-        await _inboxEventsProcessor.ExecuteUnprocessedEvents(CancellationToken.None);
+        await _inboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None);
 
         await _inboxRepository
             .Received(2)

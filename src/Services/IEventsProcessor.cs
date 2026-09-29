@@ -10,7 +10,7 @@ internal interface IEventsProcessor
     /// <summary>
     /// For executing unprocessed events
     /// </summary>
-    Task ExecuteUnprocessedEvents(CancellationToken stoppingToken);
+    Task ExecuteUnprocessedEventsAsync(CancellationToken stoppingToken);
 }
 
 /// <summary>

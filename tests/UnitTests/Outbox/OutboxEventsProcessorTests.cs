@@ -183,7 +183,7 @@ public class OutboxEventsProcessorTests
         scope.ServiceProvider.GetService(typeof(SimpleEntityWasCreatedHandler))
             .Returns(new SimpleEntityWasCreatedHandler());
 
-        await _outboxEventsProcessor.ExecuteUnprocessedEvents(CancellationToken.None);
+        await _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None);
 
         await _outboxRepository
             .DidNotReceive()
@@ -243,7 +243,7 @@ public class OutboxEventsProcessorTests
             isGlobalPublisher: true
         );
 
-        await _outboxEventsProcessor.ExecuteUnprocessedEvents(CancellationToken.None);
+        await _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None);
 
         await _outboxRepository
             .Received(2)

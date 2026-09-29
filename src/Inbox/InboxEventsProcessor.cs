@@ -95,7 +95,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
     /// <summary>
     /// The method to execute unprocessed events. We are locking the logic to prevent re-entry into the method while processing is ongoing.
     /// </summary>
-    public async Task ExecuteUnprocessedEvents(CancellationToken stoppingToken)
+    public async Task ExecuteUnprocessedEventsAsync(CancellationToken stoppingToken)
     {
         await _singleExecutionLock.WaitAsync(stoppingToken);
         try
@@ -104,7 +104,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
             using (var scope = _serviceProvider.CreateScope())
             {
                 var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
-                eventsToHandle = await repository.GetUnprocessedEventsAsync(_settings.MaxEventsToFetch);
+                eventsToHandle = await repository.GetUnprocessedEventsAsync(_settings.MaxEventsToFetch, stoppingToken);
             }
 
             if (eventsToHandle.Length == 0)
@@ -158,7 +158,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
 
         // The status is read again under the lock, since the event could be changed after it was fetched.
-        var currentStatus = await repository.GetEventStatusByIdAsync(message.Id);
+        var currentStatus = await repository.GetEventStatusByIdAsync(message.Id, cancellationToken);
         if (currentStatus is null)
             return EventActionResult.NotFound(message.Id);
 
@@ -190,7 +190,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         }
         finally
         {
-            await repository.UpdateEventAsync(message); 
+            await repository.UpdateEventAsync(message, cancellationToken); 
         }
 
         return message.Status == EventStatus.Processed

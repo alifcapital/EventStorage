@@ -59,7 +59,7 @@ public class OutboxEventsProcessorJobTests
 
         await eventStoreTablesCreator.Received(1).CreateTablesIfNotExistsAsync(cancellationToken);
         //We cannot test this because it is an asynchronous method
-        await _outboxEventsProcessor.ExecuteUnprocessedEvents(cancellationToken);
+        await _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(cancellationToken);
     }
 
     [Test]
@@ -78,7 +78,7 @@ public class OutboxEventsProcessorJobTests
 
         // Simulate exception in ExecuteUnprocessedEvents
         _outboxEventsProcessor
-            .When(x => x.ExecuteUnprocessedEvents(Arg.Any<CancellationToken>()))
+            .When(x => x.ExecuteUnprocessedEventsAsync(Arg.Any<CancellationToken>()))
             .Do(_ => throw new Exception("Test exception"));
 
         _ = ExecuteBackgroundServiceAsync(eventsPublisherService, CancellationToken.None);
@@ -99,7 +99,7 @@ public class OutboxEventsProcessorJobTests
         _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
         var stoppingTokenSource = new CancellationTokenSource();
         _outboxEventsProcessor
-            .When(x => x.ExecuteUnprocessedEvents(Arg.Any<CancellationToken>()))
+            .When(x => x.ExecuteUnprocessedEventsAsync(Arg.Any<CancellationToken>()))
             .Do(_ => stoppingTokenSource.Cancel());
 
         var eventsPublisherService = new OutboxEventsProcessorJob(
@@ -111,7 +111,7 @@ public class OutboxEventsProcessorJobTests
 
         _ = ExecuteBackgroundServiceAsync(eventsPublisherService, stoppingTokenSource.Token);
 
-        await _outboxEventsProcessor.Received().ExecuteUnprocessedEvents(
+        await _outboxEventsProcessor.Received().ExecuteUnprocessedEventsAsync(
             Arg.Is<CancellationToken>(ct => ct.IsCancellationRequested == true)
         );
     }
