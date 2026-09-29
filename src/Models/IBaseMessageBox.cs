@@ -78,7 +78,7 @@ internal interface  IBaseMessageBox
     DateTime? UpdatedAt { get; }
 
     /// <summary>
-    /// Gets the user name of who changed the status manually. It is null when the status is changed by the processor.
+    /// Gets the username of who changed the status manually. It is null when the status is changed by the processor.
     /// </summary>
     string UpdatedBy { get; }
 
@@ -93,7 +93,7 @@ internal interface  IBaseMessageBox
     /// <param name="maxTryCount">The try count after which the TryAfterAt is increased.</param>
     /// <param name="tryAfterMinutes">The minutes to increase the TryAfterAt.</param>
     /// <param name="failureReason">The reason of the failure.</param>
-    /// <param name="performedBy">The user name of who executed the event manually. Null when the processor executed it.</param>
+    /// <param name="performedBy">The username of who executed the event manually. Null when the processor executed it.</param>
     /// <param name="comment">The comment of the manual execution.</param>
     void Failed(int maxTryCount, int tryAfterMinutes, string failureReason, string performedBy = null,
         string comment = null);
@@ -101,14 +101,14 @@ internal interface  IBaseMessageBox
     /// <summary>
     /// For marking the event as processed. The last failure reason is kept for the history.
     /// </summary>
-    /// <param name="performedBy">The user name of who processed the event manually. Null when the processor processed it.</param>
+    /// <param name="performedBy">The username of who processed the event manually. Null when the processor processed it.</param>
     /// <param name="comment">The comment of the manual change.</param>
     void Processed(string performedBy = null, string comment = null);
 
     /// <summary>
     /// For marking the event is rejected, so it will not be processed.
     /// </summary>
-    /// <param name="performedBy">The user name of who rejected the event.</param>
+    /// <param name="performedBy">The username of who rejected the event.</param>
     /// <param name="comment">The reason of the rejection.</param>
     void Rejected(string performedBy = null, string comment = null);
 
@@ -116,7 +116,7 @@ internal interface  IBaseMessageBox
     /// For marking the event as pending again to be processed at the given time.
     /// </summary>
     /// <param name="tryAfterAt">The time after which the event should be processed.</param>
-    /// <param name="performedBy">The user name of who rescheduled the event.</param>
+    /// <param name="performedBy">The username of who rescheduled the event.</param>
     /// <param name="comment">The reason of the rescheduling.</param>
     void Rescheduled(DateTime tryAfterAt, string performedBy = null, string comment = null);
 

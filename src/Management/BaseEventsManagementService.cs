@@ -1,6 +1,7 @@
 ﻿using EventStorage.Configurations;
 using EventStorage.Constants;
 using EventStorage.Exceptions;
+using EventStorage.Extensions;
 using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Repositories;
@@ -49,12 +50,12 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
         cancellationToken.ThrowIfCancellationRequested();
 
         var message = await Repository.GetEventByIdAsync(id, cancellationToken);
-        return message is null ? null : ToEventDetails(message);
+        return message.ToEventDetails();
     }
 
     #endregion
 
-    #region Actions
+    #region ExecuteAsync
 
     public async Task<EventActionResult> ExecuteAsync(Guid id, EventActionRequest request,
         CancellationToken cancellationToken)
@@ -66,12 +67,15 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
         if (message is null)
             return EventActionResult.NotFound(id);
 
-        // The processor takes the lock of the event and checks whether its current status allows executing it.
         var result = await Processor.ProcessSingleEventAsync(message, request, cancellationToken);
         LogActionResult("executed", id, request, result);
 
         return result;
     }
+
+    #endregion
+
+    #region Status
 
     public Task<EventActionResult> RescheduleAsync(Guid id, DateTime tryAfterAt, EventActionRequest request,
         CancellationToken cancellationToken)
@@ -121,7 +125,6 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
         if (distributedLock is null)
             return EventActionResult.AlreadyProcessing(id);
 
-        // The event is read under the lock, so the processor cannot change it until the action is stored.
         var message = await Repository.GetEventByIdAsync(id, cancellationToken);
         if (message is null)
             return EventActionResult.NotFound(id);
@@ -154,29 +157,6 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
         logger.LogInformation(
             "{StorageType}: The event with ID {EventId} is {ActionName} by {PerformedBy} with the {ResultStatus} result. Comment: {Comment}",
             functionalityName, id, actionName, request.PerformedBy, result.Status, request.Comment);
-    }
-
-    private static EventDetails ToEventDetails(TMessage message)
-    {
-        return new EventDetails
-        {
-            Id = message.Id,
-            Provider = message.Provider,
-            EventName = message.EventName,
-            EventPath = message.EventPath,
-            Payload = message.Payload,
-            Headers = message.Headers,
-            AdditionalData = message.AdditionalData,
-            NamingPolicyType = message.NamingPolicyType,
-            CreatedAt = message.CreatedAt,
-            TryCount = message.TryCount,
-            TryAfterAt = message.TryAfterAt,
-            Status = message.Status,
-            FailureReason = message.FailureReason,
-            UpdatedAt = message.UpdatedAt,
-            UpdatedBy = message.UpdatedBy,
-            StatusComment = message.StatusComment
-        };
     }
 
     #endregion
