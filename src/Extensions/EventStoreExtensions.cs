@@ -9,6 +9,7 @@ using EventStorage.Inbox.EventArgs;
 using EventStorage.Inbox.Managers;
 using EventStorage.Inbox.Providers;
 using EventStorage.Inbox.Repositories;
+using EventStorage.Management;
 using EventStorage.Models;
 using EventStorage.Outbox;
 using EventStorage.Outbox.BackgroundServices;
@@ -58,6 +59,7 @@ public static class EventStoreExtensions
         services.AddScoped<IEventStoreTablesCreator, EventStoreTablesCreator>();
 
         services.AddScoped<IOutboxEventManager, OutboxEventManager>();
+        services.AddScoped<IOutboxEventsService, OutboxEventsService>();
         if (settings.Outbox.IsEnabled)
         {
             services.AddScoped<IOutboxRepository, OutboxRepository>();
@@ -77,6 +79,7 @@ public static class EventStoreExtensions
         }
 
         services.AddScoped<IInboxEventManager, InboxEventManager>();
+        services.AddScoped<IInboxEventsService, InboxEventsService>();
         if (settings.Inbox.IsEnabled)
         {
             services.AddScoped<IInboxRepository, InboxRepository>();

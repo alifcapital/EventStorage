@@ -53,6 +53,17 @@ public record InboxOrOutboxStructure
     public int HoursToDelayCleanUpEvents { get; init; } = 1;
 
     /// <summary>
+    /// The maximum length of the failure reason to store. Longer reasons are truncated. Default value is "4000". The "0" value means no limit.
+    /// </summary>
+    public int MaxFailureReasonLength { get; init; } = 4000;
+
+    /// <summary>
+    /// To store the stack trace of the exception in the failure reason. Default value is "false",
+    /// since stack traces (and messages) of exceptions may carry personal or account data.
+    /// </summary>
+    public bool StoreFailureStackTrace { get; init; }
+
+    /// <summary>
     /// The database connection string of Inbox/Outbox for storing or reading all received/sending events.
     /// </summary>
     public string ConnectionString { get; set; }
