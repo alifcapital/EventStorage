@@ -40,7 +40,7 @@ public class OutboxEventsProcessorTests
             }
         });
         _outboxRepository = Substitute.For<IOutboxRepository>();
-        _outboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>()).Returns(EventStatus.Pending);
+        _outboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(EventStatus.Pending);
         serviceProvider.GetService(typeof(IOutboxRepository)).Returns(_outboxRepository);
         _serviceProvider = serviceProvider;
 
@@ -173,7 +173,7 @@ public class OutboxEventsProcessorTests
     [Test]
     public async Task ExecuteUnprocessedEvents_ThereIsNoEventsToProcess_ShouldNotProcessedAnyEvents()
     {
-        _outboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>()).Returns([]);
+        _outboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
 
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
@@ -187,7 +187,7 @@ public class OutboxEventsProcessorTests
 
         await _outboxRepository
             .DidNotReceive()
-            .UpdateEventAsync(Arg.Any<OutboxMessage>());
+            .UpdateEventAsync(Arg.Any<OutboxMessage>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -221,7 +221,7 @@ public class OutboxEventsProcessorTests
         };
 
         var items = new[] { outboxEvent1, outboxEvent2 };
-        _outboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>()).Returns(items);
+        _outboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(items);
 
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
@@ -247,7 +247,32 @@ public class OutboxEventsProcessorTests
 
         await _outboxRepository
             .Received(2)
-            .UpdateEventAsync(Arg.Any<OutboxMessage>());
+            .UpdateEventAsync(Arg.Any<OutboxMessage>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ExecuteUnprocessedEvents_StoppingTokenIsPassed_ShouldPassItToRepository()
+    {
+        MockServiceScope();
+        using var stoppingTokenSource = new CancellationTokenSource();
+        _outboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
+
+        await _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token);
+
+        await _outboxRepository.Received(1).GetUnprocessedEventsAsync(Arg.Any<int>(), stoppingTokenSource.Token);
+    }
+
+    [Test]
+    public async Task ExecuteUnprocessedEvents_CancellationRequested_ShouldThrowWithoutFetchingEvents()
+    {
+        MockServiceScope();
+        using var stoppingTokenSource = new CancellationTokenSource();
+        stoppingTokenSource.Cancel();
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token));
+        await _outboxRepository.DidNotReceive()
+            .GetUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     #endregion
@@ -258,14 +283,14 @@ public class OutboxEventsProcessorTests
     public async Task ProcessSingleEventAsync_EventIsAlreadyProcessed_ShouldSkipWithoutUpdating()
     {
         MockServiceScope();
-        _outboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>()).Returns(EventStatus.Processed);
+        _outboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(EventStatus.Processed);
         var outboxEvent = CreateOutboxMessage("{}");
 
         var result = await _outboxEventsProcessor.ProcessSingleEventAsync(outboxEvent, manualRequest: null,
             CancellationToken.None);
 
         Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.InvalidState));
-        await _outboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<OutboxMessage>());
+        await _outboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<OutboxMessage>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -282,7 +307,7 @@ public class OutboxEventsProcessorTests
         Assert.That(outboxEvent.Status, Is.EqualTo(EventStatus.Failed));
         Assert.That(outboxEvent.FailureReason, Does.StartWith(
             $"EventStorage.Exceptions.EventStoreException: Could not deserialize the outbox event to the {typeof(SimpleOutboxEventCreated).FullName} type."));
-        await _outboxRepository.Received(1).UpdateEventAsync(outboxEvent);
+        await _outboxRepository.Received(1).UpdateEventAsync(outboxEvent, Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -298,7 +323,20 @@ public class OutboxEventsProcessorTests
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(outboxEvent.Status, Is.EqualTo(EventStatus.Processed));
         Assert.That(outboxEvent.UpdatedBy, Is.Null);
-        await _outboxRepository.Received(1).UpdateEventAsync(outboxEvent);
+        await _outboxRepository.Received(1).UpdateEventAsync(outboxEvent, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ProcessSingleEventAsync_CancellationTokenIsPassed_ShouldPassItToStatusCheck()
+    {
+        MockServiceScope();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var outboxEvent = CreateOutboxMessage("{}");
+
+        await _outboxEventsProcessor.ProcessSingleEventAsync(outboxEvent, manualRequest: null,
+            cancellationTokenSource.Token);
+
+        await _outboxRepository.Received(1).GetEventStatusByIdAsync(outboxEvent.Id, cancellationTokenSource.Token);
     }
 
     #endregion

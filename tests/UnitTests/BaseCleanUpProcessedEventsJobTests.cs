@@ -57,7 +57,8 @@ internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEv
         await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
         await eventStoreTablesCreator.Received(1).CreateTablesIfNotExistsAsync(cancellationToken);
         await _eventRepository.Received().DeleteProcessedEventsAsync(
-            Arg.Is<DateTime>(d => d.Day == DateTime.Now.AddDays(-1).Day)
+            Arg.Is<DateTime>(d => d.Day == DateTime.Now.AddDays(-1).Day),
+            cancellationToken
         );
     }
 
@@ -80,7 +81,7 @@ internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEv
         _ = ExecuteBackgroundServiceAsync(cleanUpProcessedEventsService, cancellationToken);
 
         await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
-        await _eventRepository.DidNotReceive().DeleteProcessedEventsAsync(Arg.Any<DateTime>());
+        await _eventRepository.DidNotReceive().DeleteProcessedEventsAsync(Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -95,7 +96,7 @@ internal abstract class BaseCleanUpProcessedEventsJobTests<TEventRepository, TEv
             logger: _logger
         );
         _eventRepository
-            .When(x => x.DeleteProcessedEventsAsync(Arg.Any<DateTime>()))
+            .When(x => x.DeleteProcessedEventsAsync(Arg.Any<DateTime>(), Arg.Any<CancellationToken>()))
             .Do(_ =>
             {
                 stoppingTokenSource.Cancel();

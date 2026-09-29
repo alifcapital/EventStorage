@@ -37,7 +37,7 @@ internal class InboxEventsProcessorTests
                 { MaxConcurrency = 1, TryCount = 3, TryAfterMinutes = 5, TryAfterMinutesIfEventNotFound = 10 }
         });
         _inboxRepository = Substitute.For<IInboxRepository>();
-        _inboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>()).Returns(EventStatus.Pending);
+        _inboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(EventStatus.Pending);
         serviceProvider.GetService(typeof(IInboxRepository)).Returns(_inboxRepository);
         _serviceProvider = serviceProvider;
 
@@ -99,7 +99,7 @@ internal class InboxEventsProcessorTests
     [Test]
     public async Task ExecuteUnprocessedEvents_ThereIsNoEventsToProcess_ShouldNotProcessedAnyEvents()
     {
-        _inboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>()).Returns([]);
+        _inboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
 
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
@@ -113,7 +113,7 @@ internal class InboxEventsProcessorTests
 
         await _inboxRepository
             .DidNotReceive()
-            .UpdateEventAsync(Arg.Any<InboxMessage>());
+            .UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -147,7 +147,7 @@ internal class InboxEventsProcessorTests
         };
 
         var items = new[] { inboxEvent1, inboxEvent2 };
-        _inboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>()).Returns(items);
+        _inboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(items);
 
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
@@ -164,7 +164,32 @@ internal class InboxEventsProcessorTests
 
         await _inboxRepository
             .Received(2)
-            .UpdateEventAsync(Arg.Any<InboxMessage>());
+            .UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ExecuteUnprocessedEvents_StoppingTokenIsPassed_ShouldPassItToRepository()
+    {
+        MockServiceScope();
+        using var stoppingTokenSource = new CancellationTokenSource();
+        _inboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
+
+        await _inboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token);
+
+        await _inboxRepository.Received(1).GetUnprocessedEventsAsync(Arg.Any<int>(), stoppingTokenSource.Token);
+    }
+
+    [Test]
+    public async Task ExecuteUnprocessedEvents_CancellationRequested_ShouldThrowWithoutFetchingEvents()
+    {
+        MockServiceScope();
+        using var stoppingTokenSource = new CancellationTokenSource();
+        stoppingTokenSource.Cancel();
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            _inboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token));
+        await _inboxRepository.DidNotReceive()
+            .GetUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     #endregion
@@ -175,7 +200,7 @@ internal class InboxEventsProcessorTests
     public async Task ProcessSingleEventAsync_EventIsAlreadyProcessed_ShouldSkipWithoutUpdating()
     {
         MockServiceScope();
-        _inboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>()).Returns(EventStatus.Processed);
+        _inboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(EventStatus.Processed);
         _inboxEventsProcessor.AddHandler(typeof(SimpleEntityWasCreated), typeof(SimpleEntityWasCreatedHandler),
             EventProviderType.Unknown);
         var inboxEvent = CreateInboxMessage("{}");
@@ -184,14 +209,14 @@ internal class InboxEventsProcessorTests
             CancellationToken.None);
 
         Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.InvalidState));
-        await _inboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>());
+        await _inboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
     public async Task ProcessSingleEventAsync_ProcessedEventWithForce_ShouldExecuteAgain()
     {
         MockServiceScope();
-        _inboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>()).Returns(EventStatus.Processed);
+        _inboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(EventStatus.Processed);
         _inboxEventsProcessor.AddHandler(typeof(SimpleEntityWasCreated), typeof(SimpleEntityWasCreatedHandler),
             EventProviderType.Unknown);
         var inboxEvent = CreateInboxMessage("{}");
@@ -203,21 +228,21 @@ internal class InboxEventsProcessorTests
         Assert.That(inboxEvent.Status, Is.EqualTo(EventStatus.Processed));
         Assert.That(inboxEvent.UpdatedBy, Is.EqualTo("operator"));
         Assert.That(inboxEvent.StatusComment, Is.EqualTo("Re-run"));
-        await _inboxRepository.Received(1).UpdateEventAsync(inboxEvent);
+        await _inboxRepository.Received(1).UpdateEventAsync(inboxEvent, Arg.Any<CancellationToken>());
     }
 
     [Test]
     public async Task ProcessSingleEventAsync_EventDoesNotExist_ShouldReturnNotFound()
     {
         MockServiceScope();
-        _inboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>()).Returns((EventStatus?)null);
+        _inboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((EventStatus?)null);
         var inboxEvent = CreateInboxMessage("{}");
 
         var result = await _inboxEventsProcessor.ProcessSingleEventAsync(inboxEvent, manualRequest: null,
             CancellationToken.None);
 
         Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.NotFound));
-        await _inboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>());
+        await _inboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -238,7 +263,7 @@ internal class InboxEventsProcessorTests
             $"EventStorage.Exceptions.EventStoreException: Could not deserialize the inbox event to the {typeof(SimpleEntityWasCreated).FullName} type."));
         Assert.That(inboxEvent.FailureReason, Does.Contain("System.Text.Json.JsonException"));
         Assert.That(result.FailureReason, Is.EqualTo(inboxEvent.FailureReason));
-        await _inboxRepository.Received(1).UpdateEventAsync(inboxEvent);
+        await _inboxRepository.Received(1).UpdateEventAsync(inboxEvent, Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -255,7 +280,20 @@ internal class InboxEventsProcessorTests
         Assert.That(inboxEvent.FailureReason, Is.EqualTo(
             $"No event handler configured for the {nameof(SimpleEntityWasCreated)} event with the Unknown provider."));
         Assert.That(inboxEvent.TryAfterAt, Is.EqualTo(DateTime.Now.AddMinutes(10)).Within(TimeSpan.FromSeconds(5)));
-        await _inboxRepository.Received(1).UpdateEventAsync(inboxEvent);
+        await _inboxRepository.Received(1).UpdateEventAsync(inboxEvent, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ProcessSingleEventAsync_CancellationTokenIsPassed_ShouldPassItToStatusCheck()
+    {
+        MockServiceScope();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var inboxEvent = CreateInboxMessage("{}");
+
+        await _inboxEventsProcessor.ProcessSingleEventAsync(inboxEvent, manualRequest: null,
+            cancellationTokenSource.Token);
+
+        await _inboxRepository.Received(1).GetEventStatusByIdAsync(inboxEvent.Id, cancellationTokenSource.Token);
     }
 
     #endregion

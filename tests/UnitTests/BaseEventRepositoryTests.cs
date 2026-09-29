@@ -78,7 +78,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryAfterAt = DateTime.Now.AddMinutes(5)
         };
 
-        var result = await Repository.InsertEventAsync(eventBox);
+        var result = await Repository.InsertEventAsync(eventBox, CancellationToken.None);
 
         Assert.That(result, Is.True);
         var eventFromDb = DataContext.GetById(eventBox.Id);
@@ -164,7 +164,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryAfterAt = DateTime.Now.AddMinutes(5)
         };
 
-        var result = await Repository.BulkInsertEventsAsync([firstEvent, secondEvent]);
+        var result = await Repository.BulkInsertEventsAsync([firstEvent, secondEvent], CancellationToken.None);
 
         Assert.That(result, Is.True);
         var firstEventFromDb = DataContext.GetById(firstEvent.Id);
@@ -222,9 +222,9 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryAfterAt = DateTime.Now.AddMinutes(-3)
         };
 
-        await Repository.BulkInsertEventsAsync([baseEventBox1, baseEventBox2, baseEventBox3]);
+        await Repository.BulkInsertEventsAsync([baseEventBox1, baseEventBox2, baseEventBox3], CancellationToken.None);
 
-        var result = await Repository.GetUnprocessedEventsAsync(5);
+        var result = await Repository.GetUnprocessedEventsAsync(5, CancellationToken.None);
 
         Assert.That(result.Length, Is.EqualTo(2));
 
@@ -243,16 +243,16 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         var failedEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
         var processedEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
         var rejectedEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
-        await Repository.BulkInsertEventsAsync([pendingEvent, failedEvent, processedEvent, rejectedEvent]);
+        await Repository.BulkInsertEventsAsync([pendingEvent, failedEvent, processedEvent, rejectedEvent], CancellationToken.None);
 
         failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
         processedEvent.Processed();
         rejectedEvent.Rejected();
-        await Repository.UpdateEventsAsync([failedEvent, processedEvent, rejectedEvent]);
+        await Repository.UpdateEventsAsync([failedEvent, processedEvent, rejectedEvent], CancellationToken.None);
 
         try
         {
-            var result = await Repository.GetUnprocessedEventsAsync(500);
+            var result = await Repository.GetUnprocessedEventsAsync(500, CancellationToken.None);
             var resultIds = result.Select(e => e.Id).ToArray();
 
             Assert.That(resultIds, Does.Contain(pendingEvent.Id));
@@ -266,7 +266,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             // The table is shared by the tests of the fixture, so we do not leave unprocessed events for other tests.
             pendingEvent.Processed();
             failedEvent.Processed();
-            await Repository.UpdateEventsAsync([pendingEvent, failedEvent]);
+            await Repository.UpdateEventsAsync([pendingEvent, failedEvent], CancellationToken.None);
         }
     }
 
@@ -289,14 +289,14 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryCount = 0
         };
 
-        await Repository.InsertEventAsync(outboxEvent);
+        await Repository.InsertEventAsync(outboxEvent, CancellationToken.None);
 
         // Modify the event
         outboxEvent.TryCount = 1;
         outboxEvent.TryAfterAt = DateTime.Now.AddMinutes(10);
         outboxEvent.Processed();
 
-        var result = await Repository.UpdateEventAsync(outboxEvent);
+        var result = await Repository.UpdateEventAsync(outboxEvent, CancellationToken.None);
 
         Assert.That(result, Is.True);
 
@@ -312,11 +312,11 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     public async Task UpdateEventAsync_EventIsRejected_ShouldStoreStatusNameAsString()
     {
         var rejectedEvent = CreateEvent(DateTime.Now);
-        await Repository.InsertEventAsync(rejectedEvent);
+        await Repository.InsertEventAsync(rejectedEvent, CancellationToken.None);
         Assert.That(DataContext.GetStoredStatusById(rejectedEvent.Id), Is.EqualTo(nameof(EventStatus.Pending)));
 
         rejectedEvent.Rejected();
-        await Repository.UpdateEventAsync(rejectedEvent);
+        await Repository.UpdateEventAsync(rejectedEvent, CancellationToken.None);
 
         Assert.That(DataContext.GetStoredStatusById(rejectedEvent.Id), Is.EqualTo(nameof(EventStatus.Rejected)));
         Assert.That(DataContext.GetById(rejectedEvent.Id).Status, Is.EqualTo(EventStatus.Rejected));
@@ -353,7 +353,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryCount = 0
         };
 
-        await Repository.BulkInsertEventsAsync([outboxEvent1, outboxEvent2]);
+        await Repository.BulkInsertEventsAsync([outboxEvent1, outboxEvent2], CancellationToken.None);
 
         // Modify the events
         outboxEvent1.TryCount = 1;
@@ -364,7 +364,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         outboxEvent2.TryAfterAt = DateTime.Now.AddMinutes(10);
         outboxEvent2.Processed();
 
-        var result = await Repository.UpdateEventsAsync(new List<TEvent> { outboxEvent1, outboxEvent2 });
+        var result = await Repository.UpdateEventsAsync(new List<TEvent> { outboxEvent1, outboxEvent2 }, CancellationToken.None);
 
         Assert.That(result, Is.True);
 
@@ -391,12 +391,12 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     public async Task GetEventStatusAsync_EventExistsAndProcessed_ShouldReturnProcessed()
     {
         var processedEvent = CreateEvent(DateTime.Now.AddHours(1));
-        await Repository.InsertEventAsync(processedEvent);
+        await Repository.InsertEventAsync(processedEvent, CancellationToken.None);
 
         processedEvent.Processed();
-        await Repository.UpdateEventAsync(processedEvent);
+        await Repository.UpdateEventAsync(processedEvent, CancellationToken.None);
 
-        var status = await Repository.GetEventStatusByIdAsync(processedEvent.Id);
+        var status = await Repository.GetEventStatusByIdAsync(processedEvent.Id, CancellationToken.None);
 
         Assert.That(status, Is.EqualTo(EventStatus.Processed));
     }
@@ -405,9 +405,9 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     public async Task GetEventStatusAsync_EventExistsButNotProcessed_ShouldReturnPending()
     {
         var unprocessedEvent = CreateEvent(DateTime.Now.AddHours(1));
-        await Repository.InsertEventAsync(unprocessedEvent);
+        await Repository.InsertEventAsync(unprocessedEvent, CancellationToken.None);
 
-        var status = await Repository.GetEventStatusByIdAsync(unprocessedEvent.Id);
+        var status = await Repository.GetEventStatusByIdAsync(unprocessedEvent.Id, CancellationToken.None);
 
         Assert.That(status, Is.EqualTo(EventStatus.Pending));
     }
@@ -415,7 +415,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     [Test]
     public async Task GetEventStatusAsync_EventDoesNotExist_ShouldReturnNull()
     {
-        var status = await Repository.GetEventStatusByIdAsync(Guid.NewGuid());
+        var status = await Repository.GetEventStatusByIdAsync(Guid.NewGuid(), CancellationToken.None);
 
         Assert.That(status, Is.Null);
     }
@@ -424,12 +424,12 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     public async Task GetEventStatusAsync_EventIsRejected_ShouldReturnRejected()
     {
         var rejectedEvent = CreateEvent(DateTime.Now.AddHours(1));
-        await Repository.InsertEventAsync(rejectedEvent);
+        await Repository.InsertEventAsync(rejectedEvent, CancellationToken.None);
 
         rejectedEvent.Rejected();
-        await Repository.UpdateEventAsync(rejectedEvent);
+        await Repository.UpdateEventAsync(rejectedEvent, CancellationToken.None);
 
-        var status = await Repository.GetEventStatusByIdAsync(rejectedEvent.Id);
+        var status = await Repository.GetEventStatusByIdAsync(rejectedEvent.Id, CancellationToken.None);
 
         Assert.That(status, Is.EqualTo(EventStatus.Rejected));
     }
@@ -442,13 +442,13 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     public async Task GetEventByIdAsync_EventIsFailed_ShouldReturnEventWithFailureReasonAndManualChangeInfo()
     {
         var failedEvent = CreateEvent(DateTime.Now.AddHours(1));
-        await Repository.InsertEventAsync(failedEvent);
+        await Repository.InsertEventAsync(failedEvent, CancellationToken.None);
 
         failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "System.Exception: Test failure",
             performedBy: "operator", comment: "Manual execution");
-        await Repository.UpdateEventAsync(failedEvent);
+        await Repository.UpdateEventAsync(failedEvent, CancellationToken.None);
 
-        var result = await Repository.GetEventByIdAsync(failedEvent.Id);
+        var result = await Repository.GetEventByIdAsync(failedEvent.Id, CancellationToken.None);
 
         Assert.That(result, Is.Not.Null);
         Assert.That(result.Id, Is.EqualTo(failedEvent.Id));
@@ -464,7 +464,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     [Test]
     public async Task GetEventByIdAsync_EventDoesNotExist_ShouldReturnNull()
     {
-        var result = await Repository.GetEventByIdAsync(Guid.NewGuid());
+        var result = await Repository.GetEventByIdAsync(Guid.NewGuid(), CancellationToken.None);
 
         Assert.That(result, Is.Null);
     }
@@ -501,13 +501,13 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryCount = 0
         };
 
-        await Repository.BulkInsertEventsAsync([event1, event2]);
+        await Repository.BulkInsertEventsAsync([event1, event2], CancellationToken.None);
 
         SetProcessedTimeOfEvent(event1, DateTime.Now.AddMinutes(-20));
         SetProcessedTimeOfEvent(event2, DateTime.Now.AddMinutes(-5));
-        await Repository.UpdateEventsAsync([event1, event2]);
+        await Repository.UpdateEventsAsync([event1, event2], CancellationToken.None);
 
-        var result = await Repository.DeleteProcessedEventsAsync(processedAt);
+        var result = await Repository.DeleteProcessedEventsAsync(processedAt, CancellationToken.None);
         Assert.That(result, Is.True);
         Assert.That(DataContext.ExistsById(event1.Id), Is.False);
         Assert.That(DataContext.ExistsById(event2.Id), Is.True);
@@ -517,19 +517,85 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     public async Task DeleteProcessedEventsAsync_RejectedEvent_ShouldNotBeDeleted()
     {
         var rejectedEvent = CreateEvent(DateTime.Now);
-        await Repository.InsertEventAsync(rejectedEvent);
+        await Repository.InsertEventAsync(rejectedEvent, CancellationToken.None);
 
         rejectedEvent.Rejected();
         rejectedEvent.SetPropertyValue(nameof(BaseMessageBox.UpdatedAt), DateTime.Now.AddDays(-1));
-        await Repository.UpdateEventAsync(rejectedEvent);
+        await Repository.UpdateEventAsync(rejectedEvent, CancellationToken.None);
 
-        await Repository.DeleteProcessedEventsAsync(DateTime.Now);
+        await Repository.DeleteProcessedEventsAsync(DateTime.Now, CancellationToken.None);
         Assert.That(DataContext.ExistsById(rejectedEvent.Id), Is.True);
     }
 
     #endregion
 
+    #region Cancellation
+
+    protected static IEnumerable<TestCaseData> AsyncMethodsWithCancellation()
+    {
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.InsertEventAsync),
+            (repository, token) => repository.InsertEventAsync(CreateEvent(DateTime.Now), token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.BulkInsertEventsAsync),
+            (repository, token) => repository.BulkInsertEventsAsync([CreateEvent(DateTime.Now)], token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.GetUnprocessedEventsAsync),
+            (repository, token) => repository.GetUnprocessedEventsAsync(5, token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.UpdateEventAsync),
+            (repository, token) => repository.UpdateEventAsync(CreateEvent(DateTime.Now), token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.UpdateEventsAsync),
+            (repository, token) => repository.UpdateEventsAsync([CreateEvent(DateTime.Now)], token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.GetEventStatusByIdAsync),
+            (repository, token) => repository.GetEventStatusByIdAsync(Guid.NewGuid(), token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.GetEventByIdAsync),
+            (repository, token) => repository.GetEventByIdAsync(Guid.NewGuid(), token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.DeleteProcessedEventsAsync),
+            (repository, token) => repository.DeleteProcessedEventsAsync(DateTime.Now, token));
+    }
+
+    [TestCaseSource(nameof(AsyncMethodsWithCancellation))]
+    public void AsyncMethod_CancellationRequested_ShouldThrowOperationCanceledInsteadOfEventStoreException(
+        Func<BaseEventRepository<TEvent>, CancellationToken, Task> executeMethod)
+    {
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        Assert.CatchAsync<OperationCanceledException>(() => executeMethod(Repository, cancellationTokenSource.Token));
+    }
+
+    [Test]
+    public void InsertEventAsync_CancellationRequested_EventShouldNotBeInserted()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddHours(1));
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            Repository.InsertEventAsync(eventBox, cancellationTokenSource.Token));
+        Assert.That(DataContext.ExistsById(eventBox.Id), Is.False);
+    }
+
+    [Test]
+    public async Task UpdateEventAsync_CancellationRequested_EventShouldNotBeUpdated()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        eventBox.Rejected();
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            Repository.UpdateEventAsync(eventBox, cancellationTokenSource.Token));
+        Assert.That(DataContext.GetStoredStatusById(eventBox.Id), Is.EqualTo(nameof(EventStatus.Pending)));
+    }
+
+    #endregion
+
     #region Helper methods
+
+    private static TestCaseData CreateAsyncMethodCase(string methodName,
+        Func<BaseEventRepository<TEvent>, CancellationToken, Task> executeMethod)
+    {
+        return new TestCaseData(executeMethod).SetArgDisplayNames(methodName);
+    }
 
     private static TEvent CreateEvent(DateTime tryAfterAt)
     {

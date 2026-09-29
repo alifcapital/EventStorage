@@ -49,9 +49,33 @@ internal class InboxEventsServiceTests
     [Test]
     public async Task GetEventAsync_EventDoesNotExist_ShouldReturnNull()
     {
-        var result = await _service.GetEventByIdAsync(Guid.NewGuid());
+        var result = await _service.GetEventByIdAsync(Guid.NewGuid(), CancellationToken.None);
 
         Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task GetEventAsync_EventExists_ShouldPassCancellationTokenToRepository()
+    {
+        var message = CreateMessage();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        _repository.GetEventByIdAsync(message.Id, cancellationTokenSource.Token).Returns(message);
+
+        var result = await _service.GetEventByIdAsync(message.Id, cancellationTokenSource.Token);
+
+        Assert.That(result.Id, Is.EqualTo(message.Id));
+        await _repository.Received(1).GetEventByIdAsync(message.Id, cancellationTokenSource.Token);
+    }
+
+    [Test]
+    public async Task GetEventAsync_CancellationRequested_ShouldThrowWithoutReadingEvent()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            _service.GetEventByIdAsync(Guid.NewGuid(), cancellationTokenSource.Token));
+        await _repository.DidNotReceive().GetEventByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     #endregion
@@ -62,11 +86,11 @@ internal class InboxEventsServiceTests
     public async Task ExecuteAsync_EventExists_ShouldProcessItWithTheRequest()
     {
         var message = CreateMessage();
-        _repository.GetEventByIdAsync(message.Id).Returns(message);
+        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
         _processor.ProcessSingleEventAsync(message, Request, Arg.Any<CancellationToken>())
             .Returns(EventActionResult.Success());
 
-        var result = await _service.ExecuteAsync(message.Id, Request);
+        var result = await _service.ExecuteAsync(message.Id, Request, CancellationToken.None);
 
         Assert.That(result.IsSuccess, Is.True);
         await _processor.Received(1).ProcessSingleEventAsync(message, Request, Arg.Any<CancellationToken>());
@@ -75,10 +99,25 @@ internal class InboxEventsServiceTests
     [Test]
     public async Task ExecuteAsync_EventDoesNotExist_ShouldReturnNotFound()
     {
-        var result = await _service.ExecuteAsync(Guid.NewGuid(), Request);
+        var result = await _service.ExecuteAsync(Guid.NewGuid(), Request, CancellationToken.None);
 
         Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.NotFound));
         await _processor.DidNotReceiveWithAnyArgs().ProcessSingleEventAsync(default, default, default);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_EventExists_ShouldPassCancellationTokenToRepositoryAndProcessor()
+    {
+        var message = CreateMessage();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        _repository.GetEventByIdAsync(message.Id, cancellationTokenSource.Token).Returns(message);
+        _processor.ProcessSingleEventAsync(message, Request, cancellationTokenSource.Token)
+            .Returns(EventActionResult.Success());
+
+        await _service.ExecuteAsync(message.Id, Request, cancellationTokenSource.Token);
+
+        await _repository.Received(1).GetEventByIdAsync(message.Id, cancellationTokenSource.Token);
+        await _processor.Received(1).ProcessSingleEventAsync(message, Request, cancellationTokenSource.Token);
     }
 
     #endregion
@@ -89,15 +128,15 @@ internal class InboxEventsServiceTests
     public async Task RejectAsync_PendingEvent_ShouldRejectAndStoreIt()
     {
         var message = CreateMessage();
-        _repository.GetEventByIdAsync(message.Id).Returns(message);
+        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
 
-        var result = await _service.RejectAsync(message.Id, Request);
+        var result = await _service.RejectAsync(message.Id, Request, CancellationToken.None);
 
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(message.Status, Is.EqualTo(EventStatus.Rejected));
         Assert.That(message.UpdatedBy, Is.EqualTo(Request.PerformedBy));
         Assert.That(message.StatusComment, Is.EqualTo(Request.Comment));
-        await _repository.Received(1).UpdateEventAsync(message);
+        await _repository.Received(1).UpdateEventAsync(message, Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -105,12 +144,12 @@ internal class InboxEventsServiceTests
     {
         var message = CreateMessage();
         message.Processed();
-        _repository.GetEventByIdAsync(message.Id).Returns(message);
+        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
 
-        var result = await _service.RejectAsync(message.Id, Request);
+        var result = await _service.RejectAsync(message.Id, Request, CancellationToken.None);
 
         Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.InvalidState));
-        await _repository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>());
+        await _repository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -120,19 +159,34 @@ internal class InboxEventsServiceTests
             .Returns((IDistributedSynchronizationHandle)null);
         var eventId = Guid.NewGuid();
 
-        var result = await _service.RejectAsync(eventId, Request);
+        var result = await _service.RejectAsync(eventId, Request, CancellationToken.None);
 
         Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.AlreadyProcessing));
-        await _repository.DidNotReceive().GetEventByIdAsync(Arg.Any<Guid>());
-        await _repository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>());
+        await _repository.DidNotReceive().GetEventByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        await _repository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
     public async Task RejectAsync_EventDoesNotExist_ShouldReturnNotFound()
     {
-        var result = await _service.RejectAsync(Guid.NewGuid(), Request);
+        var result = await _service.RejectAsync(Guid.NewGuid(), Request, CancellationToken.None);
 
         Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.NotFound));
+    }
+
+    [Test]
+    public async Task RejectAsync_PendingEvent_ShouldPassCancellationTokenToLockAndRepository()
+    {
+        var message = CreateMessage();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        _repository.GetEventByIdAsync(message.Id, cancellationTokenSource.Token).Returns(message);
+
+        var result = await _service.RejectAsync(message.Id, Request, cancellationTokenSource.Token);
+
+        Assert.That(result.IsSuccess, Is.True);
+        await _distributedLock.Received(1).TryAcquireAsync(Arg.Any<TimeSpan>(), cancellationTokenSource.Token);
+        await _repository.Received(1).GetEventByIdAsync(message.Id, cancellationTokenSource.Token);
+        await _repository.Received(1).UpdateEventAsync(message, cancellationTokenSource.Token);
     }
 
     #endregion
@@ -144,15 +198,15 @@ internal class InboxEventsServiceTests
     {
         var message = CreateMessage();
         message.Rejected();
-        _repository.GetEventByIdAsync(message.Id).Returns(message);
+        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
         var tryAfterAt = DateTime.Now.AddHours(1);
 
-        var result = await _service.RescheduleAsync(message.Id, tryAfterAt, Request);
+        var result = await _service.RescheduleAsync(message.Id, tryAfterAt, Request, CancellationToken.None);
 
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(message.Status, Is.EqualTo(EventStatus.Pending));
         Assert.That(message.TryAfterAt, Is.EqualTo(tryAfterAt));
-        await _repository.Received(1).UpdateEventAsync(message);
+        await _repository.Received(1).UpdateEventAsync(message, Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -160,12 +214,12 @@ internal class InboxEventsServiceTests
     {
         var message = CreateMessage();
         message.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
-        _repository.GetEventByIdAsync(message.Id).Returns(message);
+        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
 
-        var result = await _service.RescheduleAsync(message.Id, DateTime.Now, Request);
+        var result = await _service.RescheduleAsync(message.Id, DateTime.Now, Request, CancellationToken.None);
 
         Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.InvalidState));
-        await _repository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>());
+        await _repository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
     }
 
     #endregion
@@ -177,14 +231,14 @@ internal class InboxEventsServiceTests
     {
         var message = CreateMessage();
         message.Rejected();
-        _repository.GetEventByIdAsync(message.Id).Returns(message);
+        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
 
-        var result = await _service.MarkAsProcessedAsync(message.Id, Request);
+        var result = await _service.MarkAsProcessedAsync(message.Id, Request, CancellationToken.None);
 
         Assert.That(result.IsSuccess, Is.True);
         Assert.That(message.Status, Is.EqualTo(EventStatus.Processed));
         Assert.That(message.UpdatedBy, Is.EqualTo(Request.PerformedBy));
-        await _repository.Received(1).UpdateEventAsync(message);
+        await _repository.Received(1).UpdateEventAsync(message, Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -192,9 +246,9 @@ internal class InboxEventsServiceTests
     {
         var message = CreateMessage();
         message.Processed();
-        _repository.GetEventByIdAsync(message.Id).Returns(message);
+        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
 
-        var result = await _service.MarkAsProcessedAsync(message.Id, Request);
+        var result = await _service.MarkAsProcessedAsync(message.Id, Request, CancellationToken.None);
 
         Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.InvalidState));
     }
