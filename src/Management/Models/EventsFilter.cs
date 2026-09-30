@@ -9,9 +9,9 @@ namespace EventStorage.Management.Models;
 public record EventsFilter
 {
     /// <summary>
-    /// Returns only the events with one of the given statuses.
+    /// Returns only the events with the given status. If it is null, the events of all statuses are returned.
     /// </summary>
-    public EventStatus[] Statuses { get; init; }
+    public EventStatus? Status { get; init; }
 
     /// <summary>
     /// Returns only the events with the given name.
@@ -22,7 +22,7 @@ public record EventsFilter
     /// Returns only the events with the given provider. The outbox events with multiple providers (separated by comma)
     /// are returned if one of them matches.
     /// </summary>
-    public string Provider { get; init; }
+    public EventProviderType? EventProvider { get; init; }
 
     /// <summary>
     /// Returns only the events created at or after the given time.
@@ -45,7 +45,8 @@ public record EventsFilter
     public DateTime? UpdatedTo { get; init; }
 
     /// <summary>
-    /// Returns only the events whose status was changed manually by the given user.
+    /// Returns only the events whose status was changed manually by the user whose name contains the given text
+    /// (case-insensitive), so a part of the full name such as the first name is enough.
     /// </summary>
     public string UpdatedBy { get; init; }
 
@@ -59,6 +60,14 @@ public record EventsFilter
     /// It is not indexed, so it should be combined with other filters on big tables.
     /// </summary>
     public string FailureReasonContains { get; init; }
+
+    /// <summary>
+    /// Returns only the events whose payload contains the given text (case-insensitive), for example the id of an entity.
+    /// The payload is searched as the JSON text in the format of PostgreSQL, which has a space after the colon and
+    /// comma: {"Id": 1, "Name": "Test"}.
+    /// It is not indexed, so it should be combined with other filters on big tables.
+    /// </summary>
+    public string PayloadContains { get; init; }
 
     /// <summary>
     /// The default count of events to return in a page.

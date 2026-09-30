@@ -359,10 +359,10 @@ internal abstract class BaseEventRepository<TBaseMessage>(
         var conditions = new List<string>();
         var parameters = new DynamicParameters();
 
-        if (filter.Statuses is { Length: > 0 })
+        if (filter.Status.HasValue)
         {
-            conditions.Add("status = ANY(@Statuses)");
-            parameters.Add("Statuses", filter.Statuses.Select(s => s.ToString()).Distinct().ToArray());
+            conditions.Add("status = @Status");
+            parameters.Add("Status", filter.Status.Value.ToString());
         }
 
         if (!string.IsNullOrEmpty(filter.EventName))
@@ -371,11 +371,11 @@ internal abstract class BaseEventRepository<TBaseMessage>(
             parameters.Add("EventName", filter.EventName);
         }
 
-        if (!string.IsNullOrEmpty(filter.Provider))
+        if (filter.EventProvider is not null)
         {
             // The outbox event may have multiple providers separated by comma, so one of them must match entirely.
             conditions.Add($"(',' || provider || ',') LIKE @ProviderPattern ESCAPE '{LikeEscapeCharacter}'");
-            parameters.Add("ProviderPattern", $"%,{EscapeLikePattern(filter.Provider)},%");
+            parameters.Add("ProviderPattern", $"%,{EscapeLikePattern(filter.EventProvider.ToString())},%");
         }
 
         if (filter.CreatedFrom.HasValue)
@@ -404,8 +404,9 @@ internal abstract class BaseEventRepository<TBaseMessage>(
 
         if (!string.IsNullOrEmpty(filter.UpdatedBy))
         {
-            conditions.Add("updated_by = @UpdatedBy");
-            parameters.Add("UpdatedBy", filter.UpdatedBy);
+            // The user name may be a full name, so it is enough to match a part of it, such as the first name.
+            conditions.Add($"updated_by ILIKE @UpdatedByPattern ESCAPE '{LikeEscapeCharacter}'");
+            parameters.Add("UpdatedByPattern", $"%{EscapeLikePattern(filter.UpdatedBy)}%");
         }
 
         if (filter.MinTryCount.HasValue)
@@ -420,9 +421,17 @@ internal abstract class BaseEventRepository<TBaseMessage>(
             parameters.Add("FailureReasonPattern", $"%{EscapeLikePattern(filter.FailureReasonContains)}%");
         }
 
+        if (!string.IsNullOrEmpty(filter.PayloadContains))
+        {
+            conditions.Add($"payload::text ILIKE @PayloadPattern ESCAPE '{LikeEscapeCharacter}'");
+            parameters.Add("PayloadPattern", $"%{EscapeLikePattern(filter.PayloadContains)}%");
+        }
+
         // One more event is loaded to identify whether there is a next page without counting all events.
-        parameters.Add("Offset", (filter.PageIndex - 1) * filter.PageSize);
-        parameters.Add("Limit", filter.PageSize + 1);
+        var skip = (filter.PageIndex - 1) * filter.PageSize;
+        var take = filter.PageSize + 1;
+        parameters.Add("Offset", skip);
+        parameters.Add("Limit", take);
 
         var sortDirection = filter.SortDescending ? "DESC" : "ASC";
         var whereClause = conditions.Count == 0 ? string.Empty : $"WHERE {string.Join(" AND ", conditions)}";

@@ -548,25 +548,28 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     // Each test uses a unique event name, since the table is shared by the tests of the fixture.
 
     [Test]
-    public async Task GetEventsAsync_FilterByStatuses_ShouldReturnOnlyEventsWithThoseStatuses()
+    public async Task GetEventsAsync_FilterByStatus_ShouldReturnOnlyEventsWithThatStatus()
     {
         var eventName = CreateUniqueEventName();
-        var pendingEvent = CreateEventWithName(eventName);
-        var failedEvent = CreateEventWithName(eventName);
-        var rejectedEvent = CreateEventWithName(eventName);
-        var processedEvent = CreateEventWithName(eventName);
-        await Repository.BulkInsertEventsAsync([pendingEvent, failedEvent, rejectedEvent, processedEvent],
+        var (_, failedEvent, _, _) = await InsertEventsWithAllStatuses(eventName);
+
+        var result = await Repository.GetEventsAsync(
+            new EventsFilter { EventName = eventName, Status = EventStatus.Failed }, CancellationToken.None);
+
+        Assert.That(result.Select(e => e.Id), Is.EquivalentTo(new[] { failedEvent.Id }));
+    }
+
+    [Test]
+    public async Task GetEventsAsync_StatusIsNotProvided_ShouldReturnEventsOfAllStatuses()
+    {
+        var eventName = CreateUniqueEventName();
+        var (pendingEvent, failedEvent, rejectedEvent, processedEvent) = await InsertEventsWithAllStatuses(eventName);
+
+        var result = await Repository.GetEventsAsync(new EventsFilter { EventName = eventName },
             CancellationToken.None);
-        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
-        rejectedEvent.Rejected();
-        processedEvent.Processed();
-        await Repository.UpdateEventsAsync([failedEvent, rejectedEvent, processedEvent], CancellationToken.None);
 
-        var filter = new EventsFilter
-            { EventName = eventName, Statuses = [EventStatus.Failed, EventStatus.Rejected] };
-        var result = await Repository.GetEventsAsync(filter, CancellationToken.None);
-
-        Assert.That(result.Select(e => e.Id), Is.EquivalentTo(new[] { failedEvent.Id, rejectedEvent.Id }));
+        Assert.That(result.Select(e => e.Id),
+            Is.EquivalentTo(new[] { pendingEvent.Id, failedEvent.Id, rejectedEvent.Id, processedEvent.Id }));
     }
 
     [Test]
@@ -578,25 +581,10 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         var httpEvent = CreateEventWithName(eventName, provider: "Http");
         await Repository.BulkInsertEventsAsync([smsEvent, multipleProvidersEvent, httpEvent], CancellationToken.None);
 
-        var smsResult = await Repository.GetEventsAsync(new EventsFilter { EventName = eventName, Provider = "Sms" }, CancellationToken.None);
-        var partialNameResult = await Repository.GetEventsAsync(
-            new EventsFilter { EventName = eventName, Provider = "Sm" }, CancellationToken.None);
+        var result = await Repository.GetEventsAsync(
+            new EventsFilter { EventName = eventName, EventProvider = EventProviderType.Sms }, CancellationToken.None);
 
-        Assert.That(smsResult.Select(e => e.Id),
-            Is.EquivalentTo(new[] { smsEvent.Id, multipleProvidersEvent.Id }));
-        Assert.That(partialNameResult, Is.Empty);
-    }
-
-    [TestCase("%")]
-    [TestCase("_ms")]
-    public async Task GetEventsAsync_ProviderHasLikeWildcards_ShouldMatchAsPlainText(string provider)
-    {
-        var eventName = CreateUniqueEventName();
-        await Repository.InsertEventAsync(CreateEventWithName(eventName, provider: "Sms"), CancellationToken.None);
-
-        var result = await Repository.GetEventsAsync(new EventsFilter { EventName = eventName, Provider = provider }, CancellationToken.None);
-
-        Assert.That(result, Is.Empty);
+        Assert.That(result.Select(e => e.Id), Is.EquivalentTo(new[] { smsEvent.Id, multipleProvidersEvent.Id }));
     }
 
     [Test]
@@ -642,6 +630,41 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         Assert.That(result.Select(e => e.Id), Is.EqualTo(new[] { rejectedByOperator.Id }));
     }
 
+    [TestCase("John")]
+    [TestCase("doe")]
+    [TestCase("JOHN DOE")]
+    public async Task GetEventsAsync_UpdatedByIsPartOfFullName_ShouldReturnEventsChangedByThatUser(string updatedBy)
+    {
+        var eventName = CreateUniqueEventName();
+        var rejectedByJohn = CreateEventWithName(eventName);
+        var rejectedByOtherUser = CreateEventWithName(eventName);
+        await Repository.BulkInsertEventsAsync([rejectedByJohn, rejectedByOtherUser], CancellationToken.None);
+        rejectedByJohn.Rejected(performedBy: "John Doe");
+        rejectedByOtherUser.Rejected(performedBy: "Jane Smith");
+        await Repository.UpdateEventsAsync([rejectedByJohn, rejectedByOtherUser], CancellationToken.None);
+
+        var result = await Repository.GetEventsAsync(new EventsFilter { EventName = eventName, UpdatedBy = updatedBy },
+            CancellationToken.None);
+
+        Assert.That(result.Select(e => e.Id), Is.EqualTo(new[] { rejectedByJohn.Id }));
+    }
+
+    [TestCase("%")]
+    [TestCase("_")]
+    public async Task GetEventsAsync_UpdatedByHasLikeWildcards_ShouldMatchAsPlainText(string updatedBy)
+    {
+        var eventName = CreateUniqueEventName();
+        var rejectedEvent = CreateEventWithName(eventName);
+        await Repository.InsertEventAsync(rejectedEvent, CancellationToken.None);
+        rejectedEvent.Rejected(performedBy: "John Doe");
+        await Repository.UpdateEventAsync(rejectedEvent, CancellationToken.None);
+
+        var result = await Repository.GetEventsAsync(new EventsFilter { EventName = eventName, UpdatedBy = updatedBy },
+            CancellationToken.None);
+
+        Assert.That(result, Is.Empty);
+    }
+
     [Test]
     public async Task GetEventsAsync_FilterByMinTryCountAndFailureReason_ShouldReturnOnlyMatchingFailedEvents()
     {
@@ -665,6 +688,36 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         }, CancellationToken.None);
 
         Assert.That(result.Select(e => e.Id), Is.EqualTo(new[] { failedTwice.Id }));
+    }
+
+    [TestCase("a1b2c3")]
+    [TestCase("\"UserId\": \"A1B2C3\"")]
+    public async Task GetEventsAsync_FilterByPayload_ShouldReturnOnlyEventsWhosePayloadContainsText(
+        string payloadContains)
+    {
+        var eventName = CreateUniqueEventName();
+        var matchingEvent = CreateEventWithName(eventName, payload: "{\"UserId\":\"A1B2C3\",\"Name\":\"Test\"}");
+        var otherEvent = CreateEventWithName(eventName, payload: "{\"UserId\":\"D4E5F6\",\"Name\":\"Test\"}");
+        await Repository.BulkInsertEventsAsync([matchingEvent, otherEvent], CancellationToken.None);
+
+        var result = await Repository.GetEventsAsync(
+            new EventsFilter { EventName = eventName, PayloadContains = payloadContains }, CancellationToken.None);
+
+        Assert.That(result.Select(e => e.Id), Is.EqualTo(new[] { matchingEvent.Id }));
+    }
+
+    [TestCase("%")]
+    [TestCase("_")]
+    public async Task GetEventsAsync_PayloadContainsHasLikeWildcards_ShouldMatchAsPlainText(string payloadContains)
+    {
+        var eventName = CreateUniqueEventName();
+        await Repository.InsertEventAsync(CreateEventWithName(eventName, payload: "{\"Name\":\"Test\"}"),
+            CancellationToken.None);
+
+        var result = await Repository.GetEventsAsync(
+            new EventsFilter { EventName = eventName, PayloadContains = payloadContains }, CancellationToken.None);
+
+        Assert.That(result, Is.Empty);
     }
 
     [Test]
@@ -825,7 +878,28 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     /// <summary>
     /// Creates an event with a future try time, so it does not affect the tests of getting unprocessed events.
     /// </summary>
-    private static TEvent CreateEventWithName(string eventName, string provider = "TestProvider")
+    /// <summary>
+    /// Inserts one event per status with the given name.
+    /// </summary>
+    private async Task<(TEvent Pending, TEvent Failed, TEvent Rejected, TEvent Processed)> InsertEventsWithAllStatuses(
+        string eventName)
+    {
+        var pendingEvent = CreateEventWithName(eventName);
+        var failedEvent = CreateEventWithName(eventName);
+        var rejectedEvent = CreateEventWithName(eventName);
+        var processedEvent = CreateEventWithName(eventName);
+        await Repository.BulkInsertEventsAsync([pendingEvent, failedEvent, rejectedEvent, processedEvent],
+            CancellationToken.None);
+        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
+        rejectedEvent.Rejected();
+        processedEvent.Processed();
+        await Repository.UpdateEventsAsync([failedEvent, rejectedEvent, processedEvent], CancellationToken.None);
+
+        return (pendingEvent, failedEvent, rejectedEvent, processedEvent);
+    }
+
+    private static TEvent CreateEventWithName(string eventName, string provider = "TestProvider",
+        string payload = "{}")
     {
         return new TEvent
         {
@@ -833,7 +907,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             Provider = provider,
             EventName = eventName,
             EventPath = "/test/path",
-            Payload = "{}",
+            Payload = payload,
             Headers = "TestHeaders",
             AdditionalData = "TestAdditionalData",
             TryCount = 0,

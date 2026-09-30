@@ -11,7 +11,7 @@ internal abstract class BaseMessageBox : IBaseMessageBox
     public string Payload { get; internal init; }
     public string Headers { get; internal init; }
     public string AdditionalData { get; internal init; }
-    public DateTime CreatedAt { get; } = DateTime.Now;
+    public DateTime CreatedAt { get; protected set; } = DateTime.Now;
     public int TryCount { get; set; }
     public string NamingPolicyType { get; init; } = NamingPolicyTypeNames.PascalCase;
     public DateTime TryAfterAt { get; set; } = DateTime.Now;
