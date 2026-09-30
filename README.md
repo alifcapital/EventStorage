@@ -416,42 +416,158 @@ When an event fails, its `failure_reason` holds the exception chain formatted as
 
 ### Managing events (for an admin UI)
 
-The library registers the `IInboxEventsService` and `IOutboxEventsService` scoped services to inspect and manage events. The library does not ship any controller or authorization: each application writes its own endpoints and protects every operation with its own permissions. If the Inbox/Outbox is not enabled, their methods throw an `EventStoreException`.
+You can build an admin page on top of the Inbox/Outbox tables to see events, find the failed ones and fix them by hand, for example by running a failed event again or rejecting an event that should never be processed.
+
+For this, the library registers two scoped services. Both have the same methods (`IEventsManagementService`):
+
+| Service | Works with |
+|---|---|
+| `IInboxEventsService` | Inbox events |
+| `IOutboxEventsService` | Outbox events |
+
+Things to know before you start:
+- **No endpoints or authorization are included.** Write your own controller (see the [full example](#full-controller-example) below) and protect every endpoint with your own permissions.
+- **The Inbox/Outbox must be enabled.** If it is not, every method throws an `EventStoreException`.
+- **Actions are safe to use while the application is running.** Every action takes the same distributed lock as the background processor, so an event is never changed by an action and processed at the same time.
+
+#### Reading events
+
+| Method | Returns |
+|---|---|
+| `GetEventByIdAsync(id, ct)` | The `EventDetails` of the event, or `null` if there is no event with that id. |
+| `GetEventsAsync(filter, ct)` | A page of events (`EventPagedList<EventDetails>`) that match the filter. |
+
+`EventDetails` has all the columns of the event: `Id`, `Provider`, `EventName`, `EventPath`, `Payload`, `Headers`, `AdditionalData`, `NamingPolicyType`, `CreatedAt`, `TryCount`, `TryAfterAt`, `Status`, `FailureReason`, `UpdatedAt`, `UpdatedBy` and `StatusComment`.
+
+All filters of `EventsFilter` are optional. The ones you set are combined with AND:
+
+| Filter | Returns only the events... |
+|---|---|
+| `Status` | with this status. If it is not set, events of all statuses are returned. |
+| `EventName` | with exactly this event name. |
+| `EventProviderType` | with this provider. An outbox event with several providers matches if one of them is this provider. |
+| `CreatedFrom` / `CreatedTo` | created in this time range (both ends included). |
+| `UpdatedFrom` / `UpdatedTo` | whose status was changed in this time range (both ends included). |
+| `UpdatedBy` | changed by a user whose name contains this text, ignoring case. For example, `john` finds `John Doe`. |
+| `MinTryCount` | that were tried at least this many times. |
+| `FailureReasonContains` | whose failure reason contains this text, ignoring case. |
+| `PayloadContains` | whose payload contains this text, ignoring case, for example the id of an entity. |
+
+`FailureReasonContains` and `PayloadContains` are not indexed, so combine them with other filters (such as a time range) on big tables. The payload is stored as JSON and searched in PostgreSQL's format, which has a space after `:` and `,`. So search `"UserId": "A1B2"` rather than `"UserId":"A1B2"`, or just the value `A1B2`.
+
+Paging and sorting:
+
+| Option | Default | Description |
+|---|---|---|
+| `PageIndex` | `1` | The page to return, starting from 1. |
+| `PageSize` | `25` | The number of events in a page. |
+| `SortDescending` | `true` | `true` returns the newest events first. |
+
+The returned `EventPagedList` is a list of the events of the page, with `PageIndex`, `PageSize` and `HasNextPage`. The total count is not calculated, so that big tables stay fast. Use `HasNextPage` to show the "next page" button.
+
+```csharp
+var failedPaymentEvents = await inboxEventsService.GetEventsAsync(new EventsFilter
+{
+    Status = EventStatus.Failed,
+    EventName = "PaymentCreated",
+    CreatedFrom = DateTime.Now.AddDays(-1),
+    PageIndex = 1,
+    PageSize = 50
+}, cancellationToken);
+```
+
+#### Actions
+
+| Method | What it does | Allowed when the status is | Status after success |
+|---|---|---|---|
+| `ExecuteAsync(id, request, ct)` | Processes the event now and waits for the result. | `Pending`, `Failed`. `Processed` only with `Force = true`. | `Processed`, or `Failed` if processing fails. |
+| `RescheduleAsync(id, tryAfterAt, request, ct)` | Makes the event pending again, to be processed by the background processor after `tryAfterAt`. | `Pending`, `Failed`, `Rejected` | `Pending` |
+| `RejectAsync(id, request, ct)` | Stops the event from ever being processed. | `Pending`, `Failed` | `Rejected` |
+| `MarkAsProcessedAsync(id, request, ct)` | Marks the event as processed **without** running it, for example when it was already handled by hand. | `Pending`, `Failed`, `Rejected` | `Processed` |
+
+Every action takes an `EventActionRequest`. Its values are stored with the event (the `updated_by` and `status_comment` columns) and written to the logs, so you can see later who changed the event and why:
+
+| Property | Description |
+|---|---|
+| `PerformedBy` | The name of the user who performs the action, for example `User.Identity?.Name`. |
+| `Comment` | Why the action is performed. |
+| `Force` | Used only by `ExecuteAsync`: `true` runs the event again even if it is already processed. Default is `false`. |
+
+> ⚠️ Running an already processed event again (`Force = true`) may repeat its side effects, for example a payment may be posted twice. Protect it with a separate permission.
+
+#### Action results
+
+When an action cannot be done, it does not throw an exception. It returns an `EventActionResult` instead, so check its `Status` (or `IsSuccess`) and show its `FailureReason` to the user. Exceptions are thrown only for real errors, such as the Inbox/Outbox being disabled or the database being unavailable.
+
+| `Status` | Meaning | Suggested HTTP response |
+|---|---|---|
+| `Success` | The action is done. | `200 OK` |
+| `NotFound` | There is no event with this id. | `404 Not Found` |
+| `AlreadyProcessing` | The event is being processed or changed by someone else right now. Try again later. | `409 Conflict` |
+| `InvalidState` | The action is not allowed for the current status of the event (see the table above). | `409 Conflict` |
+| `Failed` | Only for `ExecuteAsync`: the event was run, but processing failed. The event is now `Failed`. | `422 Unprocessable Entity` |
+
+#### Full controller example
+
+The same controller can be written for the outbox with `IOutboxEventsService`.
 
 ```csharp
 [ApiController]
 [Route("api/inbox-events")]
 public class InboxEventsController(IInboxEventsService inboxEventsService) : ControllerBase
 {
+    [HttpGet]
+    [Authorize(Policy = "InboxEvents.Read")]
+    public Task<EventPagedList<EventDetails>> GetEvents([FromQuery] EventsFilter filter, CancellationToken ct)
+        => inboxEventsService.GetEventsAsync(filter, ct);
+
     [HttpGet("{id:guid}")]
     [Authorize(Policy = "InboxEvents.Read")]
     public async Task<IActionResult> GetEvent(Guid id, CancellationToken ct)
     {
-        var eventDetails = await inboxEventsService.GetEventAsync(id, ct);
+        var eventDetails = await inboxEventsService.GetEventByIdAsync(id, ct);
         return eventDetails is null ? NotFound() : Ok(eventDetails);
     }
 
-    [HttpPost("{id:guid}/reject")]
-    [Authorize(Policy = "InboxEvents.Reject")]
-    public async Task<IActionResult> Reject(Guid id, [FromBody] string comment, CancellationToken ct)
-    {
-        var result = await inboxEventsService.RejectAsync(id,
-            new EventActionRequest { PerformedBy = User.Identity?.Name, Comment = comment }, ct);
+    [HttpPost("{id:guid}/execute")]
+    [Authorize(Policy = "InboxEvents.Execute")]
+    public async Task<IActionResult> Execute(Guid id, [FromBody] string comment, CancellationToken ct)
+        => ToResponse(await inboxEventsService.ExecuteAsync(id, CreateRequest(comment), ct));
 
-        return result.IsSuccess ? Ok() : BadRequest(result);
-    }
+    // A separate permission, since running a processed event again may repeat its side effects.
+    [HttpPost("{id:guid}/force-execute")]
+    [Authorize(Policy = "InboxEvents.ForceExecute")]
+    public async Task<IActionResult> ForceExecute(Guid id, [FromBody] string comment, CancellationToken ct)
+        => ToResponse(await inboxEventsService.ExecuteAsync(id, CreateRequest(comment) with { Force = true }, ct));
+
+    [HttpPost("{id:guid}/reschedule")]
+    [Authorize(Policy = "InboxEvents.Manage")]
+    public async Task<IActionResult> Reschedule(Guid id, DateTime tryAfterAt, [FromBody] string comment,
+        CancellationToken ct)
+        => ToResponse(await inboxEventsService.RescheduleAsync(id, tryAfterAt, CreateRequest(comment), ct));
+
+    [HttpPost("{id:guid}/reject")]
+    [Authorize(Policy = "InboxEvents.Manage")]
+    public async Task<IActionResult> Reject(Guid id, [FromBody] string comment, CancellationToken ct)
+        => ToResponse(await inboxEventsService.RejectAsync(id, CreateRequest(comment), ct));
+
+    [HttpPost("{id:guid}/mark-as-processed")]
+    [Authorize(Policy = "InboxEvents.Manage")]
+    public async Task<IActionResult> MarkAsProcessed(Guid id, [FromBody] string comment, CancellationToken ct)
+        => ToResponse(await inboxEventsService.MarkAsProcessedAsync(id, CreateRequest(comment), ct));
+
+    private EventActionRequest CreateRequest(string comment)
+        => new() { PerformedBy = User.Identity?.Name, Comment = comment };
+
+    private IActionResult ToResponse(EventActionResult result) => result.Status switch
+    {
+        EventActionResultStatus.Success => Ok(),
+        EventActionResultStatus.NotFound => NotFound(result.FailureReason),
+        EventActionResultStatus.AlreadyProcessing or EventActionResultStatus.InvalidState => Conflict(result.FailureReason),
+        _ => UnprocessableEntity(result.FailureReason)
+    };
 }
 ```
-
-| Method | Allowed statuses | Result status |
-|---|---|---|
-| `GetEventAsync(id)` | any | — |
-| `ExecuteAsync(id, request)` — runs the event now and waits for the result | `Pending`, `Failed` (`Processed` only with `Force = true`) | `Processed` or `Failed` |
-| `RescheduleAsync(id, tryAfterAt, request)` | `Rejected` | `Pending` |
-| `RejectAsync(id, request)` | `Pending`, `Failed` | `Rejected` |
-| `MarkAsProcessedAsync(id, request)` | `Pending`, `Failed`, `Rejected` | `Processed` |
-
-Each action returns an `EventActionResult` with one of the `Success`, `NotFound`, `Locked`, `InvalidState` or `Failed` statuses and a `FailureReason`. The actions take the same distributed lock as the background processor, so `Locked` is returned while the event is being processed. Re-running a processed event with `Force` may cause duplicate side effects (for example, double posting), so protect it with a separate permission.
 
 ### Can we create multiple event publishers for the same event type?
 No, we can't. If we try to create multiple event publishers for the same event type, it will throw an exception. The library is designed to work with a single event publisher for each event type.

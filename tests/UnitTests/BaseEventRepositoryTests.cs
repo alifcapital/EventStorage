@@ -582,7 +582,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         await Repository.BulkInsertEventsAsync([smsEvent, multipleProvidersEvent, httpEvent], CancellationToken.None);
 
         var result = await Repository.GetEventsAsync(
-            new EventsFilter { EventName = eventName, EventProvider = EventProviderType.Sms }, CancellationToken.None);
+            new EventsFilter { EventName = eventName, EventProviderType = EventProviderType.Sms }, CancellationToken.None);
 
         Assert.That(result.Select(e => e.Id), Is.EquivalentTo(new[] { smsEvent.Id, multipleProvidersEvent.Id }));
     }
