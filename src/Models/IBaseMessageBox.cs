@@ -63,19 +63,62 @@ internal interface  IBaseMessageBox
     public DateTime TryAfterAt { get; set; }
 
     /// <summary>
-    /// Gets the processed time of the event.
+    /// Gets the processing status of the event. It is stored as a string in the table.
     /// </summary>
-    DateTime? ProcessedAt { get; }
+    EventStatus Status { get; }
 
     /// <summary>
-    /// To increase the TryCount and TryAfterAt when it is failed
+    /// Gets the reason of the last processing failure of the event.
     /// </summary>
-    void Failed(int maxTryCount, int tryAfterMinutes);
+    string FailureReason { get; }
 
     /// <summary>
-    /// For marking the event is processed
+    /// Gets the time of the last status change of the event. For the processed event, it is the processed time.
     /// </summary>
-    void Processed();
+    DateTime? UpdatedAt { get; }
+
+    /// <summary>
+    /// Gets the username of who changed the status manually. It is null when the status is changed by the processor.
+    /// </summary>
+    string UpdatedBy { get; }
+
+    /// <summary>
+    /// Gets the comment of the last manual status change.
+    /// </summary>
+    string StatusComment { get; }
+
+    /// <summary>
+    /// For marking the event as failed with the reason. It increases the TryCount and the TryAfterAt.
+    /// </summary>
+    /// <param name="maxTryCount">The try count after which the TryAfterAt is increased.</param>
+    /// <param name="tryAfterMinutes">The minutes to increase the TryAfterAt.</param>
+    /// <param name="failureReason">The reason of the failure.</param>
+    /// <param name="performedBy">The username of who executed the event manually. Null when the processor executed it.</param>
+    /// <param name="comment">The comment of the manual execution.</param>
+    void Failed(int maxTryCount, int tryAfterMinutes, string failureReason, string performedBy = null,
+        string comment = null);
+
+    /// <summary>
+    /// For marking the event as processed. The last failure reason is kept for the history.
+    /// </summary>
+    /// <param name="performedBy">The username of who processed the event manually. Null when the processor processed it.</param>
+    /// <param name="comment">The comment of the manual change.</param>
+    void Processed(string performedBy = null, string comment = null);
+
+    /// <summary>
+    /// For marking the event is rejected, so it will not be processed.
+    /// </summary>
+    /// <param name="performedBy">The username of who rejected the event.</param>
+    /// <param name="comment">The reason of the rejection.</param>
+    void Rejected(string performedBy = null, string comment = null);
+
+    /// <summary>
+    /// For marking the event as pending again to be processed at the given time.
+    /// </summary>
+    /// <param name="tryAfterAt">The time after which the event should be processed.</param>
+    /// <param name="performedBy">The username of who rescheduled the event.</param>
+    /// <param name="comment">The reason of the rescheduling.</param>
+    void Rescheduled(DateTime tryAfterAt, string performedBy = null, string comment = null);
 
     /// <summary>
     /// Gets JsonSerializerOptions to use on naming police for serializing and deserializing properties of Event 

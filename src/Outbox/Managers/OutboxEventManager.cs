@@ -81,12 +81,14 @@ internal class OutboxEventManager : IOutboxEventManager
 
     #region StoreAsync Methods
 
-    public Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent, EventProviderType eventProvider) where TOutboxEvent : IOutboxEvent
+    public Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent, EventProviderType eventProvider,
+        CancellationToken cancellationToken) where TOutboxEvent : IOutboxEvent
     {
-        return StoreAsync(outboxEvent, eventProvider.ToString());
+        return StoreAsync(outboxEvent, eventProvider.ToString(), cancellationToken);
     }
 
-    public Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent) where TOutboxEvent : IOutboxEvent
+    public Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent, CancellationToken cancellationToken)
+        where TOutboxEvent : IOutboxEvent
     {
         var eventPublisherTypes = _outboxEventsProcessor?.GetEventPublisherTypes(outboxEvent);
         if (string.IsNullOrEmpty(eventPublisherTypes))
@@ -96,10 +98,11 @@ internal class OutboxEventManager : IOutboxEventManager
             return Task.FromResult(false);
         }
 
-        return StoreAsync(outboxEvent, eventPublisherTypes);
+        return StoreAsync(outboxEvent, eventPublisherTypes, cancellationToken);
     }
 
-    public async Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent[] outboxEvents) where TOutboxEvent : IOutboxEvent
+    public async Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent[] outboxEvents, CancellationToken cancellationToken)
+        where TOutboxEvent : IOutboxEvent
     {
         if (_repository is null)
             throw new EventStoreException(
@@ -125,17 +128,18 @@ internal class OutboxEventManager : IOutboxEventManager
             if (outboxMessages.Count == 0)
                 return false;
 
-            var successfullyInserted = await _repository.BulkInsertEventsAsync(outboxMessages.ToArray());
+            var successfullyInserted = await _repository.BulkInsertEventsAsync(outboxMessages.ToArray(), cancellationToken);
             return successfullyInserted;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             _logger.LogError(e, "Error while storing multiple events to the Outbox table.");
             throw;
         }
     }
 
-    private async Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent, string eventProvider)
+    private async Task<bool> StoreAsync<TOutboxEvent>(TOutboxEvent outboxEvent, string eventProvider,
+        CancellationToken cancellationToken)
         where TOutboxEvent : IOutboxEvent
     {
         if (_repository is null)
@@ -145,9 +149,9 @@ internal class OutboxEventManager : IOutboxEventManager
         try
         {
             var outboxMessage = CreateOutboxMessage(outboxEvent, eventProvider);
-            return await _repository.InsertEventAsync(outboxMessage)!;
+            return await _repository.InsertEventAsync(outboxMessage, cancellationToken)!;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             var eventType = outboxEvent.GetType();
             _logger.LogError(e,

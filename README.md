@@ -336,7 +336,7 @@ try
     IInboxEventManager inboxEventManager = scope.ServiceProvider.GetService<IInboxEventManager>();
     if (inboxEventManager is not null)
     {
-        var succussfullyReceived = await inboxEventManager.StoreAsync(receivedEvent, EventProviderType.MessageBroker);
+        var succussfullyReceived = inboxEventManager.Store(receivedEvent, EventProviderType.MessageBroker);
         if(succussfullyReceived){
             //If the event received twice, it will return false. You need to add your logic to manage this use case.
         }
@@ -390,9 +390,185 @@ The `InboxAndOutbox` is the main section for setting of the Outbox and Inbox fun
 `SecondsToDelayProcessEvents` - The delay in seconds before processing events. Default value is 1.<br/>
 `DaysToCleanUpEvents` - Number of days after which processed events are cleaned up. Cleanup only occurs if this value is 1 or higher. Default value is 0.<br/>
 `HoursToDelayCleanUpEvents` - Specifies the delay in hours before cleaning up processed events. Default value is 1.<br/>
+`MaxFailureReasonLength` - The maximum length of the stored failure reason. Longer reasons are truncated. The `0` value means no limit. Default value is 4000.<br/>
+`StoreFailureStackTrace` - Stores the stack trace of the exception in the failure reason. Default value is false, since stack traces and exception messages may carry personal or account data.<br/>
 `ConnectionString` - The connection string for the PostgreSQL database used to store or read received/sent events.<br/>
 
 All options of the Inbox and Outbox are optional, if we don't pass the value of them, it will use the default value of the option.
+
+`SecondsToDelayBeforeCreatingEventStoreTables` - Seconds to delay before creating the event store tables. Default value is 0.<br/>
+`SecondsToWaitForMigrationLock` - Seconds to wait for the exclusive lock of the Inbox/Outbox table while migrating its old schema (see below). If the lock cannot be taken in time, the migration is rolled back and an exception is thrown, it will be retried on the next start. The `0` value means waiting without a limit. Default value is 30.<br/>
+
+### Event statuses and the table schema
+
+Each Inbox/Outbox event has a `status` column, stored as a string:
+
+| Status | Meaning |
+|---|---|
+| `Pending` | The event is waiting to be processed. |
+| `Failed` | Processing failed; the event is retried once its `try_after_at` time comes. |
+| `Processed` | The event is processed. `updated_at` holds the processed time. |
+| `Rejected` | The event is ignored and never processed. |
+
+Besides `status`, the tables have the `failure_reason`, `updated_at`, `updated_by` (the user name of who changed the status manually) and `status_comment` columns. Only `Pending` and `Failed` events are fetched for processing, and the clean-up job deletes only `Processed` events.
+
+When an event fails, its `failure_reason` holds the exception chain formatted as `Type: Message` (see the `MaxFailureReasonLength` and `StoreFailureStackTrace` options). The last failure reason is kept when the event is processed later.
+
+### Managing events (for an admin UI)
+
+You can build an admin page on top of the Inbox/Outbox tables to see events, find the failed ones and fix them by hand, for example by running a failed event again or rejecting an event that should never be processed.
+
+For this, the library registers two scoped services. Both have the same methods (`IEventsManagementService`):
+
+| Service | Works with |
+|---|---|
+| `IInboxEventsService` | Inbox events |
+| `IOutboxEventsService` | Outbox events |
+
+Things to know before you start:
+- **No endpoints or authorization are included.** Write your own controller (see the [full example](#full-controller-example) below) and protect every endpoint with your own permissions.
+- **The Inbox/Outbox must be enabled.** If it is not, every method throws an `EventStoreException`.
+- **Actions are safe to use while the application is running.** Every action takes the same distributed lock as the background processor, so an event is never changed by an action and processed at the same time.
+
+#### Reading events
+
+| Method | Returns |
+|---|---|
+| `GetEventByIdAsync(id, ct)` | The `EventDetails` of the event, or `null` if there is no event with that id. |
+| `GetEventsAsync(filter, ct)` | A page of events (`EventPagedList<EventDetails>`) that match the filter. |
+| `GetProviderTypes()` | The names of all `EventProviderType` values (`MessageBroker`, `WebHook`, `Sms`, `Email`, `gRPC`, `Http`, `Unknown`), for example to show them as the options of the `EventProviderType` filter. |
+
+`EventDetails` has all the columns of the event: `Id`, `Provider`, `EventName`, `EventPath`, `Payload`, `Headers`, `AdditionalData`, `NamingPolicyType`, `CreatedAt`, `TryCount`, `TryAfterAt`, `Status`, `FailureReason`, `UpdatedAt`, `UpdatedBy` and `StatusComment`.
+
+All filters of `EventsFilter` are optional. The ones you set are combined with AND:
+
+| Filter | Returns only the events... |
+|---|---|
+| `Status` | with this status. If it is not set, events of all statuses are returned. |
+| `EventName` | with exactly this event name. |
+| `EventProviderType` | with this provider. An outbox event with several providers matches if one of them is this provider. |
+| `CreatedFrom` / `CreatedTo` | created in this time range (both ends included). |
+| `UpdatedFrom` / `UpdatedTo` | whose status was changed in this time range (both ends included). |
+| `UpdatedBy` | changed by a user whose name contains this text, ignoring case. For example, `john` finds `John Doe`. |
+| `MinTryCount` | that were tried at least this many times. |
+| `FailureReasonContains` | whose failure reason contains this text, ignoring case. |
+| `PayloadContains` | whose payload contains this text, ignoring case, for example the id of an entity. |
+
+The `Status`, `EventName` and `CreatedFrom`/`CreatedTo` filters use indexes, so they stay fast on big tables, even on deep pages. The other filters are checked while the events are read in the creation order. The text filters (`UpdatedBy`, `FailureReasonContains` and `PayloadContains`) are the slowest, since they search for a part of the text, so combine them with an indexed filter (such as `Status` or a time range) on big tables. The payload is stored as JSON and searched in PostgreSQL's format, which has a space after `:` and `,`. So search `"UserId": "A1B2"` rather than `"UserId":"A1B2"`, or just the value `A1B2`.
+
+Paging and sorting:
+
+| Option | Default | Description |
+|---|---|---|
+| `PageIndex` | `1` | The page to return, starting from 1. |
+| `PageSize` | `25` | The number of events in a page. |
+| `SortDescending` | `true` | `true` returns the newest events first. |
+
+The returned `EventPagedList` is a list of the events of the page, with `PageIndex`, `PageSize` and `HasNextPage`. The total count is not calculated, so that big tables stay fast. Use `HasNextPage` to show the "next page" button.
+
+```csharp
+var failedPaymentEvents = await inboxEventsService.GetEventsAsync(new EventsFilter
+{
+    Status = EventStatus.Failed,
+    EventName = "PaymentCreated",
+    CreatedFrom = DateTime.Now.AddDays(-1),
+    PageIndex = 1,
+    PageSize = 50
+}, cancellationToken);
+```
+
+#### Actions
+
+| Method | What it does | Allowed when the status is | Status after success |
+|---|---|---|---|
+| `ExecuteAsync(id, request, ct)` | Processes the event now and waits for the result. | `Pending`, `Failed`. `Processed` only with `Force = true`. | `Processed`, or `Failed` if processing fails. |
+| `RescheduleAsync(id, tryAfterAt, request, ct)` | Makes the event pending again, to be processed by the background processor after `tryAfterAt`. | `Pending`, `Failed`, `Rejected` | `Pending` |
+| `RejectAsync(id, request, ct)` | Stops the event from ever being processed. | `Pending`, `Failed` | `Rejected` |
+| `MarkAsProcessedAsync(id, request, ct)` | Marks the event as processed **without** running it, for example when it was already handled by hand. | `Pending`, `Failed`, `Rejected` | `Processed` |
+
+Every action takes an `EventActionRequest`. Its values are stored with the event (the `updated_by` and `status_comment` columns) and written to the logs, so you can see later who changed the event and why:
+
+| Property | Description |
+|---|---|
+| `PerformedBy` | The name of the user who performs the action, for example `User.Identity?.Name`. |
+| `Comment` | Why the action is performed. |
+| `Force` | Used only by `ExecuteAsync`: `true` runs the event again even if it is already processed. Default is `false`. |
+
+> ⚠️ Running an already processed event again (`Force = true`) may repeat its side effects, for example a payment may be posted twice. Protect it with a separate permission.
+
+#### Action results
+
+When an action cannot be done, it does not throw an exception. It returns an `EventActionResult` instead, so check its `Status` (or `IsSuccess`) and show its `FailureReason` to the user. Exceptions are thrown only for real errors, such as the Inbox/Outbox being disabled or the database being unavailable.
+
+| `Status` | Meaning | Suggested HTTP response |
+|---|---|---|
+| `Success` | The action is done. | `200 OK` |
+| `NotFound` | There is no event with this id. | `404 Not Found` |
+| `AlreadyProcessing` | The event is being processed or changed by someone else right now. Try again later. | `409 Conflict` |
+| `InvalidState` | The action is not allowed for the current status of the event (see the table above). | `409 Conflict` |
+| `Failed` | Only for `ExecuteAsync`: the event was run, but processing failed. The event is now `Failed`. | `422 Unprocessable Entity` |
+
+#### Full controller example
+
+The same controller can be written for the outbox with `IOutboxEventsService`.
+
+```csharp
+[ApiController]
+[Route("api/inbox-events")]
+public class InboxEventsController(IInboxEventsService inboxEventsService) : ControllerBase
+{
+    [HttpGet]
+    [Authorize(Policy = "InboxEvents.Read")]
+    public Task<EventPagedList<EventDetails>> GetEvents([FromQuery] EventsFilter filter, CancellationToken ct)
+        => inboxEventsService.GetEventsAsync(filter, ct);
+
+    [HttpGet("{id:guid}")]
+    [Authorize(Policy = "InboxEvents.Read")]
+    public async Task<IActionResult> GetEvent(Guid id, CancellationToken ct)
+    {
+        var eventDetails = await inboxEventsService.GetEventByIdAsync(id, ct);
+        return eventDetails is null ? NotFound() : Ok(eventDetails);
+    }
+
+    [HttpPost("{id:guid}/execute")]
+    [Authorize(Policy = "InboxEvents.Execute")]
+    public async Task<IActionResult> Execute(Guid id, [FromBody] string comment, CancellationToken ct)
+        => ToResponse(await inboxEventsService.ExecuteAsync(id, CreateRequest(comment), ct));
+
+    // A separate permission, since running a processed event again may repeat its side effects.
+    [HttpPost("{id:guid}/force-execute")]
+    [Authorize(Policy = "InboxEvents.ForceExecute")]
+    public async Task<IActionResult> ForceExecute(Guid id, [FromBody] string comment, CancellationToken ct)
+        => ToResponse(await inboxEventsService.ExecuteAsync(id, CreateRequest(comment) with { Force = true }, ct));
+
+    [HttpPost("{id:guid}/reschedule")]
+    [Authorize(Policy = "InboxEvents.Manage")]
+    public async Task<IActionResult> Reschedule(Guid id, DateTime tryAfterAt, [FromBody] string comment,
+        CancellationToken ct)
+        => ToResponse(await inboxEventsService.RescheduleAsync(id, tryAfterAt, CreateRequest(comment), ct));
+
+    [HttpPost("{id:guid}/reject")]
+    [Authorize(Policy = "InboxEvents.Manage")]
+    public async Task<IActionResult> Reject(Guid id, [FromBody] string comment, CancellationToken ct)
+        => ToResponse(await inboxEventsService.RejectAsync(id, CreateRequest(comment), ct));
+
+    [HttpPost("{id:guid}/mark-as-processed")]
+    [Authorize(Policy = "InboxEvents.Manage")]
+    public async Task<IActionResult> MarkAsProcessed(Guid id, [FromBody] string comment, CancellationToken ct)
+        => ToResponse(await inboxEventsService.MarkAsProcessedAsync(id, CreateRequest(comment), ct));
+
+    private EventActionRequest CreateRequest(string comment)
+        => new() { PerformedBy = User.Identity?.Name, Comment = comment };
+
+    private IActionResult ToResponse(EventActionResult result) => result.Status switch
+    {
+        EventActionResultStatus.Success => Ok(),
+        EventActionResultStatus.NotFound => NotFound(result.FailureReason),
+        EventActionResultStatus.AlreadyProcessing or EventActionResultStatus.InvalidState => Conflict(result.FailureReason),
+        _ => UnprocessableEntity(result.FailureReason)
+    };
+}
+```
 
 ### Can we create multiple event publishers for the same event type?
 No, we can't. If we try to create multiple event publishers for the same event type, it will throw an exception. The library is designed to work with a single event publisher for each event type.

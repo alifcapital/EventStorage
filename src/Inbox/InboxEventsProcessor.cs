@@ -10,6 +10,7 @@ using EventStorage.Inbox.Providers;
 using EventStorage.Inbox.Repositories;
 using EventStorage.Instrumentation;
 using EventStorage.Instrumentation.Trace;
+using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
 using Medallion.Threading;
@@ -94,14 +95,18 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
     /// <summary>
     /// The method to execute unprocessed events. We are locking the logic to prevent re-entry into the method while processing is ongoing.
     /// </summary>
-    public async Task ExecuteUnprocessedEvents(CancellationToken stoppingToken)
+    public async Task ExecuteUnprocessedEventsAsync(CancellationToken stoppingToken)
     {
         await _singleExecutionLock.WaitAsync(stoppingToken);
         try
         {
-            using var scope = _serviceProvider.CreateScope();
-            var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
-            var eventsToHandle = await repository.GetUnprocessedEventsAsync(_settings.MaxEventsToFetch);
+            InboxMessage[] eventsToHandle;
+            using (var scope = _serviceProvider.CreateScope())
+            {
+                var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
+                eventsToHandle = await repository.GetUnprocessedEventsAsync(_settings.MaxEventsToFetch, stoppingToken);
+            }
+
             if (eventsToHandle.Length == 0)
                 return;
 
@@ -110,38 +115,13 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
 
             var tasks = eventsToHandle.Select(async eventToReceive =>
             {
-                var lockName = $"ProcessingInboxEvent_{eventToReceive.Id}";
-                await using var distributedLock =
-                    await _lockProvider.TryAcquireLockAsync(lockName, cancellationToken: stoppingToken);
-                if (distributedLock is null)
-                {
-                    _logger.LogDebug(
-                        "Could not open distributed lock for processing inbox event with ID: {EventId}. It may be processing by another instance.",
-                        eventToReceive.Id);
-                    return;
-                }
-
+                await _semaphore.WaitAsync(stoppingToken);
                 try
                 {
-                    await _semaphore.WaitAsync(stoppingToken);
-                    stoppingToken.ThrowIfCancellationRequested();
-                    var isEventProcessed = await repository.IsEventProcessedAsync(eventToReceive.Id);
-                    if (isEventProcessed)
-                    {
-                        _logger.LogDebug("The inbox event with id {EventId} is already processed. Skipping execution.",
-                            eventToReceive.Id);
-                        return;
-                    }
-                    
-                    await ExecuteEventHandlers(eventToReceive, _serviceProvider, activity);
-                }
-                catch
-                {
-                    eventToReceive.Failed(_settings.TryCount, _settings.TryAfterMinutes);
+                    await ProcessSingleEventAsync(eventToReceive, manualRequest: null, activity, stoppingToken);
                 }
                 finally
                 {
-                    await repository.UpdateEventAsync(eventToReceive);
                     _semaphore.Release();
                 }
             }).ToArray();
@@ -153,65 +133,122 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
             _singleExecutionLock.Release();
         }
     }
-    
-    private async Task ExecuteEventHandlers(IInboxMessage inboxMessage, IServiceProvider serviceProvider,
-        Activity parentActivity)
+
+    public Task<EventActionResult> ProcessSingleEventAsync(InboxMessage message, EventActionRequest manualRequest,
+        CancellationToken cancellationToken)
+    {
+        return ProcessSingleEventAsync(message, manualRequest, parentActivity: Activity.Current, cancellationToken);
+    }
+
+    private async Task<EventActionResult> ProcessSingleEventAsync(InboxMessage message,
+        EventActionRequest manualRequest, Activity parentActivity, CancellationToken cancellationToken)
+    {
+        var lockName = FunctionalityNames.GetEventLockName(FunctionalityNames.Inbox, message.Id);
+        await using var distributedLock =
+            await _lockProvider.TryAcquireLockAsync(lockName, cancellationToken: cancellationToken);
+        if (distributedLock is null)
+        {
+            _logger.LogInformation(
+                "Could not open distributed lock for processing inbox event with ID: {EventId}. It may be processing by another instance.",
+                message.Id);
+            return EventActionResult.AlreadyProcessing(message.Id);
+        }
+
+        using var scope = _serviceProvider.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
+
+        // The status is read again under the lock, since the event could be changed after it was fetched.
+        var currentStatus = await repository.GetEventStatusByIdAsync(message.Id, cancellationToken);
+        if (currentStatus is null)
+            return EventActionResult.NotFound(message.Id);
+
+        var force = manualRequest?.Force == true;
+        if (!EventStatusTransitions.CanBeExecuted(currentStatus.Value, force))
+        {
+            _logger.LogInformation("The inbox event with id {EventId} has the {Status} status. Skipping execution.",
+                message.Id, currentStatus.Value);
+            return EventActionResult.InvalidState(
+                $"The inbox event with the {currentStatus.Value} status cannot be executed{(currentStatus == EventStatus.Processed ? " without the force option" : string.Empty)}.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var performedBy = manualRequest?.PerformedBy;
+        var comment = manualRequest?.Comment;
+        try
+        {
+            var isSuccessfullyExecuted = await ExecuteEventHandlers(message, parentActivity);
+            if (isSuccessfullyExecuted)
+                message.Processed(performedBy, comment);
+            else
+                message.Failed(0, _settings.TryAfterMinutesIfEventNotFound,
+                    $"No event handler configured for the {message.EventName} event with the {message.Provider} provider.", performedBy, comment);
+        }
+        catch (Exception e)
+        {
+            message.Failed(_settings.TryCount, _settings.TryAfterMinutes, e.ToFailureReason(_settings), performedBy,
+                comment);
+        }
+        finally
+        {
+            await repository.UpdateEventAsync(message, cancellationToken); 
+        }
+
+        return message.Status == EventStatus.Processed
+            ? EventActionResult.Success()
+            : EventActionResult.Failed(message.FailureReason);
+    }
+
+    /// <summary>
+    /// Executes all handlers of the inbox event.
+    /// </summary>
+    /// <returns>Returns true if the handlers are executed, or false if there is no handler for the event.</returns>
+    private async Task<bool> ExecuteEventHandlers(IInboxMessage inboxMessage, Activity parentActivity)
     {
         try
         {
             var receiverKey = GetHandlerKey(inboxMessage.EventName, inboxMessage.Provider);
-            if (_receivers.TryGetValue(receiverKey, out var inboxEventsInformation))
+            if (!_receivers.TryGetValue(receiverKey, out var inboxEventsInformation))
             {
-                _logger.LogDebug("{StorageType}: Executing subscribers of the event '{EventName}'(ID: {MessageId})", 
-                    EventStorageInvestigationTagNames.InboxEventTag, inboxMessage.EventName, inboxMessage.Id);
-                using var activity = CreateActivityForExecutingHandlersIfEnabled(inboxMessage, parentActivity);
-
-                // Create a new scope to execute the receiver services of the event as a scoped service
-                // because each event's handlers must be executed in a separate scope to avoid conflicts in scoped services like DbContext.
-                using var serviceScope = serviceProvider.CreateScope();
-                var isOnExecutingEventInvoked = false;
-
-                foreach (var inboxEventInformation in inboxEventsInformation)
-                {
-                    var inboxEvent = LoadInboxEvent(inboxMessage, inboxEventInformation);
-                    if (!isOnExecutingEventInvoked)
-                    {
-                        OnExecutingInboxEvent(inboxEvent, inboxEventInformation,
-                            serviceScope.ServiceProvider);
-                        isOnExecutingEventInvoked = true;
-                    }
-
-                    var eventReceiver =
-                        serviceScope.ServiceProvider.GetRequiredService(inboxEventInformation.EventHandlerType);
-                    await ((Task)inboxEventInformation.HandleMethod.Invoke(eventReceiver,
-                        [inboxEvent]))!;
-                }
-
-                OnEndingInboxEvent(inboxMessage, serviceScope.ServiceProvider);
-
-                inboxMessage.Processed();
-
-                return;
+                _logger.LogError(
+                    "No event handler configured for the {EventType} type name of inbox event with id {EventId} which is {ProviderType} provider(s).",
+                    inboxMessage.EventName, inboxMessage.Id, inboxMessage.Provider);
+                return false;
             }
 
-            MarkEventAsFailedWhenThereIsNoPublisher();
+            _logger.LogDebug("{StorageType}: Executing subscribers of the event '{EventName}'(ID: {MessageId})", 
+                EventStorageInvestigationTagNames.InboxEventTag, inboxMessage.EventName, inboxMessage.Id);
+            using var activity = CreateActivityForExecutingHandlersIfEnabled(inboxMessage, parentActivity);
+
+            // Create a new scope to execute the receiver services of the event as a scoped service
+            // because each event's handlers must be executed in a separate scope to avoid conflicts in scoped services like DbContext.
+            using var serviceScope = _serviceProvider.CreateScope();
+            var isOnExecutingEventInvoked = false;
+
+            foreach (var inboxEventInformation in inboxEventsInformation)
+            {
+                var inboxEvent = LoadInboxEvent(inboxMessage, inboxEventInformation);
+                if (!isOnExecutingEventInvoked)
+                {
+                    OnExecutingInboxEvent(inboxEvent, inboxEventInformation,
+                        serviceScope.ServiceProvider);
+                    isOnExecutingEventInvoked = true;
+                }
+
+                var eventReceiver =
+                    serviceScope.ServiceProvider.GetRequiredService(inboxEventInformation.EventHandlerType);
+                await ((Task)inboxEventInformation.HandleMethod.Invoke(eventReceiver,
+                    [inboxEvent]))!;
+            }
+
+            OnEndingInboxEvent(inboxMessage, serviceScope.ServiceProvider);
+
+            return true;
         }
         catch (Exception e)
         {
-            var exception =
-                new EventStoreException(e, $"Error while executing handler of inbox event with ID: {inboxMessage.Id}");
-            _logger.LogError(exception, exception.Message);
-            throw exception;
-        }
-
-        return;
-
-        void MarkEventAsFailedWhenThereIsNoPublisher()
-        {
-            inboxMessage.Failed(0, _settings.TryAfterMinutesIfEventNotFound);
-            _logger.LogError(
-                "No event handler configured for the {EventType} type name of inbox event with id {EventId} which is {ProviderType} provider(s).",
-                inboxMessage.EventName, inboxMessage.Id, inboxMessage.Provider);
+            // The original exception is rethrown, so the failure reason of the event starts with the real error.
+            _logger.LogError(e, "Error while executing handler of inbox event with ID: {EventId}", inboxMessage.Id);
+            throw;
         }
     }
 
@@ -282,18 +319,26 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
     /// <returns>Loaded instance of event</returns>
     private static IInboxEvent LoadInboxEvent(IInboxMessage message, EventHandlerInformation eventHandlerInformation)
     {
-        var jsonSerializerSetting = message.GetJsonSerializer();
-        var inboxEvent =
-            JsonSerializer.Deserialize(message.Payload, eventHandlerInformation.EventType, jsonSerializerSetting) as
-                IInboxEvent;
-        if (eventHandlerInformation.HasHeaders && message.Headers is not null)
-            ((IHasHeaders)inboxEvent).Headers =
-                JsonSerializer.Deserialize<Dictionary<string, string>>(message.Headers);
+        try
+        {
+            var jsonSerializerSetting = message.GetJsonSerializer();
+            var inboxEvent =
+                JsonSerializer.Deserialize(message.Payload, eventHandlerInformation.EventType, jsonSerializerSetting) as
+                    IInboxEvent;
+            if (eventHandlerInformation.HasHeaders && message.Headers is not null)
+                ((IHasHeaders)inboxEvent).Headers =
+                    JsonSerializer.Deserialize<Dictionary<string, string>>(message.Headers);
 
-        if (eventHandlerInformation.HasAdditionalData && message.AdditionalData is not null)
-            ((IHasAdditionalData)inboxEvent).AdditionalData =
-                JsonSerializer.Deserialize<Dictionary<string, string>>(message!.AdditionalData);
-        return inboxEvent;
+            if (eventHandlerInformation.HasAdditionalData && message.AdditionalData is not null)
+                ((IHasAdditionalData)inboxEvent).AdditionalData =
+                    JsonSerializer.Deserialize<Dictionary<string, string>>(message!.AdditionalData);
+            return inboxEvent;
+        }
+        catch (Exception e) when (e is JsonException or NotSupportedException)
+        {
+            throw new EventStoreException(e,
+                $"Could not deserialize the inbox event to the {eventHandlerInformation.EventType.FullName} type.");
+        }
     }
 
     /// <summary>

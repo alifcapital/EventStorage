@@ -1,8 +1,9 @@
-using System.Reflection;
+using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Repositories;
 using EventStorage.Tests.Configs;
 using EventStorage.Tests.Infrastructure;
+using EventStorage.Tests.Infrastructure.Extensions;
 
 namespace EventStorage.Tests.UnitTests;
 
@@ -26,6 +27,22 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     public void CreateTableIfNotExists_ShouldCreateTable()
     {
         Assert.That(DataContext.ExistTable(), Is.True);
+    }
+
+    [Test]
+    public void CreateTableIfNotExists_ShouldCreateIndexesForProcessingAndGettingEvents()
+    {
+        var tableName = Repository.TableName;
+
+        var indexes = DataContext.GetIndexDefinitions();
+
+        Assert.That(indexes[$"idx_{tableName}_status_try_after_at"], Does.EndWith("(status, try_after_at)"));
+        Assert.That(indexes[$"idx_{tableName}_status_updated_at"], Does.EndWith("(status, updated_at)"));
+        Assert.That(indexes[$"idx_{tableName}_created_at_id"], Does.EndWith("(created_at, id)"));
+        Assert.That(indexes[$"idx_{tableName}_event_name_created_at_id"], Does.EndWith("(event_name, created_at, id)"));
+        Assert.That(indexes[$"idx_{tableName}_status_created_at_id"], Does.EndWith("(status, created_at, id)"));
+        Assert.That(indexes.Keys, Has.No.Member($"idx_{tableName}_created_at"));
+        Assert.That(indexes.Keys, Has.No.Member($"idx_{tableName}_event_name_created_at"));
     }
 
     #endregion
@@ -78,7 +95,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryAfterAt = DateTime.Now.AddMinutes(5)
         };
 
-        var result = await Repository.InsertEventAsync(eventBox);
+        var result = await Repository.InsertEventAsync(eventBox, CancellationToken.None);
 
         Assert.That(result, Is.True);
         var eventFromDb = DataContext.GetById(eventBox.Id);
@@ -125,7 +142,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         var firstEventFromDb = DataContext.GetById(firstEvent.Id);
         Assert.That(firstEventFromDb.Id, Is.EqualTo(firstEvent.Id));
         Assert.That(firstEventFromDb.EventName, Is.EqualTo(firstEvent.EventName));
-        
+
         var secondEventFromDb = DataContext.GetById(secondEvent.Id);
         Assert.That(secondEventFromDb.Id, Is.EqualTo(secondEvent.Id));
         Assert.That(secondEventFromDb.EventName, Is.EqualTo(secondEvent.EventName));
@@ -164,7 +181,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryAfterAt = DateTime.Now.AddMinutes(5)
         };
 
-        var result = await Repository.BulkInsertEventsAsync([firstEvent, secondEvent]);
+        var result = await Repository.BulkInsertEventsAsync([firstEvent, secondEvent], CancellationToken.None);
 
         Assert.That(result, Is.True);
         var firstEventFromDb = DataContext.GetById(firstEvent.Id);
@@ -208,7 +225,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryCount = 0,
             TryAfterAt = DateTime.Now.AddMinutes(5)
         };
-        
+
         var baseEventBox3 = new TEvent
         {
             Id = Guid.NewGuid(),
@@ -222,9 +239,9 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryAfterAt = DateTime.Now.AddMinutes(-3)
         };
 
-        await Repository.BulkInsertEventsAsync([baseEventBox1, baseEventBox2, baseEventBox3]);
+        await Repository.BulkInsertEventsAsync([baseEventBox1, baseEventBox2, baseEventBox3], CancellationToken.None);
 
-        var result = await Repository.GetUnprocessedEventsAsync(5);
+        var result = await Repository.GetUnprocessedEventsAsync(5, CancellationToken.None);
 
         Assert.That(result.Length, Is.EqualTo(2));
 
@@ -233,6 +250,41 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         Assert.That(firstEvent,
             IsClass.EquivalentTo(baseEventBox1, nameof(baseEventBox1.CreatedAt), nameof(baseEventBox1.TryAfterAt)));
         Assert.That(firstEvent.TryAfterAt, Is.EqualTo(baseEventBox1.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
+    }
+
+    [Test]
+    public async Task
+        GetUnprocessedEventsAsync_ProcessedFailedAndRejectedEvents_ShouldReturnOnlyPendingAndFailedEvents()
+    {
+        var pendingEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
+        var failedEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
+        var processedEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
+        var rejectedEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
+        await Repository.BulkInsertEventsAsync([pendingEvent, failedEvent, processedEvent, rejectedEvent], CancellationToken.None);
+
+        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
+        processedEvent.Processed();
+        rejectedEvent.Rejected();
+        await Repository.UpdateEventsAsync([failedEvent, processedEvent, rejectedEvent], CancellationToken.None);
+
+        try
+        {
+            var result = await Repository.GetUnprocessedEventsAsync(500, CancellationToken.None);
+            var resultIds = result.Select(e => e.Id).ToArray();
+
+            Assert.That(resultIds, Does.Contain(pendingEvent.Id));
+            Assert.That(resultIds, Does.Contain(failedEvent.Id));
+            Assert.That(resultIds, Does.Not.Contain(processedEvent.Id));
+            Assert.That(resultIds, Does.Not.Contain(rejectedEvent.Id));
+            Assert.That(result.Single(e => e.Id == failedEvent.Id).Status, Is.EqualTo(EventStatus.Failed));
+        }
+        finally
+        {
+            // The table is shared by the tests of the fixture, so we do not leave unprocessed events for other tests.
+            pendingEvent.Processed();
+            failedEvent.Processed();
+            await Repository.UpdateEventsAsync([pendingEvent, failedEvent], CancellationToken.None);
+        }
     }
 
     #endregion
@@ -254,14 +306,14 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryCount = 0
         };
 
-        await Repository.InsertEventAsync(outboxEvent);
+        await Repository.InsertEventAsync(outboxEvent, CancellationToken.None);
 
         // Modify the event
         outboxEvent.TryCount = 1;
         outboxEvent.TryAfterAt = DateTime.Now.AddMinutes(10);
         outboxEvent.Processed();
 
-        var result = await Repository.UpdateEventAsync(outboxEvent);
+        var result = await Repository.UpdateEventAsync(outboxEvent, CancellationToken.None);
 
         Assert.That(result, Is.True);
 
@@ -269,7 +321,22 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
 
         Assert.That(updatedEvent.TryCount, Is.EqualTo(outboxEvent.TryCount));
         Assert.That(updatedEvent.TryAfterAt, Is.EqualTo(outboxEvent.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
-        Assert.That(updatedEvent.ProcessedAt, Is.EqualTo(outboxEvent.ProcessedAt).Within(TimeSpan.FromSeconds(1)));
+        Assert.That(updatedEvent.Status, Is.EqualTo(EventStatus.Processed));
+        Assert.That(updatedEvent.UpdatedAt, Is.EqualTo(outboxEvent.UpdatedAt).Within(TimeSpan.FromSeconds(1)));
+    }
+
+    [Test]
+    public async Task UpdateEventAsync_EventIsRejected_ShouldStoreStatusNameAsString()
+    {
+        var rejectedEvent = CreateEvent(DateTime.Now);
+        await Repository.InsertEventAsync(rejectedEvent, CancellationToken.None);
+        Assert.That(DataContext.GetStoredStatusById(rejectedEvent.Id), Is.EqualTo(nameof(EventStatus.Pending)));
+
+        rejectedEvent.Rejected();
+        await Repository.UpdateEventAsync(rejectedEvent, CancellationToken.None);
+
+        Assert.That(DataContext.GetStoredStatusById(rejectedEvent.Id), Is.EqualTo(nameof(EventStatus.Rejected)));
+        Assert.That(DataContext.GetById(rejectedEvent.Id).Status, Is.EqualTo(EventStatus.Rejected));
     }
 
     #endregion
@@ -303,7 +370,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryCount = 0
         };
 
-        await Repository.BulkInsertEventsAsync([outboxEvent1, outboxEvent2]);
+        await Repository.BulkInsertEventsAsync([outboxEvent1, outboxEvent2], CancellationToken.None);
 
         // Modify the events
         outboxEvent1.TryCount = 1;
@@ -314,7 +381,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         outboxEvent2.TryAfterAt = DateTime.Now.AddMinutes(10);
         outboxEvent2.Processed();
 
-        var result = await Repository.UpdateEventsAsync(new List<TEvent> { outboxEvent1, outboxEvent2 });
+        var result = await Repository.UpdateEventsAsync(new List<TEvent> { outboxEvent1, outboxEvent2 }, CancellationToken.None);
 
         Assert.That(result, Is.True);
 
@@ -323,73 +390,113 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
 
         Assert.That(updatedEvent1.TryCount, Is.EqualTo(outboxEvent1.TryCount));
         Assert.That(updatedEvent1.TryAfterAt, Is.EqualTo(outboxEvent1.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
-        Assert.That(updatedEvent1.ProcessedAt, Is.EqualTo(outboxEvent1.ProcessedAt).Within(TimeSpan.FromSeconds(1)));
+        Assert.That(updatedEvent1.Status, Is.EqualTo(EventStatus.Processed));
+        Assert.That(updatedEvent1.UpdatedAt, Is.EqualTo(outboxEvent1.UpdatedAt).Within(TimeSpan.FromSeconds(1)));
 
         Assert.That(updatedEvent2.TryCount, Is.EqualTo(outboxEvent2.TryCount));
         Assert.That(updatedEvent2.TryAfterAt, Is.EqualTo(outboxEvent2.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
-        Assert.That(updatedEvent2.ProcessedAt, Is.EqualTo(outboxEvent2.ProcessedAt).Within(TimeSpan.FromSeconds(1)));
+        Assert.That(updatedEvent2.Status, Is.EqualTo(EventStatus.Processed));
+        Assert.That(updatedEvent2.UpdatedAt, Is.EqualTo(outboxEvent2.UpdatedAt).Within(TimeSpan.FromSeconds(1)));
     }
 
     #endregion
 
-    #region IsEventProcessedAsync
+    #region GetEventStatusAsync
 
+    // The events are created with a future try time, so they do not affect the tests of getting unprocessed events.
     [Test]
-    public async Task IsEventProcessedAsync_EventExistsAndProcessed_ShouldReturnTrue()
+    public async Task GetEventStatusAsync_EventExistsAndProcessed_ShouldReturnProcessed()
     {
-        var processedEvent = new TEvent
-        {
-            Id = Guid.NewGuid(),
-            Provider = "TestProvider",
-            EventName = "ProcessedEvent",
-            EventPath = "/test/path",
-            Payload = "{}",
-            Headers = "TestHeaders",
-            AdditionalData = "TestAdditionalData",
-            TryCount = 1,
-            TryAfterAt = DateTime.Now
-        };
-        await Repository.InsertEventAsync(processedEvent);
+        var processedEvent = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(processedEvent, CancellationToken.None);
 
         processedEvent.Processed();
-        await Repository.UpdateEventAsync(processedEvent);
+        await Repository.UpdateEventAsync(processedEvent, CancellationToken.None);
 
-        var isProcessed = await Repository.IsEventProcessedAsync(processedEvent.Id);
+        var status = await Repository.GetEventStatusByIdAsync(processedEvent.Id, CancellationToken.None);
 
-        Assert.That(isProcessed, Is.True);
+        Assert.That(status, Is.EqualTo(EventStatus.Processed));
     }
 
     [Test]
-    public async Task IsEventProcessedAsync_EventExistsButNotProcessed_ShouldReturnFalse()
+    public async Task GetEventStatusAsync_EventExistsButNotProcessed_ShouldReturnPending()
     {
-        var unprocessedEvent = new TEvent
-        {
-            Id = Guid.NewGuid(),
-            Provider = "TestProvider",
-            EventName = "UnprocessedEvent",
-            EventPath = "/test/path",
-            Payload = "{}",
-            Headers = "TestHeaders",
-            AdditionalData = "TestAdditionalData",
-            TryCount = 0,
-            TryAfterAt = DateTime.Now
-        };
+        var unprocessedEvent = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(unprocessedEvent, CancellationToken.None);
 
-        await Repository.InsertEventAsync(unprocessedEvent);
+        var status = await Repository.GetEventStatusByIdAsync(unprocessedEvent.Id, CancellationToken.None);
 
-        var isProcessed = await Repository.IsEventProcessedAsync(unprocessedEvent.Id);
-
-        Assert.That(isProcessed, Is.False);
+        Assert.That(status, Is.EqualTo(EventStatus.Pending));
     }
 
     [Test]
-    public async Task IsEventProcessedAsync_EventDoesNotExist_ShouldReturnTrue()
+    public async Task GetEventStatusAsync_EventDoesNotExist_ShouldReturnNull()
     {
-        var nonExistentId = Guid.NewGuid();
+        var status = await Repository.GetEventStatusByIdAsync(Guid.NewGuid(), CancellationToken.None);
 
-        var isProcessed = await Repository.IsEventProcessedAsync(nonExistentId);
+        Assert.That(status, Is.Null);
+    }
 
-        Assert.That(isProcessed, Is.True);
+    [Test]
+    public async Task GetEventStatusAsync_EventIsRejected_ShouldReturnRejected()
+    {
+        var rejectedEvent = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(rejectedEvent, CancellationToken.None);
+
+        rejectedEvent.Rejected();
+        await Repository.UpdateEventAsync(rejectedEvent, CancellationToken.None);
+
+        var status = await Repository.GetEventStatusByIdAsync(rejectedEvent.Id, CancellationToken.None);
+
+        Assert.That(status, Is.EqualTo(EventStatus.Rejected));
+    }
+
+    #endregion
+
+    #region GetEventByIdAsync
+
+    [Test]
+    public async Task GetEventByIdAsync_EventIsFailed_ShouldReturnEventWithFailureReasonAndManualChangeInfo()
+    {
+        var failedEvent = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(failedEvent, CancellationToken.None);
+
+        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "System.Exception: Test failure",
+            performedBy: "operator", comment: "Manual execution");
+        await Repository.UpdateEventAsync(failedEvent, CancellationToken.None);
+
+        var result = await Repository.GetEventByIdAsync(failedEvent.Id, CancellationToken.None);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result.Id, Is.EqualTo(failedEvent.Id));
+        Assert.That(result.EventName, Is.EqualTo(failedEvent.EventName));
+        Assert.That(result.Payload, Is.EqualTo(failedEvent.Payload));
+        Assert.That(result.TryCount, Is.EqualTo(1));
+        Assert.That(result.Status, Is.EqualTo(EventStatus.Failed));
+        Assert.That(result.FailureReason, Is.EqualTo("System.Exception: Test failure"));
+        Assert.That(result.UpdatedBy, Is.EqualTo("operator"));
+        Assert.That(result.StatusComment, Is.EqualTo("Manual execution"));
+    }
+
+    [Test]
+    public async Task GetEventByIdAsync_EventDoesNotExist_ShouldReturnNull()
+    {
+        var result = await Repository.GetEventByIdAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task GetEventByIdAsync_EventExists_ShouldReturnStoredCreationTimeInsteadOfLoadingTime()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+        await Task.Delay(TimeSpan.FromSeconds(1.5));
+
+        var result = await Repository.GetEventByIdAsync(eventBox.Id, CancellationToken.None);
+
+        // The column keeps only seconds, so the stored value is rounded.
+        Assert.That(result.CreatedAt, Is.EqualTo(eventBox.CreatedAt).Within(TimeSpan.FromSeconds(1)));
     }
 
     #endregion
@@ -424,37 +531,429 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryCount = 0
         };
 
-        await Repository.BulkInsertEventsAsync([event1, event2]);
+        await Repository.BulkInsertEventsAsync([event1, event2], CancellationToken.None);
 
         SetProcessedTimeOfEvent(event1, DateTime.Now.AddMinutes(-20));
         SetProcessedTimeOfEvent(event2, DateTime.Now.AddMinutes(-5));
-        await Repository.UpdateEventsAsync([event1, event2]);
+        await Repository.UpdateEventsAsync([event1, event2], CancellationToken.None);
 
-        var result = await Repository.DeleteProcessedEventsAsync(processedAt);
-
+        var result = await Repository.DeleteProcessedEventsAsync(processedAt, CancellationToken.None);
         Assert.That(result, Is.True);
         Assert.That(DataContext.ExistsById(event1.Id), Is.False);
         Assert.That(DataContext.ExistsById(event2.Id), Is.True);
+    }
+
+    [Test]
+    public async Task DeleteProcessedEventsAsync_RejectedEvent_ShouldNotBeDeleted()
+    {
+        var rejectedEvent = CreateEvent(DateTime.Now);
+        await Repository.InsertEventAsync(rejectedEvent, CancellationToken.None);
+
+        rejectedEvent.Rejected();
+        rejectedEvent.SetPropertyValue(nameof(BaseMessageBox.UpdatedAt), DateTime.Now.AddDays(-1));
+        await Repository.UpdateEventAsync(rejectedEvent, CancellationToken.None);
+
+        await Repository.DeleteProcessedEventsAsync(DateTime.Now, CancellationToken.None);
+        Assert.That(DataContext.ExistsById(rejectedEvent.Id), Is.True);
+    }
+
+    #endregion
+
+    #region GetEventsAsync
+
+    // Each test uses a unique event name, since the table is shared by the tests of the fixture.
+
+    [Test]
+    public async Task GetEventsAsync_FilterByStatus_ShouldReturnOnlyEventsWithThatStatus()
+    {
+        var eventName = CreateUniqueEventName();
+        var (_, failedEvent, _, _) = await InsertEventsWithAllStatuses(eventName);
+
+        var result = await Repository.GetEventsAsync(
+            new EventsFilter { EventName = eventName, Status = EventStatus.Failed }, CancellationToken.None);
+
+        Assert.That(result.Select(e => e.Id), Is.EquivalentTo(new[] { failedEvent.Id }));
+    }
+
+    [Test]
+    public async Task GetEventsAsync_StatusIsNotProvided_ShouldReturnEventsOfAllStatuses()
+    {
+        var eventName = CreateUniqueEventName();
+        var (pendingEvent, failedEvent, rejectedEvent, processedEvent) = await InsertEventsWithAllStatuses(eventName);
+
+        var result = await Repository.GetEventsAsync(new EventsFilter { EventName = eventName },
+            CancellationToken.None);
+
+        Assert.That(result.Select(e => e.Id),
+            Is.EquivalentTo(new[] { pendingEvent.Id, failedEvent.Id, rejectedEvent.Id, processedEvent.Id }));
+    }
+
+    [Test]
+    public async Task GetEventsAsync_FilterByProvider_ShouldMatchOneOfMultipleProvidersEntirely()
+    {
+        var eventName = CreateUniqueEventName();
+        var smsEvent = CreateEventWithName(eventName, provider: "Sms");
+        var multipleProvidersEvent = CreateEventWithName(eventName, provider: "MessageBroker,Sms");
+        var httpEvent = CreateEventWithName(eventName, provider: "Http");
+        await Repository.BulkInsertEventsAsync([smsEvent, multipleProvidersEvent, httpEvent], CancellationToken.None);
+
+        var result = await Repository.GetEventsAsync(
+            new EventsFilter { EventName = eventName, EventProviderType = nameof(EventProviderType.Sms) }, CancellationToken.None);
+
+        Assert.That(result.Select(e => e.Id), Is.EquivalentTo(new[] { smsEvent.Id, multipleProvidersEvent.Id }));
+    }
+
+    [Test]
+    public async Task GetEventsAsync_FilterByCreatedTime_ShouldReturnOnlyEventsInRange()
+    {
+        var eventName = CreateUniqueEventName();
+        var eventBox = CreateEventWithName(eventName);
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+
+        var inRange = await Repository.GetEventsAsync(new EventsFilter
+        {
+            EventName = eventName, CreatedFrom = DateTime.Now.AddMinutes(-1), CreatedTo = DateTime.Now.AddMinutes(1)
+        }, CancellationToken.None);
+        var createdLater = await Repository.GetEventsAsync(
+            new EventsFilter { EventName = eventName, CreatedFrom = DateTime.Now.AddMinutes(1) }, CancellationToken.None);
+        var createdEarlier = await Repository.GetEventsAsync(
+            new EventsFilter { EventName = eventName, CreatedTo = DateTime.Now.AddMinutes(-1) }, CancellationToken.None);
+
+        Assert.That(inRange.Select(e => e.Id), Is.EqualTo(new[] { eventBox.Id }));
+        Assert.That(createdLater, Is.Empty);
+        Assert.That(createdEarlier, Is.Empty);
+    }
+
+    [Test]
+    public async Task GetEventsAsync_FilterByUpdatedTimeAndUser_ShouldReturnOnlyEventsChangedByUserInRange()
+    {
+        var eventName = CreateUniqueEventName();
+        var rejectedByOperator = CreateEventWithName(eventName);
+        var rejectedByOtherUser = CreateEventWithName(eventName);
+        var pendingEvent = CreateEventWithName(eventName);
+        await Repository.BulkInsertEventsAsync([rejectedByOperator, rejectedByOtherUser, pendingEvent],
+            CancellationToken.None);
+        rejectedByOperator.Rejected(performedBy: "operator");
+        rejectedByOtherUser.Rejected(performedBy: "other");
+        await Repository.UpdateEventsAsync([rejectedByOperator, rejectedByOtherUser], CancellationToken.None);
+
+        var result = await Repository.GetEventsAsync(new EventsFilter
+        {
+            EventName = eventName, UpdatedBy = "operator", UpdatedFrom = DateTime.Now.AddMinutes(-1),
+            UpdatedTo = DateTime.Now.AddMinutes(1)
+        }, CancellationToken.None);
+
+        Assert.That(result.Select(e => e.Id), Is.EqualTo(new[] { rejectedByOperator.Id }));
+    }
+
+    [TestCase("John")]
+    [TestCase("doe")]
+    [TestCase("JOHN DOE")]
+    public async Task GetEventsAsync_UpdatedByIsPartOfFullName_ShouldReturnEventsChangedByThatUser(string updatedBy)
+    {
+        var eventName = CreateUniqueEventName();
+        var rejectedByJohn = CreateEventWithName(eventName);
+        var rejectedByOtherUser = CreateEventWithName(eventName);
+        await Repository.BulkInsertEventsAsync([rejectedByJohn, rejectedByOtherUser], CancellationToken.None);
+        rejectedByJohn.Rejected(performedBy: "John Doe");
+        rejectedByOtherUser.Rejected(performedBy: "Jane Smith");
+        await Repository.UpdateEventsAsync([rejectedByJohn, rejectedByOtherUser], CancellationToken.None);
+
+        var result = await Repository.GetEventsAsync(new EventsFilter { EventName = eventName, UpdatedBy = updatedBy },
+            CancellationToken.None);
+
+        Assert.That(result.Select(e => e.Id), Is.EqualTo(new[] { rejectedByJohn.Id }));
+    }
+
+    [TestCase("%")]
+    [TestCase("_")]
+    public async Task GetEventsAsync_UpdatedByHasLikeWildcards_ShouldMatchAsPlainText(string updatedBy)
+    {
+        var eventName = CreateUniqueEventName();
+        var rejectedEvent = CreateEventWithName(eventName);
+        await Repository.InsertEventAsync(rejectedEvent, CancellationToken.None);
+        rejectedEvent.Rejected(performedBy: "John Doe");
+        await Repository.UpdateEventAsync(rejectedEvent, CancellationToken.None);
+
+        var result = await Repository.GetEventsAsync(new EventsFilter { EventName = eventName, UpdatedBy = updatedBy },
+            CancellationToken.None);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task GetEventsAsync_FilterByMinTryCountAndFailureReason_ShouldReturnOnlyMatchingFailedEvents()
+    {
+        var eventName = CreateUniqueEventName();
+        var failedTwice = CreateEventWithName(eventName);
+        var failedOnce = CreateEventWithName(eventName);
+        var failedTwiceWithOtherReason = CreateEventWithName(eventName);
+        await Repository.BulkInsertEventsAsync([failedTwice, failedOnce, failedTwiceWithOtherReason],
+            CancellationToken.None);
+        failedTwice.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Timeout");
+        failedTwice.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "System.TimeoutException: 100%_done");
+        failedOnce.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "System.TimeoutException: 100%_done");
+        failedTwiceWithOtherReason.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Other");
+        failedTwiceWithOtherReason.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Other");
+        await Repository.UpdateEventsAsync([failedTwice, failedOnce, failedTwiceWithOtherReason],
+            CancellationToken.None);
+
+        var result = await Repository.GetEventsAsync(new EventsFilter
+        {
+            EventName = eventName, MinTryCount = 2, FailureReasonContains = "timeoutexception: 100%_"
+        }, CancellationToken.None);
+
+        Assert.That(result.Select(e => e.Id), Is.EqualTo(new[] { failedTwice.Id }));
+    }
+
+    [TestCase("a1b2c3")]
+    [TestCase("\"UserId\": \"A1B2C3\"")]
+    public async Task GetEventsAsync_FilterByPayload_ShouldReturnOnlyEventsWhosePayloadContainsText(
+        string payloadContains)
+    {
+        var eventName = CreateUniqueEventName();
+        var matchingEvent = CreateEventWithName(eventName, payload: "{\"UserId\":\"A1B2C3\",\"Name\":\"Test\"}");
+        var otherEvent = CreateEventWithName(eventName, payload: "{\"UserId\":\"D4E5F6\",\"Name\":\"Test\"}");
+        await Repository.BulkInsertEventsAsync([matchingEvent, otherEvent], CancellationToken.None);
+
+        var result = await Repository.GetEventsAsync(
+            new EventsFilter { EventName = eventName, PayloadContains = payloadContains }, CancellationToken.None);
+
+        Assert.That(result.Select(e => e.Id), Is.EqualTo(new[] { matchingEvent.Id }));
+    }
+
+    [TestCase("%")]
+    [TestCase("_")]
+    public async Task GetEventsAsync_PayloadContainsHasLikeWildcards_ShouldMatchAsPlainText(string payloadContains)
+    {
+        var eventName = CreateUniqueEventName();
+        await Repository.InsertEventAsync(CreateEventWithName(eventName, payload: "{\"Name\":\"Test\"}"),
+            CancellationToken.None);
+
+        var result = await Repository.GetEventsAsync(
+            new EventsFilter { EventName = eventName, PayloadContains = payloadContains }, CancellationToken.None);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task GetEventsAsync_EventExists_ShouldLoadAllColumnsOfEvent()
+    {
+        var eventName = CreateUniqueEventName();
+        var failedEvent = CreateEventWithName(eventName);
+        await Repository.InsertEventAsync(failedEvent, CancellationToken.None);
+        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure", performedBy: "operator",
+            comment: "Test comment");
+        await Repository.UpdateEventAsync(failedEvent, CancellationToken.None);
+
+        var result = (await Repository.GetEventsAsync(new EventsFilter { EventName = eventName }, CancellationToken.None)).Single();
+
+        Assert.That(result.Id, Is.EqualTo(failedEvent.Id));
+        Assert.That(result.Provider, Is.EqualTo(failedEvent.Provider));
+        Assert.That(result.EventName, Is.EqualTo(eventName));
+        Assert.That(result.EventPath, Is.EqualTo(failedEvent.EventPath));
+        Assert.That(result.Payload, Is.EqualTo(failedEvent.Payload));
+        Assert.That(result.Headers, Is.EqualTo(failedEvent.Headers));
+        Assert.That(result.AdditionalData, Is.EqualTo(failedEvent.AdditionalData));
+        Assert.That(result.Status, Is.EqualTo(EventStatus.Failed));
+        Assert.That(result.TryCount, Is.EqualTo(1));
+        Assert.That(result.FailureReason, Is.EqualTo("Test failure"));
+        Assert.That(result.UpdatedBy, Is.EqualTo("operator"));
+        Assert.That(result.StatusComment, Is.EqualTo("Test comment"));
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task GetEventsAsync_PagingByPageIndex_ShouldReturnAllEventsOnceInOrder(bool sortDescending)
+    {
+        var eventName = CreateUniqueEventName();
+        var events = Enumerable.Range(0, 5).Select(_ => CreateEventWithName(eventName)).ToArray();
+        await Repository.BulkInsertEventsAsync(events, CancellationToken.None);
+        var filter = new EventsFilter { EventName = eventName, SortDescending = sortDescending };
+
+        var allEvents = await Repository.GetEventsAsync(filter, CancellationToken.None);
+        var pages = new List<EventPagedList<TEvent>>();
+        for (var pageIndex = 1; pageIndex <= 3; pageIndex++)
+            pages.Add(await Repository.GetEventsAsync(filter with { PageIndex = pageIndex, PageSize = 2 },
+                CancellationToken.None));
+
+        // Postgres compares the uuid values byte by byte, which is the same as the ordinal order of their strings.
+        var expectedOrder = sortDescending
+            ? allEvents.OrderByDescending(e => e.CreatedAt).ThenByDescending(e => e.Id.ToString(), StringComparer.Ordinal)
+            : allEvents.OrderBy(e => e.CreatedAt).ThenBy(e => e.Id.ToString(), StringComparer.Ordinal);
+        Assert.That(allEvents.Select(e => e.Id), Is.EquivalentTo(events.Select(e => e.Id)));
+        Assert.That(allEvents.Select(e => e.Id), Is.EqualTo(expectedOrder.Select(e => e.Id)));
+        Assert.That(pages.SelectMany(p => p).Select(e => e.Id), Is.EqualTo(allEvents.Select(e => e.Id)));
+        Assert.That(pages.Select(p => p.Count), Is.EqualTo(new[] { 2, 2, 1 }));
+        Assert.That(pages.Select(p => p.HasNextPage), Is.EqualTo(new[] { true, true, false }));
+        Assert.That(pages.Select(p => p.PageIndex), Is.EqualTo(new[] { 1, 2, 3 }));
+    }
+
+    [Test]
+    public async Task GetEventsAsync_EventsFitPageExactly_ShouldNotHaveNextPage()
+    {
+        var eventName = CreateUniqueEventName();
+        var events = Enumerable.Range(0, 2).Select(_ => CreateEventWithName(eventName)).ToArray();
+        await Repository.BulkInsertEventsAsync(events, CancellationToken.None);
+
+        var result = await Repository.GetEventsAsync(new EventsFilter { EventName = eventName, PageSize = 2 },
+            CancellationToken.None);
+
+        Assert.That(result, Has.Count.EqualTo(2));
+        Assert.That(result.HasNextPage, Is.False);
+        Assert.That(result.PageSize, Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task GetEventsAsync_PageIsAfterLastEvent_ShouldReturnEmptyPage()
+    {
+        var eventName = CreateUniqueEventName();
+        await Repository.InsertEventAsync(CreateEventWithName(eventName), CancellationToken.None);
+
+        var result = await Repository.GetEventsAsync(
+            new EventsFilter { EventName = eventName, PageIndex = 2, PageSize = 1 }, CancellationToken.None);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(result.HasNextPage, Is.False);
+    }
+
+    #endregion
+
+    #region Cancellation
+
+    protected static IEnumerable<TestCaseData> AsyncMethodsWithCancellation()
+    {
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.InsertEventAsync),
+            (repository, token) => repository.InsertEventAsync(CreateEvent(DateTime.Now), token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.BulkInsertEventsAsync),
+            (repository, token) => repository.BulkInsertEventsAsync([CreateEvent(DateTime.Now)], token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.GetUnprocessedEventsAsync),
+            (repository, token) => repository.GetUnprocessedEventsAsync(5, token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.UpdateEventAsync),
+            (repository, token) => repository.UpdateEventAsync(CreateEvent(DateTime.Now), token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.UpdateEventsAsync),
+            (repository, token) => repository.UpdateEventsAsync([CreateEvent(DateTime.Now)], token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.GetEventStatusByIdAsync),
+            (repository, token) => repository.GetEventStatusByIdAsync(Guid.NewGuid(), token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.GetEventByIdAsync),
+            (repository, token) => repository.GetEventByIdAsync(Guid.NewGuid(), token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.DeleteProcessedEventsAsync),
+            (repository, token) => repository.DeleteProcessedEventsAsync(DateTime.Now, token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.GetEventsAsync),
+            (repository, token) => repository.GetEventsAsync(new EventsFilter(), token));
+    }
+
+    [TestCaseSource(nameof(AsyncMethodsWithCancellation))]
+    public void AsyncMethod_CancellationRequested_ShouldThrowOperationCanceledInsteadOfEventStoreException(
+        Func<BaseEventRepository<TEvent>, CancellationToken, Task> executeMethod)
+    {
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        Assert.CatchAsync<OperationCanceledException>(() => executeMethod(Repository, cancellationTokenSource.Token));
+    }
+
+    [Test]
+    public void InsertEventAsync_CancellationRequested_EventShouldNotBeInserted()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddHours(1));
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            Repository.InsertEventAsync(eventBox, cancellationTokenSource.Token));
+        Assert.That(DataContext.ExistsById(eventBox.Id), Is.False);
+    }
+
+    [Test]
+    public async Task UpdateEventAsync_CancellationRequested_EventShouldNotBeUpdated()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        eventBox.Rejected();
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            Repository.UpdateEventAsync(eventBox, cancellationTokenSource.Token));
+        Assert.That(DataContext.GetStoredStatusById(eventBox.Id), Is.EqualTo(nameof(EventStatus.Pending)));
     }
 
     #endregion
 
     #region Helper methods
 
-    /// <summary>
-    /// Sets the processed time of the event. Since ProcessedAt has a private setter, we use reflection to set its value.
-    /// </summary>
-    private void SetProcessedTimeOfEvent(TEvent eventBox, DateTime processedAt)
+    private static TestCaseData CreateAsyncMethodCase(string methodName,
+        Func<BaseEventRepository<TEvent>, CancellationToken, Task> executeMethod)
     {
-        const string nameOfProperty = nameof(BaseMessageBox.ProcessedAt);
-        var property = typeof(TEvent).GetProperty(nameOfProperty,
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        return new TestCaseData(executeMethod).SetArgDisplayNames(methodName);
+    }
 
-        var setter = property?.GetSetMethod(nonPublic: true);
-        if (setter == null)
-            throw new InvalidOperationException($"Private setter for {nameOfProperty} not found in {typeof(TEvent).Name}");
+    private static string CreateUniqueEventName() => $"Filter_{Guid.NewGuid():N}";
 
-        setter.Invoke(eventBox, new object[] { processedAt });
+    /// <summary>
+    /// Creates an event with a future try time, so it does not affect the tests of getting unprocessed events.
+    /// </summary>
+    /// <summary>
+    /// Inserts one event per status with the given name.
+    /// </summary>
+    private async Task<(TEvent Pending, TEvent Failed, TEvent Rejected, TEvent Processed)> InsertEventsWithAllStatuses(
+        string eventName)
+    {
+        var pendingEvent = CreateEventWithName(eventName);
+        var failedEvent = CreateEventWithName(eventName);
+        var rejectedEvent = CreateEventWithName(eventName);
+        var processedEvent = CreateEventWithName(eventName);
+        await Repository.BulkInsertEventsAsync([pendingEvent, failedEvent, rejectedEvent, processedEvent],
+            CancellationToken.None);
+        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
+        rejectedEvent.Rejected();
+        processedEvent.Processed();
+        await Repository.UpdateEventsAsync([failedEvent, rejectedEvent, processedEvent], CancellationToken.None);
+
+        return (pendingEvent, failedEvent, rejectedEvent, processedEvent);
+    }
+
+    private static TEvent CreateEventWithName(string eventName, string provider = "TestProvider",
+        string payload = "{}")
+    {
+        return new TEvent
+        {
+            Id = Guid.NewGuid(),
+            Provider = provider,
+            EventName = eventName,
+            EventPath = "/test/path",
+            Payload = payload,
+            Headers = "TestHeaders",
+            AdditionalData = "TestAdditionalData",
+            TryCount = 0,
+            TryAfterAt = DateTime.Now.AddHours(1)
+        };
+    }
+
+    private static TEvent CreateEvent(DateTime tryAfterAt)
+    {
+        return new TEvent
+        {
+            Id = Guid.NewGuid(),
+            Provider = "TestProvider",
+            EventName = "TestEvent" + typeof(TEvent).FullName,
+            EventPath = "/test/path",
+            Payload = "{}",
+            Headers = "TestHeaders",
+            AdditionalData = "TestAdditionalData",
+            TryCount = 0,
+            TryAfterAt = tryAfterAt
+        };
+    }
+
+    /// <summary>
+    /// Marks the event as processed at the given time. Since UpdatedAt has a non-public setter, we use reflection to set its value.
+    /// </summary>
+    private static void SetProcessedTimeOfEvent(TEvent eventBox, DateTime processedAt)
+    {
+        eventBox.Processed();
+        eventBox.SetPropertyValue(nameof(BaseMessageBox.UpdatedAt), processedAt);
     }
 
     #endregion

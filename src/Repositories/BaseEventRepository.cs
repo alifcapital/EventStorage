@@ -4,6 +4,7 @@ using EventStorage.Configurations;
 using EventStorage.Exceptions;
 using EventStorage.Extensions;
 using EventStorage.Instrumentation.Trace;
+using EventStorage.Management.Models;
 using EventStorage.Models;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -15,103 +16,68 @@ namespace EventStorage.Repositories;
 /// </summary>
 /// <param name="logger">The logger instance.</param>
 /// <param name="settings">The inbox or outbox settings.</param>
+/// <param name="secondsToWaitForMigrationLock">Seconds to wait for the exclusive lock of the table while migrating its old schema.</param>
 /// <typeparam name="TBaseMessage">The type of the message to store.</typeparam>
-internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxOrOutboxStructure settings)
+internal abstract class BaseEventRepository<TBaseMessage>(
+    ILogger logger,
+    InboxOrOutboxStructure settings,
+    int secondsToWaitForMigrationLock)
     : IBaseEventRepository<TBaseMessage>
     where TBaseMessage : class, IBaseMessageBox
 {
-    private readonly string _connectionString = settings.ConnectionString;
+    /// <summary>
+    /// The connection string of the database where the table is located.
+    /// </summary>
+    internal readonly string ConnectionString = settings.ConnectionString;
 
     /// <summary>
     /// The name of the table for connecting repository to the correct table in the database.
     /// </summary>
-    protected readonly string TableName = settings.TableName;
+    protected internal readonly string TableName = settings.TableName;
+
+    /// <summary>
+    /// Seconds to wait for the exclusive lock of the table while migrating its old schema.
+    /// </summary>
+    internal readonly int SecondsToWaitForMigrationLock = secondsToWaitForMigrationLock;
+
+    /// <summary>
+    /// The logger instance.
+    /// </summary>
+    internal ILogger Logger => logger;
 
     /// <summary>
     /// The tag/prefix of the trace message for logging purposes.
     /// </summary>
     protected abstract string TraceMessageTag { get; }
 
-    #region Create tables or indexes if not exists
+    /// <summary>
+    /// The tag/prefix of the storage type (inbox or outbox) for logging purposes.
+    /// </summary>
+    internal string StorageTypeTag => TraceMessageTag;
 
     /// <summary>
-    /// The SQL script for creating the table for storing events if it does not exist.
+    /// Whether the table has the naming policy column. The outbox table does not have it.
     /// </summary>
-    protected virtual string CreateTableSqlScript => $@"CREATE TABLE IF NOT EXISTS {TableName}
-                (
-                    id UUID NOT NULL PRIMARY KEY,
-                    provider VARCHAR(50) NOT NULL,
-                    event_name VARCHAR(100) NOT NULL,
-                    event_path VARCHAR(255),
-                    payload JSONB,
-                    headers TEXT,
-                    additional_data TEXT,
-                    naming_policy_type VARCHAR(15),
-                    created_at TIMESTAMP(0) NOT NULL,
-                    try_count integer DEFAULT 0 NOT NULL,
-                    try_after_at TIMESTAMP(0) NOT NULL,
-                    processed_at TIMESTAMP(0) DEFAULT NULL
-                );";
+    internal virtual bool HasNamingPolicyColumn => true;
 
     /// <summary>
-    /// The SQL script for migrating the payload column from text to jsonb type if the column exists and has text type.
-    /// This is for supporting the old versions of the library which used text type for payload column.
+    /// Creates the table if it does not exist and migrates its schema. All schema changes must be added to the
+    /// <see cref="BaseEventRepositorySchemaExtensions"/> instead of this class.
     /// </summary>
-    private string MigratePayloadColumnToJsonbScript => $@"
-                DO $$
-                BEGIN
-                    IF EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_schema = 'public'
-                            AND table_name = '{TableName}'
-                            AND column_name = 'payload'
-                            AND data_type = 'text'
-                    ) THEN
-                        ALTER TABLE {TableName} ALTER COLUMN payload TYPE JSONB USING payload::jsonb;
-                    END IF;
-                END
-                $$;";
-
-    /// <summary>
-    /// The SQL script for creating indexes for the table. It creates an index for getting unprocessed events and another index for deleting processed events.
-    /// </summary>
-    private string CreateIndexesScript => $@"CREATE INDEX IF NOT EXISTS idx_for_get_unprocessed_events_of_{TableName}
-                    ON public.{TableName} (processed_at, try_after_at);
-
-                CREATE INDEX IF NOT EXISTS idx_for_delete_processed_events_of_{TableName}
-                    ON public.{TableName} (processed_at);";
-
-    public void CreateTableIfNotExists()
-    {
-        try
-        {
-            using var dbConnection = new NpgsqlConnection(_connectionString);
-            dbConnection.Open();
-
-            dbConnection.Execute(CreateTableSqlScript);
-            dbConnection.Execute(MigratePayloadColumnToJsonbScript);
-            dbConnection.Execute(CreateIndexesScript);
-        }
-        catch (Exception e)
-        {
-            throw new EventStoreException(e, $"Error while checking/creating {TableName} table.");
-        }
-    }
-
-    #endregion
+    public void CreateTableIfNotExists() => this.CreateOrMigrateTableSchema();
 
     #region InsertEventAsync
 
     /// <summary>
-    /// The SQL query for inserting a new event to the database.
+    /// The SQL query for inserting a new event to the database. The naming policy column is included only if the table has it.
     /// </summary>
-    protected virtual string SqlQueryToInsertEvent => $@"
+    private string SqlQueryToInsertEvent => $@"
                 INSERT INTO {TableName} (
-                    id, provider, event_name, event_path, payload, headers, 
-                    additional_data, naming_policy_type, created_at, try_count, try_after_at
+                    id, provider, event_name, event_path, payload, headers,
+                    additional_data,{(HasNamingPolicyColumn ? " naming_policy_type," : string.Empty)} created_at, try_count, try_after_at, status
                 ) VALUES (
                     @Id, @Provider, @EventName, @EventPath, @Payload::jsonb, @Headers,
-                    @AdditionalData, @NamingPolicyType, @CreatedAt, @TryCount, @TryAfterAt
+                    @AdditionalData,{(HasNamingPolicyColumn ? " @NamingPolicyType," : string.Empty)} @CreatedAt, @TryCount, @TryAfterAt, @StatusName
                 )";
 
     public bool InsertEvent(TBaseMessage message)
@@ -119,7 +85,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
         using var activity = CreateLogsForInvestigation(message);
         try
         {
-            using var dbConnection = new NpgsqlConnection(_connectionString);
+            using var dbConnection = new NpgsqlConnection(ConnectionString);
             dbConnection.Open();
             dbConnection.Execute(SqlQueryToInsertEvent, message);
 
@@ -135,18 +101,19 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
         }
     }
 
-    public async Task<bool> InsertEventAsync(TBaseMessage message)
+    public async Task<bool> InsertEventAsync(TBaseMessage message, CancellationToken cancellationToken)
     {
         using var activity = CreateLogsForInvestigation(message);
         try
         {
-            await using var dbConnection = new NpgsqlConnection(_connectionString);
-            await dbConnection.OpenAsync();
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var affectedRows = await dbConnection.ExecuteAsync(SqlQueryToInsertEvent, message);
+            var affectedRows = await dbConnection.ExecuteAsync(
+                new CommandDefinition(SqlQueryToInsertEvent, message, cancellationToken: cancellationToken));
             return affectedRows > 0;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             if (e is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
                 return false;
@@ -160,18 +127,19 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
 
     #region BulkInsertEventsAsync
 
-    public async Task<bool> BulkInsertEventsAsync(TBaseMessage[] events)
+    public async Task<bool> BulkInsertEventsAsync(TBaseMessage[] events, CancellationToken cancellationToken)
     {
         using var activity = CreateActivityAndAddLogForBulkInsertIfEnabled(events);
         try
         {
-            await using var dbConnection = new NpgsqlConnection(_connectionString);
-            await dbConnection.OpenAsync();
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var affectedRows = await dbConnection.ExecuteAsync(SqlQueryToInsertEvent, events);
+            var affectedRows = await dbConnection.ExecuteAsync(
+                new CommandDefinition(SqlQueryToInsertEvent, events, cancellationToken: cancellationToken));
             return affectedRows > 0;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             if (e is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
                 return false;
@@ -187,7 +155,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
         using var activity = CreateActivityAndAddLogForBulkInsertIfEnabled(events);
         try
         {
-            using var dbConnection = new NpgsqlConnection(_connectionString);
+            using var dbConnection = new NpgsqlConnection(ConnectionString);
             dbConnection.Open();
 
             var affectedRows = dbConnection.Execute(SqlQueryToInsertEvent, events);
@@ -208,37 +176,47 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
 
     #region GetUnprocessedEventsAsync
 
-    protected virtual string SqlQueryToGetUnprocessedEvents => $@"
-                SELECT id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"", 
-                        event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"", 
+    /// <summary>
+    /// The columns of the table to select, mapped to the properties of the message.
+    /// The naming policy column is included only if the table has it.
+    /// </summary>
+    private string SqlSelectColumns => $@"
+                        id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"",
+                        event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"",
                         payload::text as ""{nameof(IBaseMessageBox.Payload)}"", headers as ""{nameof(IBaseMessageBox.Headers)}"",
-                        naming_policy_type as ""{nameof(IBaseMessageBox.NamingPolicyType)}"", 
-                        additional_data as ""{nameof(IBaseMessageBox.AdditionalData)}"", created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"", 
-                        try_count as ""{nameof(IBaseMessageBox.TryCount)}"", try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"", 
-                        processed_at as ""{nameof(IBaseMessageBox.ProcessedAt)}""
+                        {(HasNamingPolicyColumn ? $@"naming_policy_type as ""{nameof(IBaseMessageBox.NamingPolicyType)}""," : string.Empty)}
+                        additional_data as ""{nameof(IBaseMessageBox.AdditionalData)}"", created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"",
+                        try_count as ""{nameof(IBaseMessageBox.TryCount)}"", try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"",
+                        status as ""{nameof(IBaseMessageBox.Status)}"", failure_reason as ""{nameof(IBaseMessageBox.FailureReason)}"",
+                        updated_at as ""{nameof(IBaseMessageBox.UpdatedAt)}"", updated_by as ""{nameof(IBaseMessageBox.UpdatedBy)}"",
+                        status_comment as ""{nameof(IBaseMessageBox.StatusComment)}""";
+
+    private string SqlQueryToGetUnprocessedEvents => $@"
+                SELECT {SqlSelectColumns}
                 FROM {TableName}
                 WHERE 
-                    processed_at IS NULL
+                    status IN ('{nameof(EventStatus.Pending)}', '{nameof(EventStatus.Failed)}')
                     AND try_after_at <= @CurrentTime
                 ORDER BY created_at ASC
                 LIMIT @Limit";
 
-    public async Task<TBaseMessage[]> GetUnprocessedEventsAsync(int limit)
+    public async Task<TBaseMessage[]> GetUnprocessedEventsAsync(int limit, CancellationToken cancellationToken)
     {
         try
         {
-            await using var dbConnection = new NpgsqlConnection(_connectionString);
-            await dbConnection.OpenAsync();
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var unprocessedEvents = await dbConnection.QueryAsync<TBaseMessage>(SqlQueryToGetUnprocessedEvents, new
-            {
-                CurrentTime = DateTime.Now,
-                Limit = limit
-            });
+            var unprocessedEvents = await dbConnection.QueryAsync<TBaseMessage>(new CommandDefinition(
+                SqlQueryToGetUnprocessedEvents, new
+                {
+                    CurrentTime = DateTime.Now,
+                    Limit = limit
+                }, cancellationToken: cancellationToken));
 
             return unprocessedEvents.ToArray();
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             throw new EventStoreException(e, $"Error while retrieving unprocessed events from the {TableName} table.");
         }
@@ -253,37 +231,44 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
                 SET 
                     try_count = @TryCount,
                     try_after_at = @TryAfterAt,
-                    processed_at = @ProcessedAt
+                    status = @StatusName,
+                    failure_reason = @FailureReason,
+                    updated_at = @UpdatedAt,
+                    updated_by = @UpdatedBy,
+                    status_comment = @StatusComment
                 WHERE id = @Id";
 
-    public async Task<bool> UpdateEventAsync(TBaseMessage @event)
+    public async Task<bool> UpdateEventAsync(TBaseMessage @event, CancellationToken cancellationToken)
     {
         try
         {
-            await using var dbConnection = new NpgsqlConnection(_connectionString);
-            await dbConnection.OpenAsync();
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var affectedRows = await dbConnection.ExecuteAsync(_sqlUpdateEventQuery, @event);
+            var command = new CommandDefinition(_sqlUpdateEventQuery, @event, cancellationToken: cancellationToken);
+            var affectedRows = await dbConnection.ExecuteAsync(command);
             return affectedRows > 0;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             throw new EventStoreException(e,
                 $"Error while updating the event in the {TableName} table with the {@event.Id} id.");
         }
     }
 
-    public async Task<bool> UpdateEventsAsync(IEnumerable<TBaseMessage> events)
+    public async Task<bool> UpdateEventsAsync(IEnumerable<TBaseMessage> events,
+        CancellationToken cancellationToken)
     {
         try
         {
-            await using var dbConnection = new NpgsqlConnection(_connectionString);
-            await dbConnection.OpenAsync();
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var affectedRows = await dbConnection.ExecuteAsync(_sqlUpdateEventQuery, events);
+            var affectedRows = await dbConnection.ExecuteAsync(
+                new CommandDefinition(_sqlUpdateEventQuery, events, cancellationToken: cancellationToken));
             return affectedRows > 0;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             throw new EventStoreException(e, $"Error while updating events of the {TableName} table.");
         }
@@ -291,26 +276,185 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
 
     #endregion
 
-    #region IsEventProcessedAsync
+    #region GetEventStatusByIdAsync
 
-    private readonly string _sqlCheckEventQuery = $@"
-                SELECT processed_at IS NOT NULL FROM {settings.TableName} WHERE id = @Id";
+    private readonly string _sqlGetEventStatusQuery = $@"
+                SELECT status FROM {settings.TableName} WHERE id = @Id";
 
-    public async Task<bool> IsEventProcessedAsync(Guid id)
+    public async Task<EventStatus?> GetEventStatusByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         try
         {
-            await using var dbConnection = new NpgsqlConnection(_connectionString);
-            dbConnection.Open();
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var result = await dbConnection.QuerySingleOrDefaultAsync<bool?>(_sqlCheckEventQuery, new { Id = id });
-            return result ?? true;
+            var status = await dbConnection.QuerySingleOrDefaultAsync<string>(
+                new CommandDefinition(_sqlGetEventStatusQuery, new { Id = id }, cancellationToken: cancellationToken));
+            return status is null ? null : Enum.Parse<EventStatus>(status);
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             throw new EventStoreException(e,
-                $"Error while checking if the event with id {id} is processed in the {TableName} table.");
+                $"Error while getting the status of the event with id {id} from the {TableName} table.");
         }
+    }
+
+    #endregion
+
+    #region GetEventByIdAsync
+
+    private string SqlQueryToGetEventById => $@"
+                SELECT {SqlSelectColumns}
+                FROM {TableName}
+                WHERE id = @Id";
+
+    public async Task<TBaseMessage> GetEventByIdAsync(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
+            await dbConnection.OpenAsync(cancellationToken);
+
+            var command = new CommandDefinition(SqlQueryToGetEventById, new { Id = id },
+                cancellationToken: cancellationToken);
+            return await dbConnection.QuerySingleOrDefaultAsync<TBaseMessage>(command);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            throw new EventStoreException(e, $"Error while getting the event with id {id} from the {TableName} table.");
+        }
+    }
+
+    #endregion
+
+    #region GetEventsAsync
+
+    private const string LikeEscapeCharacter = @"\";
+
+    public async Task<EventPagedList<TBaseMessage>> GetEventsAsync(EventsFilter filter,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var (sqlQuery, parameters) = BuildQueryToGetEvents(filter);
+
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
+            await dbConnection.OpenAsync(cancellationToken);
+
+            var events = await dbConnection.QueryAsync<TBaseMessage>(
+                new CommandDefinition(sqlQuery, parameters, cancellationToken: cancellationToken));
+            return events.ToArray().ToPagedList(filter.PageIndex, filter.PageSize);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            throw new EventStoreException(e, $"Error while getting events by the filter from the {TableName} table.");
+        }
+    }
+
+    /// <summary>
+    /// Builds the SQL query with the conditions of the given filters only. All values are passed as parameters.
+    /// </summary>
+    private (string SqlQuery, DynamicParameters Parameters) BuildQueryToGetEvents(EventsFilter filter)
+    {
+        var conditions = new List<string>();
+        var parameters = new DynamicParameters();
+
+        if (filter.Status.HasValue)
+        {
+            conditions.Add("status = @Status");
+            parameters.Add("Status", filter.Status.Value.ToString());
+        }
+
+        if (!string.IsNullOrEmpty(filter.EventName))
+        {
+            conditions.Add("event_name = @EventName");
+            parameters.Add("EventName", filter.EventName);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.EventProviderType))
+        {
+            // The outbox event may have multiple providers separated by comma, so one of them must match entirely.
+            conditions.Add($"(',' || provider || ',') LIKE @ProviderPattern ESCAPE '{LikeEscapeCharacter}'");
+            parameters.Add("ProviderPattern", $"%,{EscapeLikePattern(filter.EventProviderType)},%");
+        }
+
+        if (filter.CreatedFrom.HasValue)
+        {
+            conditions.Add("created_at >= @CreatedFrom");
+            parameters.Add("CreatedFrom", filter.CreatedFrom.Value);
+        }
+
+        if (filter.CreatedTo.HasValue)
+        {
+            conditions.Add("created_at <= @CreatedTo");
+            parameters.Add("CreatedTo", filter.CreatedTo.Value);
+        }
+
+        if (filter.UpdatedFrom.HasValue)
+        {
+            conditions.Add("updated_at >= @UpdatedFrom");
+            parameters.Add("UpdatedFrom", filter.UpdatedFrom.Value);
+        }
+
+        if (filter.UpdatedTo.HasValue)
+        {
+            conditions.Add("updated_at <= @UpdatedTo");
+            parameters.Add("UpdatedTo", filter.UpdatedTo.Value);
+        }
+
+        if (!string.IsNullOrEmpty(filter.UpdatedBy))
+        {
+            // The user name may be a full name, so it is enough to match a part of it, such as the first name.
+            conditions.Add($"updated_by ILIKE @UpdatedByPattern ESCAPE '{LikeEscapeCharacter}'");
+            parameters.Add("UpdatedByPattern", $"%{EscapeLikePattern(filter.UpdatedBy)}%");
+        }
+
+        if (filter.MinTryCount.HasValue)
+        {
+            conditions.Add("try_count >= @MinTryCount");
+            parameters.Add("MinTryCount", filter.MinTryCount.Value);
+        }
+
+        if (!string.IsNullOrEmpty(filter.FailureReasonContains))
+        {
+            conditions.Add($"failure_reason ILIKE @FailureReasonPattern ESCAPE '{LikeEscapeCharacter}'");
+            parameters.Add("FailureReasonPattern", $"%{EscapeLikePattern(filter.FailureReasonContains)}%");
+        }
+
+        if (!string.IsNullOrEmpty(filter.PayloadContains))
+        {
+            conditions.Add($"payload::text ILIKE @PayloadPattern ESCAPE '{LikeEscapeCharacter}'");
+            parameters.Add("PayloadPattern", $"%{EscapeLikePattern(filter.PayloadContains)}%");
+        }
+
+        // One more event is loaded to identify whether there is a next page without counting all events.
+        var skip = (filter.PageIndex - 1) * filter.PageSize;
+        var take = filter.PageSize + 1;
+        parameters.Add("Offset", skip);
+        parameters.Add("Limit", take);
+
+        var sortDirection = filter.SortDescending ? "DESC" : "ASC";
+        var whereClause = conditions.Count == 0 ? string.Empty : $"WHERE {string.Join(" AND ", conditions)}";
+        var sqlQuery = $@"
+                SELECT {SqlSelectColumns}
+                FROM {TableName}
+                {whereClause}
+                ORDER BY created_at {sortDirection}, id {sortDirection}
+                OFFSET @Offset
+                LIMIT @Limit";
+
+        return (sqlQuery, parameters);
+    }
+
+    /// <summary>
+    /// Escapes the special characters of the LIKE pattern, so the value is matched as a plain text.
+    /// </summary>
+    private static string EscapeLikePattern(string value)
+    {
+        return value
+            .Replace(LikeEscapeCharacter, LikeEscapeCharacter + LikeEscapeCharacter)
+            .Replace("%", LikeEscapeCharacter + "%")
+            .Replace("_", LikeEscapeCharacter + "_");
     }
 
     #endregion
@@ -319,19 +463,21 @@ internal abstract class BaseEventRepository<TBaseMessage>(ILogger logger, InboxO
 
     private readonly string _sqlDeleteEventQuery = $@"
                 DELETE FROM {settings.TableName}
-                WHERE processed_at < @ProcessedAt";
+                WHERE status = '{nameof(EventStatus.Processed)}' AND updated_at < @ProcessedAt";
 
-    public async Task<bool> DeleteProcessedEventsAsync(DateTime processedAt)
+    public async Task<bool> DeleteProcessedEventsAsync(DateTime processedAt, CancellationToken cancellationToken)
     {
-        await using var dbConnection = new NpgsqlConnection(_connectionString);
+        await using var dbConnection = new NpgsqlConnection(ConnectionString);
         try
         {
-            await dbConnection.OpenAsync();
+            await dbConnection.OpenAsync(cancellationToken);
 
-            var deletedRows = await dbConnection.ExecuteAsync(_sqlDeleteEventQuery, new { ProcessedAt = processedAt });
+            var deletedRows = await dbConnection.ExecuteAsync(
+                new CommandDefinition(_sqlDeleteEventQuery, new { ProcessedAt = processedAt },
+                    cancellationToken: cancellationToken));
             return deletedRows > 0;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
             throw new EventStoreException(e, $"Error while deleting processed events from the {TableName} table.");
         }

@@ -35,7 +35,7 @@ internal abstract class BaseEventsProcessorJob(
         {
             try
             {
-                await eventsProcessor.ExecuteUnprocessedEvents(stoppingToken);
+                await eventsProcessor.ExecuteUnprocessedEventsAsync(stoppingToken);
             }
             catch (Exception e)
             {
