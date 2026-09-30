@@ -84,7 +84,7 @@ internal class InboxEventsServiceTests
     #region GetEventsAsync
 
     [Test]
-    public async Task GetEventsAsync_RepositoryReturnsPage_ShouldReturnSummariesWithSamePagination()
+    public async Task GetEventsAsync_RepositoryReturnsPage_ShouldReturnEventsWithSamePagination()
     {
         var messages = new[] { CreateMessage(), CreateMessage(), CreateMessage() };
         MockGetEvents(messages);
@@ -110,7 +110,7 @@ internal class InboxEventsServiceTests
     }
 
     [Test]
-    public async Task GetEventsAsync_EventExists_ShouldMapItToSummary()
+    public async Task GetEventsAsync_EventExists_ShouldMapItToEventDetails()
     {
         var message = CreateMessage();
         message.Rejected(Request.PerformedBy, Request.Comment);
@@ -118,16 +118,18 @@ internal class InboxEventsServiceTests
 
         var result = await _service.GetEventsAsync(new EventsFilter(), CancellationToken.None);
 
-        var summary = result.Single();
-        Assert.That(summary.Id, Is.EqualTo(message.Id));
-        Assert.That(summary.Provider, Is.EqualTo(message.Provider));
-        Assert.That(summary.EventName, Is.EqualTo(message.EventName));
-        Assert.That(summary.EventPath, Is.EqualTo(message.EventPath));
-        Assert.That(summary.CreatedAt, Is.EqualTo(message.CreatedAt));
-        Assert.That(summary.TryAfterAt, Is.EqualTo(message.TryAfterAt));
-        Assert.That(summary.Status, Is.EqualTo(EventStatus.Rejected));
-        Assert.That(summary.UpdatedAt, Is.EqualTo(message.UpdatedAt));
-        Assert.That(summary.UpdatedBy, Is.EqualTo(Request.PerformedBy));
+        var eventDetails = result.Single();
+        Assert.That(eventDetails.Id, Is.EqualTo(message.Id));
+        Assert.That(eventDetails.Provider, Is.EqualTo(message.Provider));
+        Assert.That(eventDetails.EventName, Is.EqualTo(message.EventName));
+        Assert.That(eventDetails.EventPath, Is.EqualTo(message.EventPath));
+        Assert.That(eventDetails.Payload, Is.EqualTo(message.Payload));
+        Assert.That(eventDetails.CreatedAt, Is.EqualTo(message.CreatedAt));
+        Assert.That(eventDetails.TryAfterAt, Is.EqualTo(message.TryAfterAt));
+        Assert.That(eventDetails.Status, Is.EqualTo(EventStatus.Rejected));
+        Assert.That(eventDetails.UpdatedAt, Is.EqualTo(message.UpdatedAt));
+        Assert.That(eventDetails.UpdatedBy, Is.EqualTo(Request.PerformedBy));
+        Assert.That(eventDetails.StatusComment, Is.EqualTo(Request.Comment));
     }
 
     [Test]

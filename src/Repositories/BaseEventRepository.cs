@@ -329,16 +329,6 @@ internal abstract class BaseEventRepository<TBaseMessage>(
 
     #region GetEventsAsync
 
-    /// <summary>
-    /// The columns of the <see cref="Management.Models.EventSummary"/>. The large columns are not loaded for the lists.
-    /// </summary>
-    private const string SqlSummaryColumns = $@"
-                        id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"",
-                        event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"",
-                        created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"", try_count as ""{nameof(IBaseMessageBox.TryCount)}"",
-                        try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"", status as ""{nameof(IBaseMessageBox.Status)}"",
-                        updated_at as ""{nameof(IBaseMessageBox.UpdatedAt)}"", updated_by as ""{nameof(IBaseMessageBox.UpdatedBy)}""";
-
     private const string LikeEscapeCharacter = @"\";
 
     public async Task<EventPagedList<TBaseMessage>> GetEventsAsync(EventsFilter filter,
@@ -437,7 +427,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
         var sortDirection = filter.SortDescending ? "DESC" : "ASC";
         var whereClause = conditions.Count == 0 ? string.Empty : $"WHERE {string.Join(" AND ", conditions)}";
         var sqlQuery = $@"
-                SELECT {SqlSummaryColumns}
+                SELECT {SqlSelectColumns}
                 FROM {TableName}
                 {whereClause}
                 ORDER BY created_at {sortDirection}, id {sortDirection}

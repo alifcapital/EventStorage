@@ -18,8 +18,7 @@ public interface IEventsManagementService
     Task<EventDetails> GetEventByIdAsync(Guid id, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Gets the page of events by the filter, ordered by the creation time. The events are returned without the large
-    /// data such as the payload, which can be got by the <see cref="GetEventByIdAsync"/>.
+    /// Gets the page of events by the filter, ordered by the creation time. The events are returned with all their details.
     /// The <see cref="EventPagedList{TItem}.HasNextPage"/> shows whether the next page exists.
     /// </summary>
     /// <param name="filter">The filter of the events. Null to get the first page of all events with the default page size.</param>

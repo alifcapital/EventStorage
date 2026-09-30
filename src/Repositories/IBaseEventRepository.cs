@@ -81,8 +81,7 @@ internal interface IBaseEventRepository<TBaseMessage> : ITableCreator
     Task<TBaseMessage> GetEventByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets the page of events by the filter, ordered by the creation time. Only the columns of the
-    /// <see cref="EventSummary"/> are loaded, the large columns such as the payload are not.
+    /// Gets the page of events by the filter, ordered by the creation time.
     /// </summary>
     /// <param name="filter">The filter of the events with the valid page index and page size.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
