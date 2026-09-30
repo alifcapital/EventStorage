@@ -70,6 +70,13 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
         return messages.MapItems(m => m.ToEventDetails());
     }
 
+    public string[] GetProviderTypes()
+    {
+        EnsureIsEnabled();
+
+        return Enum.GetNames<EventProviderType>();
+    }
+
     #endregion
 
     #region ExecuteAsync

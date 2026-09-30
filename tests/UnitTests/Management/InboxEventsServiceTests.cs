@@ -208,6 +208,31 @@ internal class InboxEventsServiceTests
 
     #endregion
 
+    #region GetProviderTypes
+
+    [Test]
+    public void GetProviderTypes_FunctionalityIsEnabled_ShouldReturnNamesOfAllProviderTypes()
+    {
+        var result = _service.GetProviderTypes();
+
+        Assert.That(result, Is.EqualTo(new[]
+        {
+            nameof(EventProviderType.MessageBroker), nameof(EventProviderType.WebHook), nameof(EventProviderType.Sms),
+            nameof(EventProviderType.Email), nameof(EventProviderType.gRPC), nameof(EventProviderType.Http),
+            nameof(EventProviderType.Unknown)
+        }));
+    }
+
+    [Test]
+    public void GetProviderTypes_FunctionalityIsNotEnabled_ShouldThrowException()
+    {
+        var service = CreateService(isEnabled: false);
+
+        Assert.Throws<EventStoreException>(() => service.GetProviderTypes());
+    }
+
+    #endregion
+
     #region ExecuteAsync
 
     [Test]

@@ -1,4 +1,5 @@
 ﻿using EventStorage.Management.Models;
+using EventStorage.Models;
 
 namespace EventStorage.Management;
 
@@ -24,6 +25,13 @@ public interface IEventsManagementService
     /// <param name="filter">The filter of the events. Null to get the first page of all events with the default page size.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     Task<EventPagedList<EventDetails>> GetEventsAsync(EventsFilter filter, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Gets the names of all provider types of the events, for example to show them as the options of the
+    /// <see cref="EventsFilter.EventProviderType"/> filter.
+    /// </summary>
+    /// <returns>Returns the names of all values of the <see cref="EventProviderType"/>.</returns>
+    string[] GetProviderTypes();
 
     /// <summary>
     /// Executes the Pending/Failed event right now and waits for the result. A processed event is executed only with

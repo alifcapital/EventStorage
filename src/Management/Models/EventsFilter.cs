@@ -9,6 +9,11 @@ namespace EventStorage.Management.Models;
 public record EventsFilter
 {
     /// <summary>
+    /// The default count of events to return in a page.
+    /// </summary>
+    public const int DefaultPageSize = 25;
+
+    /// <summary>
     /// Returns only the events with the given status. If it is null, the events of all statuses are returned.
     /// </summary>
     public EventStatus? Status { get; init; }
@@ -68,11 +73,6 @@ public record EventsFilter
     /// It is not indexed, so it should be combined with other filters on big tables.
     /// </summary>
     public string PayloadContains { get; init; }
-
-    /// <summary>
-    /// The default count of events to return in a page.
-    /// </summary>
-    public const int DefaultPageSize = 25;
 
     /// <summary>
     /// The index of the page, starting from 1. If it is less than 1, the first page is returned.

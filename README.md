@@ -436,6 +436,7 @@ Things to know before you start:
 |---|---|
 | `GetEventByIdAsync(id, ct)` | The `EventDetails` of the event, or `null` if there is no event with that id. |
 | `GetEventsAsync(filter, ct)` | A page of events (`EventPagedList<EventDetails>`) that match the filter. |
+| `GetProviderTypes()` | The names of all `EventProviderType` values (`MessageBroker`, `WebHook`, `Sms`, `Email`, `gRPC`, `Http`, `Unknown`), for example to show them as the options of the `EventProviderType` filter. |
 
 `EventDetails` has all the columns of the event: `Id`, `Provider`, `EventName`, `EventPath`, `Payload`, `Headers`, `AdditionalData`, `NamingPolicyType`, `CreatedAt`, `TryCount`, `TryAfterAt`, `Status`, `FailureReason`, `UpdatedAt`, `UpdatedBy` and `StatusComment`.
 
