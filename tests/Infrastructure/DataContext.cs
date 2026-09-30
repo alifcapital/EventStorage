@@ -23,6 +23,23 @@ internal class DataContext<TEvent> where TEvent : BaseMessageBox, new()
         return tableCount > 0;
     }
 
+    /// <summary>
+    /// Gets the definitions of all indexes of the table, as PostgreSQL returns them, mapped by the index name.
+    /// </summary>
+    public Dictionary<string, string> GetIndexDefinitions()
+    {
+        var sql = "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = @tableName";
+        var command = _dataSource.CreateCommand(sql);
+        command.Parameters.Add(new NpgsqlParameter("@tableName", _tableName));
+
+        var indexes = new Dictionary<string, string>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+            indexes.Add(reader.GetString(0), reader.GetString(1));
+
+        return indexes;
+    }
+
     public TEvent GetById(Guid id)
     {
         var sql = @$"SELECT * FROM {_tableName} where id = @id";

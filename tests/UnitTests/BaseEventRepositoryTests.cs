@@ -29,6 +29,22 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         Assert.That(DataContext.ExistTable(), Is.True);
     }
 
+    [Test]
+    public void CreateTableIfNotExists_ShouldCreateIndexesForProcessingAndGettingEvents()
+    {
+        var tableName = Repository.TableName;
+
+        var indexes = DataContext.GetIndexDefinitions();
+
+        Assert.That(indexes[$"idx_{tableName}_status_try_after_at"], Does.EndWith("(status, try_after_at)"));
+        Assert.That(indexes[$"idx_{tableName}_status_updated_at"], Does.EndWith("(status, updated_at)"));
+        Assert.That(indexes[$"idx_{tableName}_created_at_id"], Does.EndWith("(created_at, id)"));
+        Assert.That(indexes[$"idx_{tableName}_event_name_created_at_id"], Does.EndWith("(event_name, created_at, id)"));
+        Assert.That(indexes[$"idx_{tableName}_status_created_at_id"], Does.EndWith("(status, created_at, id)"));
+        Assert.That(indexes.Keys, Has.No.Member($"idx_{tableName}_created_at"));
+        Assert.That(indexes.Keys, Has.No.Member($"idx_{tableName}_event_name_created_at"));
+    }
+
     #endregion
 
     #region InsertEvent

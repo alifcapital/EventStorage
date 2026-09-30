@@ -56,8 +56,8 @@ internal static class BaseEventRepositorySchemaExtensions
                     event_path VARCHAR(255),
                     payload JSONB,
                     headers TEXT,
-                    additional_data TEXT,{(hasNamingPolicyColumn ? @"
-                    naming_policy_type VARCHAR(15)," : string.Empty)}
+                    additional_data TEXT,
+                    {(hasNamingPolicyColumn ? "naming_policy_type VARCHAR(15)," : string.Empty)}
                     created_at TIMESTAMP(0) NOT NULL,
                     try_count integer DEFAULT 0 NOT NULL,
                     try_after_at TIMESTAMP(0) NOT NULL,
@@ -88,8 +88,19 @@ internal static class BaseEventRepositorySchemaExtensions
                 $$;";
 
     /// <summary>
-    /// The SQL script for creating indexes for the table: for getting unprocessed events, for deleting processed events
-    /// and for filtering events by the creation time and the event name.
+    /// The SQL script for creating indexes for the table:
+    /// <list type="bullet">
+    /// <item>(status, try_after_at) - for getting unprocessed events by the processor.</item>
+    /// <item>(status, updated_at) - for deleting processed events and for filtering events by the status and the update time.</item>
+    /// <item>(created_at, id), (event_name, created_at, id) and (status, created_at, id) - for getting the events for
+    /// the lists, with or without the event name or the status filter. They have the same order as the query
+    /// (created_at, id), so the page is read directly from the index in both directions without sorting and without
+    /// reading the events of the previous pages from the table.</item>
+    /// </list>
+    /// The provider, the try count and the text filters (updated_by, failure_reason, payload) are not indexed, since
+    /// the provider and the try count have only a few different values and the text filters search for a part of the
+    /// text, which cannot use a B-tree index. These filters are checked while reading the events in the order of
+    /// the indexes above.
     /// </summary>
     private static string CreateIndexesScript(string tableName) => $@"CREATE INDEX IF NOT EXISTS idx_{tableName}_status_try_after_at
                     ON public.{tableName} (status, try_after_at);
@@ -97,11 +108,14 @@ internal static class BaseEventRepositorySchemaExtensions
                 CREATE INDEX IF NOT EXISTS idx_{tableName}_status_updated_at
                     ON public.{tableName} (status, updated_at);
 
-                CREATE INDEX IF NOT EXISTS idx_{tableName}_created_at
-                    ON public.{tableName} (created_at);
+                CREATE INDEX IF NOT EXISTS idx_{tableName}_created_at_id
+                    ON public.{tableName} (created_at, id);
 
-                CREATE INDEX IF NOT EXISTS idx_{tableName}_event_name_created_at
-                    ON public.{tableName} (event_name, created_at);";
+                CREATE INDEX IF NOT EXISTS idx_{tableName}_event_name_created_at_id
+                    ON public.{tableName} (event_name, created_at, id);
+
+                CREATE INDEX IF NOT EXISTS idx_{tableName}_status_created_at_id
+                    ON public.{tableName} (status, created_at, id);";
 
     #endregion
 

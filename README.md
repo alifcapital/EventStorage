@@ -454,7 +454,7 @@ All filters of `EventsFilter` are optional. The ones you set are combined with A
 | `FailureReasonContains` | whose failure reason contains this text, ignoring case. |
 | `PayloadContains` | whose payload contains this text, ignoring case, for example the id of an entity. |
 
-`FailureReasonContains` and `PayloadContains` are not indexed, so combine them with other filters (such as a time range) on big tables. The payload is stored as JSON and searched in PostgreSQL's format, which has a space after `:` and `,`. So search `"UserId": "A1B2"` rather than `"UserId":"A1B2"`, or just the value `A1B2`.
+The `Status`, `EventName` and `CreatedFrom`/`CreatedTo` filters use indexes, so they stay fast on big tables, even on deep pages. The other filters are checked while the events are read in the creation order. The text filters (`UpdatedBy`, `FailureReasonContains` and `PayloadContains`) are the slowest, since they search for a part of the text, so combine them with an indexed filter (such as `Status` or a time range) on big tables. The payload is stored as JSON and searched in PostgreSQL's format, which has a space after `:` and `,`. So search `"UserId": "A1B2"` rather than `"UserId":"A1B2"`, or just the value `A1B2`.
 
 Paging and sorting:
 
