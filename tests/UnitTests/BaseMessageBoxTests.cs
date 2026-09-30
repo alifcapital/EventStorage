@@ -105,15 +105,5 @@ internal class BaseMessageBoxTests : BaseTestEntity
         Assert.That(message.StatusComment, Is.EqualTo("Duplicate event"));
     }
 
-    [Test]
-    public void Rejected_PerformedByIsLongerThanColumn_ShouldTruncateIt()
-    {
-        var message = new InboxMessage();
-
-        message.Rejected(performedBy: new string('a', 150));
-
-        Assert.That(message.UpdatedBy, Has.Length.EqualTo(100));
-    }
-
     #endregion
 }

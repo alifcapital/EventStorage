@@ -371,11 +371,11 @@ internal abstract class BaseEventRepository<TBaseMessage>(
             parameters.Add("EventName", filter.EventName);
         }
 
-        if (filter.EventProviderType is not null)
+        if (!string.IsNullOrWhiteSpace(filter.EventProviderType))
         {
             // The outbox event may have multiple providers separated by comma, so one of them must match entirely.
             conditions.Add($"(',' || provider || ',') LIKE @ProviderPattern ESCAPE '{LikeEscapeCharacter}'");
-            parameters.Add("ProviderPattern", $"%,{EscapeLikePattern(filter.EventProviderType.ToString())},%");
+            parameters.Add("ProviderPattern", $"%,{EscapeLikePattern(filter.EventProviderType)},%");
         }
 
         if (filter.CreatedFrom.HasValue)

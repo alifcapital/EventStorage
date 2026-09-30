@@ -246,10 +246,9 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         }
         catch (Exception e)
         {
-            var exception =
-                new EventStoreException(e, $"Error while executing handler of inbox event with ID: {inboxMessage.Id}");
-            _logger.LogError(exception, exception.Message);
-            throw exception;
+            // The original exception is rethrown, so the failure reason of the event starts with the real error.
+            _logger.LogError(e, "Error while executing handler of inbox event with ID: {EventId}", inboxMessage.Id);
+            throw;
         }
     }
 

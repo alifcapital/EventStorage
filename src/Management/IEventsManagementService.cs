@@ -44,7 +44,7 @@ public interface IEventsManagementService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Makes the rejected event pending again, to be processed at the given time.
+    /// Makes the Pending/Failed/Rejected event pending, to be processed after the given time.
     /// </summary>
     /// <param name="id">The id of the event.</param>
     /// <param name="tryAfterAt">The time after which the event should be processed.</param>

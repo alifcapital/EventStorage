@@ -363,10 +363,26 @@ internal class InboxEventsServiceTests
     }
 
     [Test]
-    public async Task RescheduleAsync_FailedEvent_ShouldReturnInvalidState()
+    public async Task RescheduleAsync_FailedEvent_ShouldMakeItPendingWithNewTryTime()
     {
         var message = CreateMessage();
         message.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
+        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
+        var tryAfterAt = DateTime.Now.AddHours(1);
+
+        var result = await _service.RescheduleAsync(message.Id, tryAfterAt, Request, CancellationToken.None);
+
+        Assert.That(result.IsSuccess, Is.True);
+        Assert.That(message.Status, Is.EqualTo(EventStatus.Pending));
+        Assert.That(message.TryAfterAt, Is.EqualTo(tryAfterAt));
+        await _repository.Received(1).UpdateEventAsync(message, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task RescheduleAsync_ProcessedEvent_ShouldReturnInvalidState()
+    {
+        var message = CreateMessage();
+        message.Processed();
         _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
 
         var result = await _service.RescheduleAsync(message.Id, DateTime.Now, Request, CancellationToken.None);

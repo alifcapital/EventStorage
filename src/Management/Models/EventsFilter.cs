@@ -27,7 +27,7 @@ public record EventsFilter
     /// Returns only the events with the given provider. The outbox events with multiple providers (separated by comma)
     /// are returned if one of them matches.
     /// </summary>
-    public EventProviderType? EventProviderType { get; init; }
+    public string EventProviderType { get; init; }
 
     /// <summary>
     /// Returns only the events created at or after the given time.
