@@ -1,6 +1,7 @@
 ﻿using EventStorage.Configurations;
 using EventStorage.Constants;
 using EventStorage.Exceptions;
+using EventStorage.Extensions;
 using EventStorage.Inbox;
 using EventStorage.Inbox.Models;
 using EventStorage.Inbox.Repositories;
@@ -76,6 +77,131 @@ internal class InboxEventsServiceTests
         Assert.CatchAsync<OperationCanceledException>(() =>
             _service.GetEventByIdAsync(Guid.NewGuid(), cancellationTokenSource.Token));
         await _repository.DidNotReceive().GetEventByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    #endregion
+
+    #region GetEventsAsync
+
+    [Test]
+    public async Task GetEventsAsync_RepositoryReturnsPage_ShouldReturnSummariesWithSamePagination()
+    {
+        var messages = new[] { CreateMessage(), CreateMessage(), CreateMessage() };
+        MockGetEvents(messages);
+
+        var result = await _service.GetEventsAsync(new EventsFilter { PageIndex = 2, PageSize = 2 },
+            CancellationToken.None);
+
+        Assert.That(result.Select(e => e.Id), Is.EqualTo(messages.Take(2).Select(m => m.Id)));
+        Assert.That(result.PageIndex, Is.EqualTo(2));
+        Assert.That(result.PageSize, Is.EqualTo(2));
+        Assert.That(result.HasNextPage, Is.True);
+    }
+
+    [Test]
+    public async Task GetEventsAsync_LastPage_ShouldNotHaveNextPage()
+    {
+        MockGetEvents([CreateMessage(), CreateMessage()]);
+
+        var result = await _service.GetEventsAsync(new EventsFilter { PageSize = 2 }, CancellationToken.None);
+
+        Assert.That(result, Has.Count.EqualTo(2));
+        Assert.That(result.HasNextPage, Is.False);
+    }
+
+    [Test]
+    public async Task GetEventsAsync_EventExists_ShouldMapItToSummary()
+    {
+        var message = CreateMessage();
+        message.Rejected(Request.PerformedBy, Request.Comment);
+        MockGetEvents([message]);
+
+        var result = await _service.GetEventsAsync(new EventsFilter(), CancellationToken.None);
+
+        var summary = result.Single();
+        Assert.That(summary.Id, Is.EqualTo(message.Id));
+        Assert.That(summary.Provider, Is.EqualTo(message.Provider));
+        Assert.That(summary.EventName, Is.EqualTo(message.EventName));
+        Assert.That(summary.EventPath, Is.EqualTo(message.EventPath));
+        Assert.That(summary.CreatedAt, Is.EqualTo(message.CreatedAt));
+        Assert.That(summary.TryAfterAt, Is.EqualTo(message.TryAfterAt));
+        Assert.That(summary.Status, Is.EqualTo(EventStatus.Rejected));
+        Assert.That(summary.UpdatedAt, Is.EqualTo(message.UpdatedAt));
+        Assert.That(summary.UpdatedBy, Is.EqualTo(Request.PerformedBy));
+    }
+
+    [Test]
+    public async Task GetEventsAsync_ValidFilter_ShouldPassItAndCancellationTokenToRepository()
+    {
+        var filter = new EventsFilter { PageIndex = 3, PageSize = 10, EventName = "TestEvent" };
+        using var cancellationTokenSource = new CancellationTokenSource();
+        MockGetEvents([]);
+
+        await _service.GetEventsAsync(filter, cancellationTokenSource.Token);
+
+        await _repository.Received(1).GetEventsAsync(filter, cancellationTokenSource.Token);
+    }
+
+    [Test]
+    public async Task GetEventsAsync_FilterIsNull_ShouldGetFirstPageWithDefaultPageSize()
+    {
+        MockGetEvents([]);
+
+        var result = await _service.GetEventsAsync(filter: null, CancellationToken.None);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(result.PageIndex, Is.EqualTo(1));
+        Assert.That(result.PageSize, Is.EqualTo(EventsFilter.DefaultPageSize));
+        await _repository.Received(1).GetEventsAsync(new EventsFilter(), Arg.Any<CancellationToken>());
+    }
+
+    [TestCase(0, 1)]
+    [TestCase(-5, 1)]
+    [TestCase(4, 4)]
+    public async Task GetEventsAsync_PageIndexIsPassed_ShouldUseFirstPageIfItIsLessThanOne(int pageIndex,
+        int expectedPageIndex)
+    {
+        MockGetEvents([]);
+
+        await _service.GetEventsAsync(new EventsFilter { PageIndex = pageIndex }, CancellationToken.None);
+
+        await _repository.Received(1).GetEventsAsync(Arg.Is<EventsFilter>(f => f.PageIndex == expectedPageIndex),
+            Arg.Any<CancellationToken>());
+    }
+
+    [TestCase(0, EventsFilter.DefaultPageSize)]
+    [TestCase(-1, EventsFilter.DefaultPageSize)]
+    [TestCase(100, 100)]
+    public async Task GetEventsAsync_PageSizeIsPassed_ShouldUseDefaultPageSizeIfItIsLessThanOne(int pageSize,
+        int expectedPageSize)
+    {
+        MockGetEvents([]);
+
+        await _service.GetEventsAsync(new EventsFilter { PageSize = pageSize }, CancellationToken.None);
+
+        await _repository.Received(1).GetEventsAsync(Arg.Is<EventsFilter>(f => f.PageSize == expectedPageSize),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task GetEventsAsync_FunctionalityIsNotEnabled_ShouldThrowWithoutReadingEvents()
+    {
+        var service = CreateService(isEnabled: false);
+
+        Assert.ThrowsAsync<EventStoreException>(() =>
+            service.GetEventsAsync(new EventsFilter(), CancellationToken.None));
+        await _repository.DidNotReceiveWithAnyArgs().GetEventsAsync(default, default);
+    }
+
+    [Test]
+    public async Task GetEventsAsync_CancellationRequested_ShouldThrowWithoutReadingEvents()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            _service.GetEventsAsync(new EventsFilter(), cancellationTokenSource.Token));
+        await _repository.DidNotReceiveWithAnyArgs().GetEventsAsync(default, default);
     }
 
     #endregion
@@ -279,6 +405,13 @@ internal class InboxEventsServiceTests
         var distributedSynchronizationHandle = Substitute.For<IDistributedSynchronizationHandle>();
         _distributedLock.TryAcquireAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(distributedSynchronizationHandle);
+    }
+
+    private void MockGetEvents(InboxMessage[] messages)
+    {
+        _repository.GetEventsAsync(Arg.Any<EventsFilter>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => messages.ToPagedList(callInfo.Arg<EventsFilter>().PageIndex,
+                callInfo.Arg<EventsFilter>().PageSize));
     }
 
     private static InboxMessage CreateMessage()

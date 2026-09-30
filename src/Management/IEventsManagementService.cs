@@ -18,6 +18,15 @@ public interface IEventsManagementService
     Task<EventDetails> GetEventByIdAsync(Guid id, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Gets the page of events by the filter, ordered by the creation time. The events are returned without the large
+    /// data such as the payload, which can be got by the <see cref="GetEventByIdAsync"/>.
+    /// The <see cref="EventPagedList{TItem}.HasNextPage"/> shows whether the next page exists.
+    /// </summary>
+    /// <param name="filter">The filter of the events. Null to get the first page of all events with the default page size.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    Task<EventPagedList<EventDetails>> GetEventsAsync(EventsFilter filter, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Executes the Pending/Failed event right now and waits for the result. A processed event is executed only with
     /// the <see cref="EventActionRequest.Force"/> option, since re-running it may cause duplicate side effects.
     /// </summary>

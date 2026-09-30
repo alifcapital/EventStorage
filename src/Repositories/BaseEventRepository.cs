@@ -4,6 +4,7 @@ using EventStorage.Configurations;
 using EventStorage.Exceptions;
 using EventStorage.Extensions;
 using EventStorage.Instrumentation.Trace;
+using EventStorage.Management.Models;
 using EventStorage.Models;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -322,6 +323,139 @@ internal abstract class BaseEventRepository<TBaseMessage>(
         {
             throw new EventStoreException(e, $"Error while getting the event with id {id} from the {TableName} table.");
         }
+    }
+
+    #endregion
+
+    #region GetEventsAsync
+
+    /// <summary>
+    /// The columns of the <see cref="Management.Models.EventSummary"/>. The large columns are not loaded for the lists.
+    /// </summary>
+    private const string SqlSummaryColumns = $@"
+                        id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"",
+                        event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"",
+                        created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"", try_count as ""{nameof(IBaseMessageBox.TryCount)}"",
+                        try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"", status as ""{nameof(IBaseMessageBox.Status)}"",
+                        updated_at as ""{nameof(IBaseMessageBox.UpdatedAt)}"", updated_by as ""{nameof(IBaseMessageBox.UpdatedBy)}""";
+
+    private const string LikeEscapeCharacter = @"\";
+
+    public async Task<EventPagedList<TBaseMessage>> GetEventsAsync(EventsFilter filter,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var (sqlQuery, parameters) = BuildQueryToGetEvents(filter);
+
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
+            await dbConnection.OpenAsync(cancellationToken);
+
+            var events = await dbConnection.QueryAsync<TBaseMessage>(
+                new CommandDefinition(sqlQuery, parameters, cancellationToken: cancellationToken));
+            return events.ToArray().ToPagedList(filter.PageIndex, filter.PageSize);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            throw new EventStoreException(e, $"Error while getting events by the filter from the {TableName} table.");
+        }
+    }
+
+    /// <summary>
+    /// Builds the SQL query with the conditions of the given filters only. All values are passed as parameters.
+    /// </summary>
+    private (string SqlQuery, DynamicParameters Parameters) BuildQueryToGetEvents(EventsFilter filter)
+    {
+        var conditions = new List<string>();
+        var parameters = new DynamicParameters();
+
+        if (filter.Statuses is { Length: > 0 })
+        {
+            conditions.Add("status = ANY(@Statuses)");
+            parameters.Add("Statuses", filter.Statuses.Select(s => s.ToString()).Distinct().ToArray());
+        }
+
+        if (!string.IsNullOrEmpty(filter.EventName))
+        {
+            conditions.Add("event_name = @EventName");
+            parameters.Add("EventName", filter.EventName);
+        }
+
+        if (!string.IsNullOrEmpty(filter.Provider))
+        {
+            // The outbox event may have multiple providers separated by comma, so one of them must match entirely.
+            conditions.Add($"(',' || provider || ',') LIKE @ProviderPattern ESCAPE '{LikeEscapeCharacter}'");
+            parameters.Add("ProviderPattern", $"%,{EscapeLikePattern(filter.Provider)},%");
+        }
+
+        if (filter.CreatedFrom.HasValue)
+        {
+            conditions.Add("created_at >= @CreatedFrom");
+            parameters.Add("CreatedFrom", filter.CreatedFrom.Value);
+        }
+
+        if (filter.CreatedTo.HasValue)
+        {
+            conditions.Add("created_at <= @CreatedTo");
+            parameters.Add("CreatedTo", filter.CreatedTo.Value);
+        }
+
+        if (filter.UpdatedFrom.HasValue)
+        {
+            conditions.Add("updated_at >= @UpdatedFrom");
+            parameters.Add("UpdatedFrom", filter.UpdatedFrom.Value);
+        }
+
+        if (filter.UpdatedTo.HasValue)
+        {
+            conditions.Add("updated_at <= @UpdatedTo");
+            parameters.Add("UpdatedTo", filter.UpdatedTo.Value);
+        }
+
+        if (!string.IsNullOrEmpty(filter.UpdatedBy))
+        {
+            conditions.Add("updated_by = @UpdatedBy");
+            parameters.Add("UpdatedBy", filter.UpdatedBy);
+        }
+
+        if (filter.MinTryCount.HasValue)
+        {
+            conditions.Add("try_count >= @MinTryCount");
+            parameters.Add("MinTryCount", filter.MinTryCount.Value);
+        }
+
+        if (!string.IsNullOrEmpty(filter.FailureReasonContains))
+        {
+            conditions.Add($"failure_reason ILIKE @FailureReasonPattern ESCAPE '{LikeEscapeCharacter}'");
+            parameters.Add("FailureReasonPattern", $"%{EscapeLikePattern(filter.FailureReasonContains)}%");
+        }
+
+        // One more event is loaded to identify whether there is a next page without counting all events.
+        parameters.Add("Offset", (filter.PageIndex - 1) * filter.PageSize);
+        parameters.Add("Limit", filter.PageSize + 1);
+
+        var sortDirection = filter.SortDescending ? "DESC" : "ASC";
+        var whereClause = conditions.Count == 0 ? string.Empty : $"WHERE {string.Join(" AND ", conditions)}";
+        var sqlQuery = $@"
+                SELECT {SqlSummaryColumns}
+                FROM {TableName}
+                {whereClause}
+                ORDER BY created_at {sortDirection}, id {sortDirection}
+                OFFSET @Offset
+                LIMIT @Limit";
+
+        return (sqlQuery, parameters);
+    }
+
+    /// <summary>
+    /// Escapes the special characters of the LIKE pattern, so the value is matched as a plain text.
+    /// </summary>
+    private static string EscapeLikePattern(string value)
+    {
+        return value
+            .Replace(LikeEscapeCharacter, LikeEscapeCharacter + LikeEscapeCharacter)
+            .Replace("%", LikeEscapeCharacter + "%")
+            .Replace("_", LikeEscapeCharacter + "_");
     }
 
     #endregion
