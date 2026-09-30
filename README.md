@@ -336,7 +336,7 @@ try
     IInboxEventManager inboxEventManager = scope.ServiceProvider.GetService<IInboxEventManager>();
     if (inboxEventManager is not null)
     {
-        var succussfullyReceived = await inboxEventManager.StoreAsync(receivedEvent, EventProviderType.MessageBroker);
+        var succussfullyReceived = inboxEventManager.Store(receivedEvent, EventProviderType.MessageBroker);
         if(succussfullyReceived){
             //If the event received twice, it will return false. You need to add your logic to manage this use case.
         }
