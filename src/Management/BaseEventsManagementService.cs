@@ -53,7 +53,7 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
         return message.ToEventDetails();
     }
 
-    public async Task<EventPagedList<EventDetails>> GetEventsAsync(EventsFilter filter,
+    public async Task<EventPagedList<EventSummary>> GetEventsAsync(EventsFilter filter,
         CancellationToken cancellationToken)
     {
         EnsureIsEnabled();
@@ -66,8 +66,7 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
             PageSize = filter.PageSize < 1 ? EventsFilter.DefaultPageSize : filter.PageSize
         };
 
-        var messages = await Repository.GetEventsAsync(filter, cancellationToken);
-        return messages.MapItems(m => m.ToEventDetails());
+        return await Repository.GetEventsAsync(filter, cancellationToken);
     }
 
     public string[] GetProviderTypes()

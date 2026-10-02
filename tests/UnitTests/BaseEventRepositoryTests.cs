@@ -737,7 +737,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     }
 
     [Test]
-    public async Task GetEventsAsync_EventExists_ShouldLoadAllColumnsOfEvent()
+    public async Task GetEventsAsync_EventExists_ShouldLoadAllColumnsOfEventSummary()
     {
         var eventName = CreateUniqueEventName();
         var failedEvent = CreateEventWithName(eventName);
@@ -752,14 +752,10 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         Assert.That(result.Provider, Is.EqualTo(failedEvent.Provider));
         Assert.That(result.EventName, Is.EqualTo(eventName));
         Assert.That(result.EventPath, Is.EqualTo(failedEvent.EventPath));
-        Assert.That(result.Payload, Is.EqualTo(failedEvent.Payload));
-        Assert.That(result.Headers, Is.EqualTo(failedEvent.Headers));
-        Assert.That(result.AdditionalData, Is.EqualTo(failedEvent.AdditionalData));
         Assert.That(result.Status, Is.EqualTo(EventStatus.Failed));
         Assert.That(result.TryCount, Is.EqualTo(1));
         Assert.That(result.FailureReason, Is.EqualTo("Test failure"));
         Assert.That(result.UpdatedBy, Is.EqualTo("operator"));
-        Assert.That(result.StatusComment, Is.EqualTo("Test comment"));
     }
 
     [TestCase(true)]
@@ -772,7 +768,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         var filter = new EventsFilter { EventName = eventName, SortDescending = sortDescending };
 
         var allEvents = await Repository.GetEventsAsync(filter, CancellationToken.None);
-        var pages = new List<EventPagedList<TEvent>>();
+        var pages = new List<EventPagedList<EventSummary>>();
         for (var pageIndex = 1; pageIndex <= 3; pageIndex++)
             pages.Add(await Repository.GetEventsAsync(filter with { PageIndex = pageIndex, PageSize = 2 },
                 CancellationToken.None));

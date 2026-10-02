@@ -435,10 +435,10 @@ Things to know before you start:
 | Method | Returns |
 |---|---|
 | `GetEventByIdAsync(id, ct)` | The `EventDetails` of the event, or `null` if there is no event with that id. |
-| `GetEventsAsync(filter, ct)` | A page of events (`EventPagedList<EventDetails>`) that match the filter. |
+| `GetEventsAsync(filter, ct)` | A page of event summaries (`EventPagedList<EventSummary>`) that match the filter. |
 | `GetProviderTypes()` | The names of all `EventProviderType` values (`MessageBroker`, `WebHook`, `Sms`, `Email`, `gRPC`, `Http`, `Unknown`), for example to show them as the options of the `EventProviderType` filter. |
 
-`EventDetails` has all the columns of the event: `Id`, `Provider`, `EventName`, `EventPath`, `Payload`, `Headers`, `AdditionalData`, `NamingPolicyType`, `CreatedAt`, `TryCount`, `TryAfterAt`, `Status`, `FailureReason`, `UpdatedAt`, `UpdatedBy` and `StatusComment`.
+`EventSummary` has the main columns of the event: `Id`, `Provider`, `EventName`, `EventPath`, `CreatedAt`, `TryCount`, `TryAfterAt`, `Status`, `FailureReason`, `UpdatedAt` and `UpdatedBy`. `EventDetails` extends it with `Payload`, `Headers`, `AdditionalData`, `NamingPolicyType` and `StatusComment`, which are loaded only for a single event by `GetEventByIdAsync`, since the payload, headers and additional data may be large.
 
 All filters of `EventsFilter` are optional. The ones you set are combined with AND:
 
@@ -519,7 +519,7 @@ public class InboxEventsController(IInboxEventsService inboxEventsService) : Con
 {
     [HttpGet]
     [Authorize(Policy = "InboxEvents.Read")]
-    public Task<EventPagedList<EventDetails>> GetEvents([FromQuery] EventsFilter filter, CancellationToken ct)
+    public Task<EventPagedList<EventSummary>> GetEvents([FromQuery] EventsFilter filter, CancellationToken ct)
         => inboxEventsService.GetEventsAsync(filter, ct);
 
     [HttpGet("{id:guid}")]
