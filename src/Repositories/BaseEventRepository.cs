@@ -331,7 +331,19 @@ internal abstract class BaseEventRepository<TBaseMessage>(
 
     private const string LikeEscapeCharacter = @"\";
 
-    public async Task<EventPagedList<TBaseMessage>> GetEventsAsync(EventsFilter filter,
+    /// <summary>
+    /// The columns of the table to select for listing events, mapped to the properties of the <see cref="EventSummary"/>.
+    /// The other columns, such as the payload, headers and additional data, are not loaded, since they may be large.
+    /// </summary>
+    private string SqlSelectSummaryColumns => $@"
+                        id as ""{nameof(EventSummary.Id)}"", provider as ""{nameof(EventSummary.Provider)}"",
+                        event_name as ""{nameof(EventSummary.EventName)}"", event_path as ""{nameof(EventSummary.EventPath)}"",
+                        created_at as ""{nameof(EventSummary.CreatedAt)}"",
+                        try_count as ""{nameof(EventSummary.TryCount)}"", try_after_at as ""{nameof(EventSummary.TryAfterAt)}"",
+                        status as ""{nameof(EventSummary.Status)}"", failure_reason as ""{nameof(EventSummary.FailureReason)}"",
+                        updated_at as ""{nameof(EventSummary.UpdatedAt)}"", updated_by as ""{nameof(EventSummary.UpdatedBy)}""";
+
+    public async Task<EventPagedList<EventSummary>> GetEventsAsync(EventsFilter filter,
         CancellationToken cancellationToken)
     {
         try
@@ -341,7 +353,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
             await using var dbConnection = new NpgsqlConnection(ConnectionString);
             await dbConnection.OpenAsync(cancellationToken);
 
-            var events = await dbConnection.QueryAsync<TBaseMessage>(
+            var events = await dbConnection.QueryAsync<EventSummary>(
                 new CommandDefinition(sqlQuery, parameters, cancellationToken: cancellationToken));
             return events.ToArray().ToPagedList(filter.PageIndex, filter.PageSize);
         }
@@ -436,7 +448,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
         var sortDirection = filter.SortDescending ? "DESC" : "ASC";
         var whereClause = conditions.Count == 0 ? string.Empty : $"WHERE {string.Join(" AND ", conditions)}";
         var sqlQuery = $@"
-                SELECT {SqlSelectColumns}
+                SELECT {SqlSelectSummaryColumns}
                 FROM {TableName}
                 {whereClause}
                 ORDER BY created_at {sortDirection}, id {sortDirection}

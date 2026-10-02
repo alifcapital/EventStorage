@@ -86,13 +86,13 @@ internal class InboxEventsServiceTests
     [Test]
     public async Task GetEventsAsync_RepositoryReturnsPage_ShouldReturnEventsWithSamePagination()
     {
-        var messages = new[] { CreateMessage(), CreateMessage(), CreateMessage() };
-        MockGetEvents(messages);
+        var summaries = new[] { CreateSummary(), CreateSummary(), CreateSummary() };
+        MockGetEvents(summaries);
 
         var result = await _service.GetEventsAsync(new EventsFilter { PageIndex = 2, PageSize = 2 },
             CancellationToken.None);
 
-        Assert.That(result.Select(e => e.Id), Is.EqualTo(messages.Take(2).Select(m => m.Id)));
+        Assert.That(result.Select(e => e.Id), Is.EqualTo(summaries.Take(2).Select(m => m.Id)));
         Assert.That(result.PageIndex, Is.EqualTo(2));
         Assert.That(result.PageSize, Is.EqualTo(2));
         Assert.That(result.HasNextPage, Is.True);
@@ -101,7 +101,7 @@ internal class InboxEventsServiceTests
     [Test]
     public async Task GetEventsAsync_LastPage_ShouldNotHaveNextPage()
     {
-        MockGetEvents([CreateMessage(), CreateMessage()]);
+        MockGetEvents([CreateSummary(), CreateSummary()]);
 
         var result = await _service.GetEventsAsync(new EventsFilter { PageSize = 2 }, CancellationToken.None);
 
@@ -110,26 +110,19 @@ internal class InboxEventsServiceTests
     }
 
     [Test]
-    public async Task GetEventsAsync_EventExists_ShouldMapItToEventDetails()
+    public async Task GetEventsAsync_EventExists_ShouldReturnEventSummaryOfRepository()
     {
-        var message = CreateMessage();
-        message.Rejected(Request.PerformedBy, Request.Comment);
-        MockGetEvents([message]);
+        var summary = CreateSummary() with
+        {
+            Status = EventStatus.Rejected,
+            UpdatedAt = DateTime.Now,
+            UpdatedBy = Request.PerformedBy
+        };
+        MockGetEvents([summary]);
 
         var result = await _service.GetEventsAsync(new EventsFilter(), CancellationToken.None);
 
-        var eventDetails = result.Single();
-        Assert.That(eventDetails.Id, Is.EqualTo(message.Id));
-        Assert.That(eventDetails.Provider, Is.EqualTo(message.Provider));
-        Assert.That(eventDetails.EventName, Is.EqualTo(message.EventName));
-        Assert.That(eventDetails.EventPath, Is.EqualTo(message.EventPath));
-        Assert.That(eventDetails.Payload, Is.EqualTo(message.Payload));
-        Assert.That(eventDetails.CreatedAt, Is.EqualTo(message.CreatedAt));
-        Assert.That(eventDetails.TryAfterAt, Is.EqualTo(message.TryAfterAt));
-        Assert.That(eventDetails.Status, Is.EqualTo(EventStatus.Rejected));
-        Assert.That(eventDetails.UpdatedAt, Is.EqualTo(message.UpdatedAt));
-        Assert.That(eventDetails.UpdatedBy, Is.EqualTo(Request.PerformedBy));
-        Assert.That(eventDetails.StatusComment, Is.EqualTo(Request.Comment));
+        Assert.That(result.Single(), Is.EqualTo(summary));
     }
 
     [Test]
@@ -450,11 +443,24 @@ internal class InboxEventsServiceTests
             .Returns(distributedSynchronizationHandle);
     }
 
-    private void MockGetEvents(InboxMessage[] messages)
+    private void MockGetEvents(EventSummary[] summaries)
     {
         _repository.GetEventsAsync(Arg.Any<EventsFilter>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo => messages.ToPagedList(callInfo.Arg<EventsFilter>().PageIndex,
+            .Returns(callInfo => summaries.ToPagedList(callInfo.Arg<EventsFilter>().PageIndex,
                 callInfo.Arg<EventsFilter>().PageSize));
+    }
+
+    private static EventSummary CreateSummary()
+    {
+        return new EventSummary
+        {
+            Id = Guid.NewGuid(),
+            Provider = nameof(EventProviderType.MessageBroker),
+            EventName = "TestEvent",
+            EventPath = "Test.Path",
+            CreatedAt = DateTime.Now,
+            TryAfterAt = DateTime.Now
+        };
     }
 
     private static InboxMessage CreateMessage()

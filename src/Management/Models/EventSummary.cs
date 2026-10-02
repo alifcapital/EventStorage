@@ -3,7 +3,7 @@ using EventStorage.Models;
 namespace EventStorage.Management.Models;
 
 /// <summary>
-/// The summary of an inbox/outbox event without its payload, headers and additional data, to list the events cheaply.
+/// The summary of an inbox/outbox event with its main columns only, to list the events cheaply.
 /// </summary>
 public record EventSummary
 {

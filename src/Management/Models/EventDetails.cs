@@ -1,7 +1,7 @@
 ﻿namespace EventStorage.Management.Models;
 
 /// <summary>
-/// The details of an inbox/outbox event, including its payload, headers and additional data.
+/// The details of an inbox/outbox event, including all its columns.
 /// </summary>
 public record EventDetails : EventSummary
 {

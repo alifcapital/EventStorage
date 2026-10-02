@@ -81,12 +81,13 @@ internal interface IBaseEventRepository<TBaseMessage> : ITableCreator
     Task<TBaseMessage> GetEventByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets the page of events by the filter, ordered by the creation time.
+    /// Gets the page of events by the filter, ordered by the creation time. Only the columns of the
+    /// <see cref="EventSummary"/> are loaded.
     /// </summary>
     /// <param name="filter">The filter of the events with the valid page index and page size.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>Returns the page of events which match the filter.</returns>
-    Task<EventPagedList<TBaseMessage>> GetEventsAsync(EventsFilter filter, CancellationToken cancellationToken = default);
+    /// <returns>Returns the page of event summaries which match the filter.</returns>
+    Task<EventPagedList<EventSummary>> GetEventsAsync(EventsFilter filter, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes all processed events which processed before the specified date.
