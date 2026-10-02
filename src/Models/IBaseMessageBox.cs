@@ -100,8 +100,7 @@ internal interface  IBaseMessageBox
         string performedBy = null, string comment = null);
 
     /// <summary>
-    /// For marking the event as failed because no processor (handler/publisher) is configured for it. It increases the TryCount and the TryAfterAt,
-    /// and sets the failure reason by the EventName and Provider.
+    /// For marking the event as failed because no processor (handler/publisher) is configured for it. It increases the TryCount and the TryAfterAt.
     /// </summary>
     /// <param name="tryAfterMinutes">The minutes to increase the TryAfterAt.</param>
     /// <param name="failureReason">The reason of the failure.</param>
