@@ -160,7 +160,7 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
             await _lockProvider.TryAcquireLockAsync(lockName, cancellationToken: cancellationToken);
         if (distributedLock is null)
         {
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Could not open distributed lock for processing outbox event with ID: {EventId}. It may be processing by another instance.",
                 message.Id);
             return EventActionResult.AlreadyProcessing(message.Id);
@@ -177,7 +177,7 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
         var force = manualRequest?.Force == true;
         if (!EventStatusTransitions.CanBeExecuted(currentStatus.Value, force))
         {
-            _logger.LogInformation("The outbox event with id {EventId} has the {Status} status. Skipping execution.",
+            _logger.LogDebug("The outbox event with id {EventId} has the {Status} status. Skipping execution.",
                 message.Id, currentStatus.Value);
             return EventActionResult.InvalidState(
                 $"The outbox event with the {currentStatus.Value} status cannot be executed{(currentStatus == EventStatus.Processed ? " without the force option" : string.Empty)}.");

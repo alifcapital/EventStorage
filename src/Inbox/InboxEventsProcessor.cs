@@ -148,7 +148,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
             await _lockProvider.TryAcquireLockAsync(lockName, cancellationToken: cancellationToken);
         if (distributedLock is null)
         {
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Could not open distributed lock for processing inbox event with ID: {EventId}. It may be processing by another instance.",
                 message.Id);
             return EventActionResult.AlreadyProcessing(message.Id);
@@ -165,7 +165,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         var force = manualRequest?.Force == true;
         if (!EventStatusTransitions.CanBeExecuted(currentStatus.Value, force))
         {
-            _logger.LogInformation("The inbox event with id {EventId} has the {Status} status. Skipping execution.",
+            _logger.LogDebug("The inbox event with id {EventId} has the {Status} status. Skipping execution.",
                 message.Id, currentStatus.Value);
             return EventActionResult.InvalidState(
                 $"The inbox event with the {currentStatus.Value} status cannot be executed{(currentStatus == EventStatus.Processed ? " without the force option" : string.Empty)}.");
