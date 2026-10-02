@@ -34,17 +34,19 @@ internal abstract class BaseMessageBox : IBaseMessageBox
         string failureReason, string performedBy = null, string comment = null)
     {
         IncreaseTryCount();
-        TryAfterAt = TryCount > maxTryCount
+        
+        var tryAfterAt = TryCount > maxTryCount
             ? DateTime.Now.AddMinutes(tryAfterMinutesIfTryCountExceeded)
             : DateTime.Now.AddSeconds(tryAfterSeconds);
-
-        FailureReason = failureReason;
-        ChangeStatus(EventStatus.Failed, performedBy, comment);
+        MarkAsFailed(tryAfterAt, failureReason, performedBy, comment);
     }
 
-    private void IncreaseTryCount()
+    public void EventProcessorNotFound(int tryAfterMinutes, string failureReason, string performedBy = null)
     {
-        TryCount++;
+        IncreaseTryCount();
+        
+        var tryAfterAt = DateTime.Now.AddMinutes(tryAfterMinutes);
+        MarkAsFailed(tryAfterAt, failureReason, performedBy);
     }
 
     public void Processed(string performedBy = null, string comment = null)
@@ -63,21 +65,9 @@ internal abstract class BaseMessageBox : IBaseMessageBox
         ChangeStatus(EventStatus.Pending, performedBy, comment);
     }
 
-    /// <summary>
-    /// Changes the status of the event and sets the time, the user and the comment of the change.
-    /// </summary>
-    /// <param name="status">The new status of the event.</param>
-    /// <param name="performedBy">The user name of who changed the status manually. Null when the processor changed it.</param>
-    /// <param name="comment">The comment of the manual change.</param>
-    private void ChangeStatus(EventStatus status, string performedBy, string comment)
-    {
-        Status = status;
-        UpdatedAt = DateTime.Now;
-        UpdatedBy = performedBy;
-        StatusComment = comment;
-    }
-
     #endregion
+
+    #region GetJsonSerializer
 
     private JsonSerializerOptions _jsonSerializerOptions;
 
@@ -93,4 +83,36 @@ internal abstract class BaseMessageBox : IBaseMessageBox
 
         return _jsonSerializerOptions;
     }
+
+    #endregion
+
+    #region Helper methods
+
+    /// <summary>
+    /// Changes the status of the event and sets the time, the user and the comment of the change.
+    /// </summary>
+    /// <param name="status">The new status of the event.</param>
+    /// <param name="performedBy">The username of who changed the status manually. Null when the processor changed it.</param>
+    /// <param name="comment">The comment of the manual change.</param>
+    private void ChangeStatus(EventStatus status, string performedBy, string comment)
+    {
+        Status = status;
+        UpdatedAt = DateTime.Now;
+        UpdatedBy = performedBy;
+        StatusComment = comment;
+    }
+
+    private void MarkAsFailed(DateTime tryAfterAt, string failureReason, string performedBy, string comment = null)
+    {
+        TryAfterAt = tryAfterAt;
+        FailureReason = failureReason;
+        ChangeStatus(EventStatus.Failed, performedBy, comment);
+    }
+
+    private void IncreaseTryCount()
+    {
+        TryCount++;
+    }
+
+    #endregion
 }

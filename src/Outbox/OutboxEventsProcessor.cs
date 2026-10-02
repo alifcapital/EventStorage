@@ -192,8 +192,7 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
             if (isSuccessfullyExecuted)
                 message.Processed(performedBy, comment);
             else
-                message.Failed(0, 0, _settings.TryAfterMinutesIfEventNotFound,
-                    $"No publisher configured for the {message.EventName} event with the {message.Provider} provider(s).", performedBy, comment);
+                message.EventProcessorNotFound(_settings.TryAfterMinutesIfEventNotFound,$"No publisher configured for the {message.EventName} event with the {message.Provider} provider(s).", performedBy);
         }
         catch (Exception e)
         {

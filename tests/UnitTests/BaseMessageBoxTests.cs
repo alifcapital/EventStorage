@@ -66,6 +66,23 @@ internal class BaseMessageBoxTests : BaseTestEntity
     }
 
     [Test]
+    public void EventHandlerNotFound_ShouldSetFailedStatusFailureReasonIncreaseTryCountAndTryAfterAtByMinutes()
+    {
+        var message = new InboxMessage { EventName = "TestEvent", Provider = "Http" };
+
+        message.EventProcessorNotFound(tryAfterMinutes: 60, performedBy: "operator");
+
+        Assert.That(message.Status, Is.EqualTo(EventStatus.Failed));
+        Assert.That(message.TryCount, Is.EqualTo(1));
+        Assert.That(message.TryAfterAt, Is.EqualTo(DateTime.Now.AddMinutes(60)).Within(TimeSpan.FromSeconds(1)));
+        Assert.That(message.FailureReason,
+            Is.EqualTo("No event handler configured for the TestEvent event with the Http provider(s)."));
+        Assert.That(message.UpdatedBy, Is.EqualTo("operator"));
+        Assert.That(message.StatusComment, Is.EqualTo("Manual execution"));
+        Assert.That(message.UpdatedAt, Is.EqualTo(DateTime.Now).Within(TimeSpan.FromSeconds(1)));
+    }
+
+    [Test]
     public void Rejected_ShouldSetRejectedStatusAndUpdatedAt()
     {
         var message = new InboxMessage();

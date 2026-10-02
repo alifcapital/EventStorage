@@ -278,7 +278,7 @@ internal class InboxEventsProcessorTests
         Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.Failed));
         Assert.That(inboxEvent.Status, Is.EqualTo(EventStatus.Failed));
         Assert.That(inboxEvent.FailureReason, Is.EqualTo(
-            $"No event handler configured for the {nameof(SimpleEntityWasCreated)} event with the Unknown provider."));
+            $"No event handler configured for the {nameof(SimpleEntityWasCreated)} event with the Unknown provider(s)."));
         Assert.That(inboxEvent.TryAfterAt, Is.EqualTo(DateTime.Now.AddMinutes(10)).Within(TimeSpan.FromSeconds(5)));
         await _inboxRepository.Received(1).UpdateEventAsync(inboxEvent, Arg.Any<CancellationToken>());
     }

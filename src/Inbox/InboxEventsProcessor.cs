@@ -180,8 +180,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
             if (isSuccessfullyExecuted)
                 message.Processed(performedBy, comment);
             else
-                message.Failed(0, 0, _settings.TryAfterMinutesIfEventNotFound,
-                    $"No event handler configured for the {message.EventName} event with the {message.Provider} provider.", performedBy, comment);
+                message.EventProcessorNotFound(_settings.TryAfterMinutesIfEventNotFound, $"No event handler configured for the {message.EventName} event with the {message.Provider} provider.", performedBy);
         }
         catch (Exception e)
         {

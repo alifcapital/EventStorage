@@ -100,6 +100,15 @@ internal interface  IBaseMessageBox
         string performedBy = null, string comment = null);
 
     /// <summary>
+    /// For marking the event as failed because no processor (handler/publisher) is configured for it. It increases the TryCount and the TryAfterAt,
+    /// and sets the failure reason by the EventName and Provider.
+    /// </summary>
+    /// <param name="tryAfterMinutes">The minutes to increase the TryAfterAt.</param>
+    /// <param name="failureReason">The reason of the failure.</param>
+    /// <param name="performedBy">The username of who executed the event manually. Null when the processor executed it.</param>
+    void EventProcessorNotFound(int tryAfterMinutes, string failureReason, string performedBy = null);
+
+    /// <summary>
     /// For marking the event as processed. The last failure reason is kept for the history.
     /// </summary>
     /// <param name="performedBy">The username of who processed the event manually. Null when the processor processed it.</param>
