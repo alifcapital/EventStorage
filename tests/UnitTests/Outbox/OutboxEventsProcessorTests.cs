@@ -35,7 +35,7 @@ public class OutboxEventsProcessorTests
             {
                 MaxConcurrency = 1,
                 TryCount = 3,
-                TryAfterMinutes = 5,
+                TryAfterMinutesIfTryCountExceeded = 5,
                 TryAfterMinutesIfEventNotFound = 10
             }
         });

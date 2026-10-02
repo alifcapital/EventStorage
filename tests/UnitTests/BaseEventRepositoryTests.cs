@@ -262,7 +262,9 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         var rejectedEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
         await Repository.BulkInsertEventsAsync([pendingEvent, failedEvent, processedEvent, rejectedEvent], CancellationToken.None);
 
-        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
+        failedEvent.Failed(maxTryCount: 10, tryAfterSeconds: 3600, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "Test failure");
+        // The column is rounded to seconds, so we keep the failed event in the past to be fetched.
+        failedEvent.TryAfterAt = DateTime.Now.AddMinutes(-1);
         processedEvent.Processed();
         rejectedEvent.Rejected();
         await Repository.UpdateEventsAsync([failedEvent, processedEvent, rejectedEvent], CancellationToken.None);
@@ -461,7 +463,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         var failedEvent = CreateEvent(DateTime.Now.AddHours(1));
         await Repository.InsertEventAsync(failedEvent, CancellationToken.None);
 
-        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "System.Exception: Test failure",
+        failedEvent.Failed(maxTryCount: 10, tryAfterSeconds: 3600, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "System.Exception: Test failure",
             performedBy: "operator", comment: "Manual execution");
         await Repository.UpdateEventAsync(failedEvent, CancellationToken.None);
 
@@ -690,11 +692,11 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         var failedTwiceWithOtherReason = CreateEventWithName(eventName);
         await Repository.BulkInsertEventsAsync([failedTwice, failedOnce, failedTwiceWithOtherReason],
             CancellationToken.None);
-        failedTwice.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Timeout");
-        failedTwice.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "System.TimeoutException: 100%_done");
-        failedOnce.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "System.TimeoutException: 100%_done");
-        failedTwiceWithOtherReason.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Other");
-        failedTwiceWithOtherReason.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Other");
+        failedTwice.Failed(maxTryCount: 10, tryAfterSeconds: 3600, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "Timeout");
+        failedTwice.Failed(maxTryCount: 10, tryAfterSeconds: 3600, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "System.TimeoutException: 100%_done");
+        failedOnce.Failed(maxTryCount: 10, tryAfterSeconds: 3600, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "System.TimeoutException: 100%_done");
+        failedTwiceWithOtherReason.Failed(maxTryCount: 10, tryAfterSeconds: 3600, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "Other");
+        failedTwiceWithOtherReason.Failed(maxTryCount: 10, tryAfterSeconds: 3600, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "Other");
         await Repository.UpdateEventsAsync([failedTwice, failedOnce, failedTwiceWithOtherReason],
             CancellationToken.None);
 
@@ -742,7 +744,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         var eventName = CreateUniqueEventName();
         var failedEvent = CreateEventWithName(eventName);
         await Repository.InsertEventAsync(failedEvent, CancellationToken.None);
-        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure", performedBy: "operator",
+        failedEvent.Failed(maxTryCount: 10, tryAfterSeconds: 3600, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "Test failure", performedBy: "operator",
             comment: "Test comment");
         await Repository.UpdateEventAsync(failedEvent, CancellationToken.None);
 
@@ -902,7 +904,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         var processedEvent = CreateEventWithName(eventName);
         await Repository.BulkInsertEventsAsync([pendingEvent, failedEvent, rejectedEvent, processedEvent],
             CancellationToken.None);
-        failedEvent.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
+        failedEvent.Failed(maxTryCount: 10, tryAfterSeconds: 3600, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "Test failure");
         rejectedEvent.Rejected();
         processedEvent.Processed();
         await Repository.UpdateEventsAsync([failedEvent, rejectedEvent, processedEvent], CancellationToken.None);

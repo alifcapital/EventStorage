@@ -16,21 +16,26 @@ public record InboxOrOutboxStructure
     /// Maximum concurrency tasks to execute received/publishing events. Default value is "10".
     /// </summary>
     public int MaxConcurrency { get; init; } = 10;
-    
+
     /// <summary>
     /// The maximum number of events to fetch and process in a single batch. Default value is "100".
     /// </summary>
     public int MaxEventsToFetch { get; init; } = 100;
 
     /// <summary>
-    /// For increasing the TryAfterAt when the TryCount is higher than the value. Default value is "10".
+    /// For increasing the TryAfterAt by the TryAfterMinutesIfTryCountExceeded when the TryCount is higher than the value. Default value is "10".
     /// </summary>
     public int TryCount { get; init; } = 10;
 
     /// <summary>
-    /// For increasing the TryAfterAt to amount of minutes if the event fails. Default value is "5".
+    /// For increasing the TryAfterAt to amount of seconds on each failure while the TryCount is not higher than the max try count. Default value is "5".
     /// </summary>
-    public int TryAfterMinutes { get; init; } = 5;
+    public int TryAfterSeconds { get; init; } = 5;
+
+    /// <summary>
+    /// For increasing the TryAfterAt to amount of minutes if the event fails and the TryCount is higher than the max try count. Default value is "5".
+    /// </summary>
+    public int TryAfterMinutesIfTryCountExceeded { get; init; } = 5;
 
     /// <summary>
     /// For increasing the TryAfterAt to amount of minutes if the event not found to publish or receive. Default value is "60".

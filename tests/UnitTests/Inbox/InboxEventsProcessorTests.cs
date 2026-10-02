@@ -34,7 +34,7 @@ internal class InboxEventsProcessorTests
         serviceProvider.GetService(typeof(InboxAndOutboxSettings)).Returns(new InboxAndOutboxSettings
         {
             Inbox = new InboxOrOutboxStructure()
-                { MaxConcurrency = 1, TryCount = 3, TryAfterMinutes = 5, TryAfterMinutesIfEventNotFound = 10 }
+                { MaxConcurrency = 1, TryCount = 3, TryAfterMinutesIfTryCountExceeded = 5, TryAfterMinutesIfEventNotFound = 10 }
         });
         _inboxRepository = Substitute.For<IInboxRepository>();
         _inboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(EventStatus.Pending);

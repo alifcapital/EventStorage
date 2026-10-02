@@ -36,7 +36,7 @@ public class InboxEventsProcessorJobTests
         _settings = new InboxAndOutboxSettings
         {
             Inbox = new InboxOrOutboxStructure
-                { MaxConcurrency = 1, TryCount = 3, TryAfterMinutes = 5, TryAfterMinutesIfEventNotFound = 10 }
+                { MaxConcurrency = 1, TryCount = 3, TryAfterMinutesIfTryCountExceeded = 5, TryAfterMinutesIfEventNotFound = 10 }
         };
     }
 
