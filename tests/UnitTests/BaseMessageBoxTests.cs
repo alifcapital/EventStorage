@@ -33,11 +33,36 @@ internal class BaseMessageBoxTests : BaseTestEntity
     {
         var message = new InboxMessage();
 
-        message.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
+        message.Failed(maxTryCount: 10, tryAfterSeconds: 0, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "Test failure");
 
         Assert.That(message.Status, Is.EqualTo(EventStatus.Failed));
         Assert.That(message.TryCount, Is.EqualTo(1));
         Assert.That(message.UpdatedAt, Is.EqualTo(DateTime.Now).Within(TimeSpan.FromSeconds(1)));
+    }
+
+    [Test]
+    public void Failed_TryCountNotExceeded_ShouldIncreaseTryAfterAtBySeconds()
+    {
+        var message = new InboxMessage();
+
+        message.Failed(maxTryCount: 10, tryAfterSeconds: 30, tryAfterMinutesIfTryCountExceeded: 5,
+            failureReason: "Test failure");
+
+        Assert.That(message.TryAfterAt, Is.EqualTo(DateTime.Now.AddSeconds(30)).Within(TimeSpan.FromSeconds(1)));
+    }
+
+    [Test]
+    public void Failed_TryCountExceeded_ShouldIncreaseTryAfterAtByMinutes()
+    {
+        var message = new InboxMessage();
+        message.Failed(maxTryCount: 1, tryAfterSeconds: 30, tryAfterMinutesIfTryCountExceeded: 5,
+            failureReason: "Test failure");
+
+        message.Failed(maxTryCount: 1, tryAfterSeconds: 30, tryAfterMinutesIfTryCountExceeded: 5,
+            failureReason: "Test failure");
+
+        Assert.That(message.TryCount, Is.EqualTo(2));
+        Assert.That(message.TryAfterAt, Is.EqualTo(DateTime.Now.AddMinutes(5)).Within(TimeSpan.FromSeconds(1)));
     }
 
     [Test]
@@ -71,7 +96,7 @@ internal class BaseMessageBoxTests : BaseTestEntity
     {
         var message = new InboxMessage();
 
-        message.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "System.Exception: Test failure",
+        message.Failed(maxTryCount: 10, tryAfterSeconds: 0, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "System.Exception: Test failure",
             performedBy: "operator", comment: "Manual execution");
 
         Assert.That(message.FailureReason, Is.EqualTo("System.Exception: Test failure"));
@@ -83,7 +108,7 @@ internal class BaseMessageBoxTests : BaseTestEntity
     public void Processed_FailedEvent_ShouldKeepFailureReasonAndClearManualChangeInfo()
     {
         var message = new InboxMessage();
-        message.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure", performedBy: "operator",
+        message.Failed(maxTryCount: 10, tryAfterSeconds: 0, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "Test failure", performedBy: "operator",
             comment: "Manual execution");
 
         message.Processed();

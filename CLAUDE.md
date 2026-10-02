@@ -91,7 +91,7 @@ Provides the **Transactional Outbox and Inbox pattern** implementation. Ensures 
 - Runs a polling loop with configurable `SecondsToDelayProcessEvents` delay
 - **PostgreSQL distributed locks** (`DistributedLock.Postgres`) prevent duplicate processing across replicas
 - `SemaphoreSlim` enforces `MaxConcurrency` within a single instance
-- Failed events are retried with back-off based on `TryCount` / `TryAfterMinutes`
+- Failed events are retried with back-off: each failure moves `try_after_at` by `TryAfterSeconds` until `TryCount` is exceeded, then by `TryAfterMinutesIfTryCountExceeded`
 
 ### Supported Event Providers
 
@@ -144,7 +144,8 @@ builder.Services.AddEventStore(
     "MaxConcurrency": 10,
     "MaxEventsToFetch": 100,
     "TryCount": 10,
-    "TryAfterMinutes": 5,
+    "TryAfterSeconds": 5,
+    "TryAfterMinutesIfTryCountExceeded": 5,
     "TryAfterMinutesIfEventNotFound": 60,
     "SecondsToDelayProcessEvents": 1,
     "DaysToCleanUpEvents": 0,

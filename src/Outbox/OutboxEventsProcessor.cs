@@ -192,17 +192,17 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
             if (isSuccessfullyExecuted)
                 message.Processed(performedBy, comment);
             else
-                message.Failed(0, _settings.TryAfterMinutesIfEventNotFound,
+                message.Failed(0, 0, _settings.TryAfterMinutesIfEventNotFound,
                     $"No publisher configured for the {message.EventName} event with the {message.Provider} provider(s).", performedBy, comment);
         }
         catch (Exception e)
         {
-            message.Failed(_settings.TryCount, _settings.TryAfterMinutes, e.ToFailureReason(_settings), performedBy,
-                comment);
+            message.Failed(_settings.TryCount, _settings.TryAfterSeconds, _settings.TryAfterMinutesIfTryCountExceeded,
+                e.ToFailureReason(_settings), performedBy, comment);
         }
         finally
         {
-            await repository.UpdateEventAsync(message); 
+            await repository.UpdateEventAsync(message, cancellationToken); 
         }
 
         return message.Status == EventStatus.Processed

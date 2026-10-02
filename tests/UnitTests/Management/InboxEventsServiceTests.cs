@@ -359,7 +359,7 @@ internal class InboxEventsServiceTests
     public async Task RescheduleAsync_FailedEvent_ShouldMakeItPendingWithNewTryTime()
     {
         var message = CreateMessage();
-        message.Failed(maxTryCount: 10, tryAfterMinutes: 5, failureReason: "Test failure");
+        message.Failed(maxTryCount: 10, tryAfterSeconds: 0, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "Test failure");
         _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
         var tryAfterAt = DateTime.Now.AddHours(1);
 

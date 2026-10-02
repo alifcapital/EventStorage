@@ -369,7 +369,8 @@ The `InboxAndOutbox` is the main section for setting of the Outbox and Inbox fun
       "MaxConcurrency": 10,
       "MaxEventsToFetch": 100,
       "TryCount": 5,
-      "TryAfterMinutes": 20,
+      "TryAfterSeconds": 10,
+      "TryAfterMinutesIfTryCountExceeded": 20,
       "TryAfterMinutesIfEventNotFound": 60,
       "SecondsToDelayProcessEvents": 2,
       "DaysToCleanUpEvents": 30,
@@ -385,7 +386,8 @@ The `InboxAndOutbox` is the main section for setting of the Outbox and Inbox fun
 `MaxConcurrency` - Sets the maximum number of concurrent tasks for executing received/publishing events. Default value is 10.<br/>
 `MaxEventsToFetch` - The maximum number of events to fetch and process in a single batch. Default value is 100.<br/>
 `TryCount` - Defines the number of attempts before increasing the delay for the next retry. Default value is 10.<br/>
-`TryAfterMinutes` - Specifies the number of minutes to wait before retrying if an event fails. Default value is 5.<br/>
+`TryAfterSeconds` - Specifies the number of seconds to wait before retrying an event on each failure while its try count has not exceeded `TryCount`. Default value is 5.<br/>
+`TryAfterMinutesIfTryCountExceeded` - Specifies the number of minutes to wait before retrying an event on each failure once its try count has exceeded `TryCount`. Default value is 5. Replaces the removed `TryAfterMinutes` option.<br/>
 `TryAfterMinutesIfEventNotFound` - For increasing the TryAfterAt to amount of minutes if the event not found to publish or receive. Default value is 60.<br/>
 `SecondsToDelayProcessEvents` - The delay in seconds before processing events. Default value is 1.<br/>
 `DaysToCleanUpEvents` - Number of days after which processed events are cleaned up. Cleanup only occurs if this value is 1 or higher. Default value is 0.<br/>

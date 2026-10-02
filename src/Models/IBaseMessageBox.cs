@@ -90,13 +90,14 @@ internal interface  IBaseMessageBox
     /// <summary>
     /// For marking the event as failed with the reason. It increases the TryCount and the TryAfterAt.
     /// </summary>
-    /// <param name="maxTryCount">The try count after which the TryAfterAt is increased.</param>
-    /// <param name="tryAfterMinutes">The minutes to increase the TryAfterAt.</param>
+    /// <param name="maxTryCount">The try count after which the TryAfterAt is increased by the tryAfterMinutesIfTryCountExceeded.</param>
+    /// <param name="tryAfterSeconds">The seconds to increase the TryAfterAt while the TryCount is not higher than the maxTryCount.</param>
+    /// <param name="tryAfterMinutesIfTryCountExceeded">The minutes to increase the TryAfterAt when the TryCount is higher than the maxTryCount.</param>
     /// <param name="failureReason">The reason of the failure.</param>
     /// <param name="performedBy">The username of who executed the event manually. Null when the processor executed it.</param>
     /// <param name="comment">The comment of the manual execution.</param>
-    void Failed(int maxTryCount, int tryAfterMinutes, string failureReason, string performedBy = null,
-        string comment = null);
+    void Failed(int maxTryCount, int tryAfterSeconds, int tryAfterMinutesIfTryCountExceeded, string failureReason,
+        string performedBy = null, string comment = null);
 
     /// <summary>
     /// For marking the event as processed. The last failure reason is kept for the history.
@@ -123,6 +124,5 @@ internal interface  IBaseMessageBox
     /// <summary>
     /// Gets JsonSerializerOptions to use on naming police for serializing and deserializing properties of Event 
     /// </summary>
-    /// <returns></returns>
     JsonSerializerOptions GetJsonSerializer();
 }
