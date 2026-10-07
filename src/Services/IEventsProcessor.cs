@@ -20,10 +20,11 @@ internal interface IEventsProcessor
 internal interface IEventsProcessor<in TMessage> : IEventsProcessor
 {
     /// <summary>
-    /// Processes a single event under its distributed lock: re-checks its current status, executes it and stores the result.
-    /// It is used by both the background processing and the manual execution of the management service.
+    /// Processes a single event which is already locked by the caller: checks its status, executes it and stores
+    /// the result, which also unlocks the event. It is used by both the background processing and the manual
+    /// execution of the management service.
     /// </summary>
-    /// <param name="message">The event to process.</param>
+    /// <param name="message">The locked event to process, which is read while locking it.</param>
     /// <param name="manualRequest">The request of the manual execution. Null when it is processed by the background processing.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The result of the processing.</returns>

@@ -1,20 +1,18 @@
 ﻿using EventStorage.Configurations;
-using EventStorage.Constants;
 using EventStorage.Exceptions;
 using EventStorage.Extensions;
 using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Repositories;
 using EventStorage.Services;
-using Medallion.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Management;
 
 /// <summary>
-/// The base service for viewing and managing inbox/outbox events. Every action that changes an event takes the same
-/// distributed lock as the processor, so it never conflict with the processing of the event.
+/// The base service for viewing and managing inbox/outbox events. Every action that changes an event locks the event
+/// the same way as the processor does, so it never conflicts with the processing of the event.
 /// </summary>
 /// <param name="serviceProvider">The service provider to resolve the services, which are registered only when the functionality is enabled.</param>
 /// <param name="settings">The inbox or outbox settings.</param>
@@ -38,9 +36,6 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
     private TRepository Repository => serviceProvider.GetRequiredService<TRepository>();
 
     private TProcessor Processor => serviceProvider.GetRequiredService<TProcessor>();
-
-    private IDistributedLockProvider LockProvider =>
-        serviceProvider.GetRequiredKeyedService<IDistributedLockProvider>(functionalityName);
 
     #region Get events
 
@@ -86,11 +81,8 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
         EnsureIsEnabled();
         request ??= new EventActionRequest();
 
-        var message = await Repository.GetEventByIdAsync(id, cancellationToken);
-        if (message is null)
-            return EventActionResult.NotFound(id);
-
-        var result = await Processor.ProcessSingleEventAsync(message, request, cancellationToken);
+        var result = await ExecuteUnderEventLockAsync(id,
+            message => Processor.ProcessSingleEventAsync(message, request, cancellationToken), cancellationToken);
         LogActionResult("executed", id, request, result);
 
         return result;
@@ -129,7 +121,7 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
     #region Helper methods
 
     /// <summary>
-    /// Changes the status of the event under its distributed lock if the current status allows it.
+    /// Changes the status of the event under its lock if the current status allows it.
     /// </summary>
     /// <param name="id">The id of the event.</param>
     /// <param name="request">The information of the action.</param>
@@ -142,27 +134,57 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
     {
         EnsureIsEnabled();
 
-        var lockName = FunctionalityNames.GetEventLockName(functionalityName, id);
-        await using var distributedLock =
-            await LockProvider.TryAcquireLockAsync(lockName, cancellationToken: cancellationToken);
-        if (distributedLock is null)
-            return EventActionResult.AlreadyProcessing(id);
+        var result = await ExecuteUnderEventLockAsync(id, async message =>
+        {
+            if (!canBeChanged(message.Status))
+                return EventActionResult.InvalidState(
+                    $"The {functionalityName.ToLower()} event with the {message.Status} status cannot be {actionName}.");
 
-        var message = await Repository.GetEventByIdAsync(id, cancellationToken);
-        if (message is null)
-            return EventActionResult.NotFound(id);
+            changeStatus(message);
+            await Repository.UpdateEventAsync(message, cancellationToken);
 
-        if (!canBeChanged(message.Status))
-            return EventActionResult.InvalidState(
-                $"The {functionalityName.ToLower()} event with the {message.Status} status cannot be {actionName}.");
+            return EventActionResult.Success();
+        }, cancellationToken);
 
-        changeStatus(message);
-        await Repository.UpdateEventAsync(message, cancellationToken);
-
-        var result = EventActionResult.Success();
-        LogActionResult(actionName, id, request, result);
+        if (result.IsSuccess)
+            LogActionResult(actionName, id, request, result);
 
         return result;
+    }
+
+    /// <summary>
+    /// Locks the event the same way as the processor does (marks it as "Processing"), so the action never conflicts
+    /// with the processing of the event, executes the action with the locked event and restores the original status of
+    /// the event if the action did not handle it.
+    /// </summary>
+    /// <param name="id">The id of the event.</param>
+    /// <param name="action">The action to execute with the locked event, which has its original status. The event is
+    /// considered handled unless the action returns <see cref="EventActionResultStatus.InvalidState"/> or throws.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    private async Task<EventActionResult> ExecuteUnderEventLockAsync(Guid id,
+        Func<TMessage, Task<EventActionResult>> action, CancellationToken cancellationToken)
+    {
+        var processingTimeoutAt = Settings.GetProcessingTimeoutAt();
+        var message = await Repository.LockEventByIdAsync(id, processingTimeoutAt, cancellationToken);
+        if (message is null)
+        {
+            var status = await Repository.GetEventStatusByIdAsync(id, cancellationToken);
+            return status is null ? EventActionResult.NotFound(id) : EventActionResult.AlreadyProcessing(id);
+        }
+
+        var isHandled = false;
+        try
+        {
+            var result = await action(message);
+            isHandled = result.Status != EventActionResultStatus.InvalidState;
+
+            return result;
+        }
+        finally
+        {
+            if (!isHandled)
+                await Repository.UnlockEventsAsync([message], processingTimeoutAt, CancellationToken.None);
+        }
     }
 
     /// <summary>

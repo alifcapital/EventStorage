@@ -1,13 +1,12 @@
 using System.Reflection;
 using EventStorage.Configurations;
-using EventStorage.Constants;
+using EventStorage.Exceptions;
 using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Outbox;
 using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Repositories;
 using EventStorage.Tests.Domain;
-using Medallion.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
@@ -26,7 +25,6 @@ public class OutboxEventsProcessorTests
     public void SetUp()
     {
         var serviceProvider = Substitute.For<IKeyedServiceProvider>();
-        MockDistributedLockProvider(serviceProvider);
         var logger = Substitute.For<ILogger<OutboxEventsProcessor>>();
         serviceProvider.GetService(typeof(ILogger<OutboxEventsProcessor>)).Returns(logger);
         serviceProvider.GetService(typeof(InboxAndOutboxSettings)).Returns(new InboxAndOutboxSettings
@@ -40,7 +38,6 @@ public class OutboxEventsProcessorTests
             }
         });
         _outboxRepository = Substitute.For<IOutboxRepository>();
-        _outboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(EventStatus.Pending);
         serviceProvider.GetService(typeof(IOutboxRepository)).Returns(_outboxRepository);
         _serviceProvider = serviceProvider;
 
@@ -173,7 +170,7 @@ public class OutboxEventsProcessorTests
     [Test]
     public async Task ExecuteUnprocessedEvents_ThereIsNoEventsToProcess_ShouldNotProcessedAnyEvents()
     {
-        _outboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
+        _outboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns([]);
 
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
@@ -221,7 +218,7 @@ public class OutboxEventsProcessorTests
         };
 
         var items = new[] { outboxEvent1, outboxEvent2 };
-        _outboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(items);
+        _outboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(items);
 
         var scope = Substitute.For<IServiceScope>();
         var serviceScopeFactory = Substitute.For<IServiceScopeFactory>();
@@ -248,6 +245,88 @@ public class OutboxEventsProcessorTests
         await _outboxRepository
             .Received(2)
             .UpdateEventAsync(Arg.Any<OutboxMessage>(), Arg.Any<CancellationToken>());
+        await _outboxRepository.DidNotReceive().UnlockEventsAsync(Arg.Any<IEnumerable<OutboxMessage>>(),
+            Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ExecuteUnprocessedEvents_HandlingOneEventFails_ShouldUnlockOnlyThatEvent()
+    {
+        MockServiceScope();
+        AddSimpleOutboxEventPublisher();
+        var handledEvent = CreateOutboxMessage("{}");
+        var notHandledEvent = CreateOutboxMessage("{}");
+        _outboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns([handledEvent, notHandledEvent]);
+        _outboxRepository.UpdateEventAsync(notHandledEvent, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<bool>(new EventStoreException("Test failure")));
+
+        Assert.ThrowsAsync<EventStoreException>(() =>
+            _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None));
+
+        await _outboxRepository.Received(1).UnlockEventsAsync(
+            Arg.Is<IEnumerable<OutboxMessage>>(events => events.Single() == notHandledEvent), Arg.Any<DateTime>(),
+            CancellationToken.None);
+    }
+
+    [Test]
+    public async Task ExecuteUnprocessedEvents_CancelledAfterLockingEvents_ShouldUnlockEventsWithTheSameProcessingTimeout()
+    {
+        MockServiceScope();
+        AddSimpleOutboxEventPublisher();
+        using var stoppingTokenSource = new CancellationTokenSource();
+        var items = new[] { CreateOutboxMessage("{}") };
+        var processingTimeoutAt = default(DateTime);
+        _outboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                processingTimeoutAt = callInfo.ArgAt<DateTime>(1);
+                stoppingTokenSource.Cancel();
+                return items;
+            });
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token));
+
+        Assert.That(processingTimeoutAt, Is.EqualTo(DateTime.Now.AddSeconds(600)).Within(TimeSpan.FromSeconds(5)));
+        await _outboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<OutboxMessage>(), Arg.Any<CancellationToken>());
+        await _outboxRepository.Received(1).UnlockEventsAsync(
+            Arg.Is<IEnumerable<OutboxMessage>>(events => events.SequenceEqual(items)), processingTimeoutAt,
+            CancellationToken.None);
+    }
+
+    [Test]
+    public async Task ExecuteUnprocessedEvents_EventCannotBeExecuted_ShouldUnlockOnlyThatEvent()
+    {
+        MockServiceScope();
+        AddSimpleOutboxEventPublisher();
+        var pendingEvent = CreateOutboxMessage("{}");
+        var processedEvent = CreateOutboxMessage("{}");
+        processedEvent.Processed();
+        _outboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns([pendingEvent, processedEvent]);
+
+        await _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None);
+
+        await _outboxRepository.Received(1).UpdateEventAsync(pendingEvent, Arg.Any<CancellationToken>());
+        await _outboxRepository.Received(1).UnlockEventsAsync(
+            Arg.Is<IEnumerable<OutboxMessage>>(events => events.Single() == processedEvent), Arg.Any<DateTime>(),
+            CancellationToken.None);
+    }
+
+    [Test]
+    public void ExecuteUnprocessedEvents_UnlockingEventsFails_ShouldNotThrow()
+    {
+        MockServiceScope();
+        var processedEvent = CreateOutboxMessage("{}");
+        processedEvent.Processed();
+        _outboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns([processedEvent]);
+        _outboxRepository.UnlockEventsAsync(Arg.Any<IEnumerable<OutboxMessage>>(), Arg.Any<DateTime>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new EventStoreException("Test failure")));
+
+        Assert.DoesNotThrowAsync(() => _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None));
     }
 
     [Test]
@@ -255,11 +334,11 @@ public class OutboxEventsProcessorTests
     {
         MockServiceScope();
         using var stoppingTokenSource = new CancellationTokenSource();
-        _outboxRepository.GetUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
+        _outboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns([]);
 
         await _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token);
 
-        await _outboxRepository.Received(1).GetUnprocessedEventsAsync(Arg.Any<int>(), stoppingTokenSource.Token);
+        await _outboxRepository.Received(1).LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), stoppingTokenSource.Token);
     }
 
     [Test]
@@ -272,7 +351,7 @@ public class OutboxEventsProcessorTests
         Assert.CatchAsync<OperationCanceledException>(() =>
             _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token));
         await _outboxRepository.DidNotReceive()
-            .GetUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+            .LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     #endregion
@@ -283,8 +362,8 @@ public class OutboxEventsProcessorTests
     public async Task ProcessSingleEventAsync_EventIsAlreadyProcessed_ShouldSkipWithoutUpdating()
     {
         MockServiceScope();
-        _outboxRepository.GetEventStatusByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(EventStatus.Processed);
         var outboxEvent = CreateOutboxMessage("{}");
+        outboxEvent.Processed();
 
         var result = await _outboxEventsProcessor.ProcessSingleEventAsync(outboxEvent, manualRequest: null,
             CancellationToken.None);
@@ -327,16 +406,17 @@ public class OutboxEventsProcessorTests
     }
 
     [Test]
-    public async Task ProcessSingleEventAsync_CancellationTokenIsPassed_ShouldPassItToStatusCheck()
+    public async Task ProcessSingleEventAsync_CancellationTokenIsPassed_ShouldPassItToUpdate()
     {
         MockServiceScope();
+        AddSimpleOutboxEventPublisher();
         using var cancellationTokenSource = new CancellationTokenSource();
         var outboxEvent = CreateOutboxMessage("{}");
 
         await _outboxEventsProcessor.ProcessSingleEventAsync(outboxEvent, manualRequest: null,
             cancellationTokenSource.Token);
 
-        await _outboxRepository.Received(1).GetEventStatusByIdAsync(outboxEvent.Id, cancellationTokenSource.Token);
+        await _outboxRepository.Received(1).UpdateEventAsync(outboxEvent, cancellationTokenSource.Token);
     }
 
     #endregion
@@ -391,21 +471,6 @@ public class OutboxEventsProcessorTests
 
         return publishers!;
     }
-
-    void MockDistributedLockProvider(IKeyedServiceProvider serviceProvider)
-    {
-        var distributedLockProvider = Substitute.For<IDistributedLockProvider>();
-        serviceProvider.GetRequiredKeyedService(typeof(IDistributedLockProvider), FunctionalityNames.Outbox)
-            .Returns(distributedLockProvider);
-        
-        var distributedLock = Substitute.For<IDistributedLock>();
-        distributedLockProvider.CreateLock(Arg.Any<string>()).Returns(distributedLock);
-
-        var distributedSynchronizationHandle = Substitute.For<IDistributedSynchronizationHandle>();
-        distributedLock.TryAcquireAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
-            .Returns(distributedSynchronizationHandle);
-    }
-
 
     #endregion
 }

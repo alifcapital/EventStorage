@@ -48,6 +48,15 @@ public record InboxOrOutboxStructure
     public int SecondsToDelayProcessEvents { get; init; } = 1;
 
     /// <summary>
+    /// When the processor fetches a batch of events, they are marked as "Processing" and other instances skip them for
+    /// this number of seconds. It is counted from the fetch time of the whole batch, not from the start of each event,
+    /// so it must be longer than processing all events of a batch (MaxEventsToFetch / MaxConcurrency rounds). If an
+    /// instance stops before finishing its batch (crash, kill), the unfinished events are fetched again after this time.
+    /// If it is too short, an event may be processed twice. Default value is "600".
+    /// </summary>
+    public int SecondsToWaitForFetchedEventsToBeProcessed { get; init; } = 600;
+
+    /// <summary>
     /// Days to cleaning up the processed events. Default value is "0". It will work when value is higher than or equal 1.
     /// </summary>
     public int DaysToCleanUpEvents { get; init; }
@@ -72,4 +81,18 @@ public record InboxOrOutboxStructure
     /// The database connection string of Inbox/Outbox for storing or reading all received/sending events.
     /// </summary>
     public string ConnectionString { get; set; }
+
+    #region Methods
+
+    /// <summary>
+    /// Gets the time until which the fetched events stay locked. Fractions of a second are truncated, since the
+    /// database rounds the stored time to whole seconds and unlocking finds the events by the exact same value.
+    /// </summary>
+    internal DateTime GetProcessingTimeoutAt()
+    {
+        var processingTimeoutAt = DateTime.Now.AddSeconds(SecondsToWaitForFetchedEventsToBeProcessed);
+        return processingTimeoutAt.AddTicks(-(processingTimeoutAt.Ticks % TimeSpan.TicksPerSecond));
+    }
+
+    #endregion
 }

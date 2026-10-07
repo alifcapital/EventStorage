@@ -1,7 +1,7 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using EventStorage.Configurations;
-using EventStorage.Constants;
 using EventStorage.Exceptions;
 using EventStorage.Extensions;
 using EventStorage.Inbox.EventArgs;
@@ -13,7 +13,6 @@ using EventStorage.Instrumentation.Trace;
 using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
-using Medallion.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -24,7 +23,6 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<InboxEventsProcessor> _logger;
     private readonly InboxOrOutboxStructure _settings;
-    private readonly IDistributedLockProvider _lockProvider;
 
     /// <summary>
     /// The event to be executed before executing the handler of the inbox event.
@@ -49,7 +47,6 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
     {
         _serviceProvider = serviceProvider;
         _logger = _serviceProvider.GetRequiredService<ILogger<InboxEventsProcessor>>();
-        _lockProvider = _serviceProvider.GetRequiredKeyedService<IDistributedLockProvider>(FunctionalityNames.Inbox);
         _settings = _serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Inbox;
         _receivers = new Dictionary<string, List<EventHandlerInformation>>();
         _semaphore = new SemaphoreSlim(_settings.MaxConcurrency);
@@ -90,8 +87,8 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
 
     #endregion
 
-    #region ExecuteUnprocessedEvents
-    
+    #region Execute unprocessed event(s)
+
     /// <summary>
     /// The method to execute unprocessed events. We are locking the logic to prevent re-entry into the method while processing is ongoing.
     /// </summary>
@@ -100,33 +97,45 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         await _singleExecutionLock.WaitAsync(stoppingToken);
         try
         {
-            InboxMessage[] eventsToHandle;
-            using (var scope = _serviceProvider.CreateScope())
-            {
-                var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
-                eventsToHandle = await repository.GetUnprocessedEventsAsync(_settings.MaxEventsToFetch, stoppingToken);
-            }
+            var processingTimeoutAt = _settings.GetProcessingTimeoutAt();
+            // The same repository is used for locking and unlocking the events of the batch.
+            using var scope = _serviceProvider.CreateScope();
+            var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
+            var eventsToHandle = await repository.LockUnprocessedEventsAsync(_settings.MaxEventsToFetch,
+                processingTimeoutAt, stoppingToken);
 
             if (eventsToHandle.Length == 0)
                 return;
 
-            stoppingToken.ThrowIfCancellationRequested();
-            using var activity = CreateActivityForExecutingUnprocessedEventsIfEnabled(eventsToHandle.Length);
-
-            var tasks = eventsToHandle.Select(async eventToReceive =>
+            var handledEventIds = new ConcurrentDictionary<Guid, bool>();
+            try
             {
-                await _semaphore.WaitAsync(stoppingToken);
-                try
-                {
-                    await ProcessSingleEventAsync(eventToReceive, manualRequest: null, activity, stoppingToken);
-                }
-                finally
-                {
-                    _semaphore.Release();
-                }
-            }).ToArray();
+                stoppingToken.ThrowIfCancellationRequested();
+                using var activity = CreateActivityForExecutingUnprocessedEventsIfEnabled(eventsToHandle.Length);
 
-            await Task.WhenAll(tasks);
+                var tasks = eventsToHandle.Select(async eventToReceive =>
+                {
+                    await _semaphore.WaitAsync(stoppingToken);
+                    try
+                    {
+                        var result = await ProcessSingleEventAsync(eventToReceive, manualRequest: null, activity,
+                            stoppingToken);
+                        if (result.Status != EventActionResultStatus.InvalidState)
+                            handledEventIds.TryAdd(eventToReceive.Id, true);
+                    }
+                    finally
+                    {
+                        _semaphore.Release();
+                    }
+                }).ToArray();
+
+                await Task.WhenAll(tasks);
+            }
+            finally
+            {
+                var notHandledEvents = eventsToHandle.Where(e => !handledEventIds.ContainsKey(e.Id)).ToArray();
+                await UnlockEventsAsync(repository, notHandledEvents, processingTimeoutAt);
+            }
         }
         finally
         {
@@ -140,47 +149,42 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         return ProcessSingleEventAsync(message, manualRequest, parentActivity: Activity.Current, cancellationToken);
     }
 
+    #endregion
+
+    #region Helper methods
+
+    /// <summary>
+    /// Process single event which is already locked by the caller. The event has its original status which is read
+    /// while locking it. The event is unlocked when its result is handled.
+    /// Each event is processed in a separate scope to avoid conflicts in scoped services like DbContext.
+    /// </summary>
     private async Task<EventActionResult> ProcessSingleEventAsync(InboxMessage message,
         EventActionRequest manualRequest, Activity parentActivity, CancellationToken cancellationToken)
     {
-        var lockName = FunctionalityNames.GetEventLockName(FunctionalityNames.Inbox, message.Id);
-        await using var distributedLock =
-            await _lockProvider.TryAcquireLockAsync(lockName, cancellationToken: cancellationToken);
-        if (distributedLock is null)
+        var force = manualRequest?.Force == true;
+        if (!EventStatusTransitions.CanBeExecuted(message.Status, force))
         {
-            _logger.LogDebug(
-                "Could not open distributed lock for processing inbox event with ID: {EventId}. It may be processing by another instance.",
-                message.Id);
-            return EventActionResult.AlreadyProcessing(message.Id);
+            _logger.LogDebug("The inbox event with id {EventId} has the {Status} status. Skipping execution.",
+                message.Id, message.Status);
+            return EventActionResult.InvalidState(
+                $"The inbox event with the {message.Status} status cannot be executed{(message.Status == EventStatus.Processed ? " without the force option" : string.Empty)}.");
         }
 
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
-
-        // The status is read again under the lock, since the event could be changed after it was fetched.
-        var currentStatus = await repository.GetEventStatusByIdAsync(message.Id, cancellationToken);
-        if (currentStatus is null)
-            return EventActionResult.NotFound(message.Id);
-
-        var force = manualRequest?.Force == true;
-        if (!EventStatusTransitions.CanBeExecuted(currentStatus.Value, force))
-        {
-            _logger.LogDebug("The inbox event with id {EventId} has the {Status} status. Skipping execution.",
-                message.Id, currentStatus.Value);
-            return EventActionResult.InvalidState(
-                $"The inbox event with the {currentStatus.Value} status cannot be executed{(currentStatus == EventStatus.Processed ? " without the force option" : string.Empty)}.");
-        }
 
         cancellationToken.ThrowIfCancellationRequested();
         var performedBy = manualRequest?.PerformedBy;
         var comment = manualRequest?.Comment;
         try
         {
-            var isSuccessfullyExecuted = await ExecuteEventHandlers(message, parentActivity);
+            var isSuccessfullyExecuted = await ExecuteEventHandlers(message, scope.ServiceProvider, parentActivity);
             if (isSuccessfullyExecuted)
                 message.Processed(performedBy, comment);
             else
-                message.EventProcessorNotFound(_settings.TryAfterMinutesIfEventNotFound, $"No event handler configured for the {message.EventName} event with the {message.Provider} provider.", performedBy);
+                message.EventProcessorNotFound(_settings.TryAfterMinutesIfEventNotFound,
+                    $"No event handler configured for the {message.EventName} event with the {message.Provider} provider.",
+                    performedBy);
         }
         catch (Exception e)
         {
@@ -189,7 +193,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         }
         finally
         {
-            await repository.UpdateEventAsync(message, cancellationToken); 
+            await repository.UpdateEventAsync(message, cancellationToken);
         }
 
         return message.Status == EventStatus.Processed
@@ -198,10 +202,39 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
     }
 
     /// <summary>
+    /// Unlocks the events which are not handled while processing, for example when the processing is cancelled,
+    /// so they can be processed again without waiting for their processing timeout.
+    /// </summary>
+    /// <param name="repository">The repository which locked the events.</param>
+    /// <param name="events">The events to unlock.</param>
+    /// <param name="processingTimeoutAt">The processing timeout which the events were locked with.</param>
+    private async Task UnlockEventsAsync(IInboxRepository repository, InboxMessage[] events,
+        DateTime processingTimeoutAt)
+    {
+        if (events.Length == 0)
+            return;
+
+        try
+        {
+            await repository.UnlockEventsAsync(events, processingTimeoutAt, CancellationToken.None);
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e,
+                "Error while unlocking {EventsCount} inbox event(s). They will be processed again after their processing timeout.",
+                events.Length);
+        }
+    }
+
+    /// <summary>
     /// Executes all handlers of the inbox event.
     /// </summary>
+    /// <param name="inboxMessage">The inbox event to execute.</param>
+    /// <param name="serviceProvider">The service provider of the event's scope to resolve the handlers.</param>
+    /// <param name="parentActivity">The parent activity for tracing.</param>
     /// <returns>Returns true if the handlers are executed, or false if there is no handler for the event.</returns>
-    private async Task<bool> ExecuteEventHandlers(IInboxMessage inboxMessage, Activity parentActivity)
+    private async Task<bool> ExecuteEventHandlers(IInboxMessage inboxMessage, IServiceProvider serviceProvider,
+        Activity parentActivity)
     {
         try
         {
@@ -214,13 +247,10 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
                 return false;
             }
 
-            _logger.LogDebug("{StorageType}: Executing subscribers of the event '{EventName}'(ID: {MessageId})", 
+            _logger.LogDebug("{StorageType}: Executing subscribers of the event '{EventName}'(ID: {MessageId})",
                 EventStorageInvestigationTagNames.InboxEventTag, inboxMessage.EventName, inboxMessage.Id);
             using var activity = CreateActivityForExecutingHandlersIfEnabled(inboxMessage, parentActivity);
 
-            // Create a new scope to execute the receiver services of the event as a scoped service
-            // because each event's handlers must be executed in a separate scope to avoid conflicts in scoped services like DbContext.
-            using var serviceScope = _serviceProvider.CreateScope();
             var isOnExecutingEventInvoked = false;
 
             foreach (var inboxEventInformation in inboxEventsInformation)
@@ -228,18 +258,16 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
                 var inboxEvent = LoadInboxEvent(inboxMessage, inboxEventInformation);
                 if (!isOnExecutingEventInvoked)
                 {
-                    OnExecutingInboxEvent(inboxEvent, inboxEventInformation,
-                        serviceScope.ServiceProvider);
+                    OnExecutingInboxEvent(inboxEvent, inboxEventInformation, serviceProvider);
                     isOnExecutingEventInvoked = true;
                 }
 
-                var eventReceiver =
-                    serviceScope.ServiceProvider.GetRequiredService(inboxEventInformation.EventHandlerType);
+                var eventReceiver = serviceProvider.GetRequiredService(inboxEventInformation.EventHandlerType);
                 await ((Task)inboxEventInformation.HandleMethod.Invoke(eventReceiver,
                     [inboxEvent]))!;
             }
 
-            OnEndingInboxEvent(inboxMessage, serviceScope.ServiceProvider);
+            OnEndingInboxEvent(inboxMessage, serviceProvider);
 
             return true;
         }
@@ -250,10 +278,6 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
             throw;
         }
     }
-
-    #endregion
-
-    #region Helper methods
 
     /// <summary>
     /// Invokes the ExecutingReceivedEvent event to be able to execute the event before the handler.
@@ -353,7 +377,8 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         var traceName =
             $"{EventStorageInvestigationTagNames.InboxEventTag}: Executing publishers of the {inboxMessage.EventName} event";
         var traceParentId = parentActivity?.Id;
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId, spanType: EventStorageInvestigationTagNames.InboxEventTag);
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId,
+            spanType: EventStorageInvestigationTagNames.InboxEventTag);
         activity?.AttachEventInfo(inboxMessage);
 
         return activity;
@@ -370,7 +395,8 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
 
         var traceName =
             $"{EventStorageInvestigationTagNames.InboxEventTag}: Executing {eventsCount} unprocessed event(s)";
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, spanType: EventStorageInvestigationTagNames.InboxEventTag);
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server,
+            spanType: EventStorageInvestigationTagNames.InboxEventTag);
 
         return activity;
     }

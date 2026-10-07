@@ -19,8 +19,6 @@ using EventStorage.Outbox.Providers;
 using EventStorage.Outbox.Providers.EventProviders;
 using EventStorage.Outbox.Repositories;
 using EventStorage.Services;
-using Medallion.Threading;
-using Medallion.Threading.Postgres;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -74,8 +72,6 @@ public static class EventStoreExtensions
 
             services.AddHostedService<OutboxEventsProcessorJob>();
             services.AddHostedService<CleanUpProcessedOutboxEventsJob>();
-            services.AddKeyedSingleton<IDistributedLockProvider>(FunctionalityNames.Outbox,
-                new PostgresDistributedSynchronizationProvider(settings.Outbox.ConnectionString));
         }
 
         services.AddScoped<IInboxEventManager, InboxEventManager>();
@@ -103,8 +99,6 @@ public static class EventStoreExtensions
 
             services.AddHostedService<InboxEventsProcessorJob>();
             services.AddHostedService<CleanUpProcessedInboxEventsJob>();
-            services.AddKeyedSingleton<IDistributedLockProvider>(FunctionalityNames.Inbox,
-                new PostgresDistributedSynchronizationProvider(settings.Inbox.ConnectionString));
         }
 
         return;

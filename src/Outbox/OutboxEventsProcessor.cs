@@ -1,7 +1,7 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using EventStorage.Configurations;
-using EventStorage.Constants;
 using EventStorage.Exceptions;
 using EventStorage.Extensions;
 using EventStorage.Instrumentation;
@@ -11,7 +11,6 @@ using EventStorage.Models;
 using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Providers;
 using EventStorage.Outbox.Repositories;
-using Medallion.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -22,7 +21,6 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<OutboxEventsProcessor> _logger;
     private readonly InboxOrOutboxStructure _settings;
-    private readonly IDistributedLockProvider _lockProvider;
 
     /// <summary>
     /// To collect all publisher information. The key is the event name and provider name. The value is the publisher information.
@@ -42,7 +40,6 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
     {
         _serviceProvider = serviceProvider;
         _logger = serviceProvider.GetRequiredService<ILogger<OutboxEventsProcessor>>();
-        _lockProvider = _serviceProvider.GetRequiredKeyedService<IDistributedLockProvider>(FunctionalityNames.Outbox);
         _settings = serviceProvider.GetRequiredService<InboxAndOutboxSettings>().Outbox;
         _allPublishers = new Dictionary<string, Dictionary<EventProviderType, EventPublisherInformation>>();
         _eventPublisherTypes = new Dictionary<string, string>();
@@ -89,7 +86,7 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
 
     #endregion
 
-    #region Execute unprocessed events
+    #region Execute unprocessed event(s)
 
     /// <summary>
     /// The method to execute unprocessed events. We are locking the logic to prevent re-entry into the method while processing is ongoing.
@@ -99,33 +96,45 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
         await _singleExecutionLock.WaitAsync(stoppingToken);
         try
         {
-            OutboxMessage[] eventsToPublish;
-            using (var scope = _serviceProvider.CreateScope())
-            {
-                var repository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
-                eventsToPublish = await repository.GetUnprocessedEventsAsync(_settings.MaxEventsToFetch, stoppingToken);
-            }
+            var processingTimeoutAt = _settings.GetProcessingTimeoutAt();
+            // The same repository is used for locking and unlocking the events of the batch.
+            using var scope = _serviceProvider.CreateScope();
+            var repository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
+            var eventsToPublish = await repository.LockUnprocessedEventsAsync(_settings.MaxEventsToFetch,
+                processingTimeoutAt, stoppingToken);
 
             if (eventsToPublish.Length == 0)
                 return;
 
-            stoppingToken.ThrowIfCancellationRequested();
-            using var activity = CreateActivityForExecutingUnprocessedEventsIfEnabled(eventsToPublish.Length);
-
-            var tasks = eventsToPublish.Select(async eventToPublish =>
+            var handledEventIds = new ConcurrentDictionary<Guid, bool>();
+            try
             {
-                await _semaphore.WaitAsync(stoppingToken);
-                try
-                {
-                    await ProcessSingleEventAsync(eventToPublish, manualRequest: null, activity, stoppingToken);
-                }
-                finally
-                {
-                    _semaphore.Release();
-                }
-            }).ToArray();
+                stoppingToken.ThrowIfCancellationRequested();
+                using var activity = CreateActivityForExecutingUnprocessedEventsIfEnabled(eventsToPublish.Length);
 
-            await Task.WhenAll(tasks);
+                var tasks = eventsToPublish.Select(async eventToPublish =>
+                {
+                    await _semaphore.WaitAsync(stoppingToken);
+                    try
+                    {
+                        var result = await ProcessSingleEventAsync(eventToPublish, manualRequest: null, activity,
+                            stoppingToken);
+                        if (result.Status != EventActionResultStatus.InvalidState)
+                            handledEventIds.TryAdd(eventToPublish.Id, true);
+                    }
+                    finally
+                    {
+                        _semaphore.Release();
+                    }
+                }).ToArray();
+
+                await Task.WhenAll(tasks);
+            }
+            finally
+            {
+                var notHandledEvents = eventsToPublish.Where(e => !handledEventIds.ContainsKey(e.Id)).ToArray();
+                await UnlockEventsAsync(repository, notHandledEvents, processingTimeoutAt);
+            }
         }
         finally
         {
@@ -144,44 +153,24 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
     #region Helper methods
 
     /// <summary>
-    /// Process single event if that is already not processing.
+    /// Process single event which is already locked by the caller. The event has its original status which is read
+    /// while locking it. The event is unlocked when its result is handled.
     /// Each event is processed in a separate scope to avoid conflicts in scoped services like DbContext.
     /// </summary>
-    /// <param name="message"></param>
-    /// <param name="manualRequest"></param>
-    /// <param name="parentActivity"></param>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
     private async Task<EventActionResult> ProcessSingleEventAsync(OutboxMessage message,
         EventActionRequest manualRequest, Activity parentActivity, CancellationToken cancellationToken)
     {
-        var lockName = FunctionalityNames.GetEventLockName(FunctionalityNames.Outbox, message.Id);
-        await using var distributedLock =
-            await _lockProvider.TryAcquireLockAsync(lockName, cancellationToken: cancellationToken);
-        if (distributedLock is null)
+        var force = manualRequest?.Force == true;
+        if (!EventStatusTransitions.CanBeExecuted(message.Status, force))
         {
-            _logger.LogDebug(
-                "Could not open distributed lock for processing outbox event with ID: {EventId}. It may be processing by another instance.",
-                message.Id);
-            return EventActionResult.AlreadyProcessing(message.Id);
+            _logger.LogDebug("The outbox event with id {EventId} has the {Status} status. Skipping execution.",
+                message.Id, message.Status);
+            return EventActionResult.InvalidState(
+                $"The outbox event with the {message.Status} status cannot be executed{(message.Status == EventStatus.Processed ? " without the force option" : string.Empty)}.");
         }
 
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
-
-        // The status is read again under the lock, since the event could be changed after it was fetched.
-        var currentStatus = await repository.GetEventStatusByIdAsync(message.Id, cancellationToken);
-        if (currentStatus is null)
-            return EventActionResult.NotFound(message.Id);
-
-        var force = manualRequest?.Force == true;
-        if (!EventStatusTransitions.CanBeExecuted(currentStatus.Value, force))
-        {
-            _logger.LogDebug("The outbox event with id {EventId} has the {Status} status. Skipping execution.",
-                message.Id, currentStatus.Value);
-            return EventActionResult.InvalidState(
-                $"The outbox event with the {currentStatus.Value} status cannot be executed{(currentStatus == EventStatus.Processed ? " without the force option" : string.Empty)}.");
-        }
 
         cancellationToken.ThrowIfCancellationRequested();
         var performedBy = manualRequest?.PerformedBy;
@@ -207,6 +196,30 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
         return message.Status == EventStatus.Processed
             ? EventActionResult.Success()
             : EventActionResult.Failed(message.FailureReason);
+    }
+
+    /// <summary>
+    /// Unlocks the events which are not handled while processing, for example when the processing is cancelled,
+    /// so they can be processed again without waiting for their processing timeout.
+    /// </summary>
+    /// <param name="repository">The repository which locked the events.</param>
+    /// <param name="events">The events to unlock.</param>
+    /// <param name="processingTimeoutAt">The processing timeout which the events were locked with.</param>
+    private async Task UnlockEventsAsync(IOutboxRepository repository, OutboxMessage[] events,
+        DateTime processingTimeoutAt)
+    {
+        if (events.Length == 0)
+            return;
+
+        try
+        {
+            await repository.UnlockEventsAsync(events, processingTimeoutAt, CancellationToken.None);
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Error while unlocking {EventsCount} outbox event(s). They will be processed again after their processing timeout.",
+                events.Length);
+        }
     }
 
     /// <summary>
