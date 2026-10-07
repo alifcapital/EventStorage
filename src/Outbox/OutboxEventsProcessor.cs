@@ -169,7 +169,6 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
                 $"The outbox event with the {message.Status} status cannot be executed{(message.Status == EventStatus.Processed ? " without the force option" : string.Empty)}.");
         }
 
-        //TODO: Why do we need a new scope?
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
 

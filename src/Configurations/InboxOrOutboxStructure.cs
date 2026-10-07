@@ -57,13 +57,11 @@ public record InboxOrOutboxStructure
     public int SecondsToWaitForFetchedEventsToBeProcessed { get; init; } = 600;
 
     /// <summary>
-    /// Gets the time after which the events which are fetched now are considered abandoned if they are still
-    /// "Processing". It is truncated to whole seconds, since the "try_after_at" column stores the time without
-    /// fractions of a second, and the same value is used to unlock only the own locked events.
+    /// Gets the time until which the fetched events stay locked. Fractions of a second are truncated, since the
+    /// database rounds the stored time to whole seconds and unlocking finds the events by the exact same value.
     /// </summary>
     internal DateTime GetProcessingTimeoutAt()
     {
-        //TODO: What if we do not truncated fractions of a second?
         var processingTimeoutAt = DateTime.Now.AddSeconds(SecondsToWaitForFetchedEventsToBeProcessed);
         return processingTimeoutAt.AddTicks(-(processingTimeoutAt.Ticks % TimeSpan.TicksPerSecond));
     }

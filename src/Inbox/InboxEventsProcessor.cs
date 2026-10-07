@@ -152,6 +152,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
     /// <summary>
     /// Process single event which is already locked by the caller. The event has its original status which is read
     /// while locking it. The event is unlocked when its result is handled.
+    /// Each event is processed in a separate scope to avoid conflicts in scoped services like DbContext.
     /// </summary>
     private async Task<EventActionResult> ProcessSingleEventAsync(InboxMessage message,
         EventActionRequest manualRequest, Activity parentActivity, CancellationToken cancellationToken)
@@ -173,7 +174,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         var comment = manualRequest?.Comment;
         try
         {
-            var isSuccessfullyExecuted = await ExecuteEventHandlers(message, parentActivity);
+            var isSuccessfullyExecuted = await ExecuteEventHandlers(message, scope.ServiceProvider, parentActivity);
             if (isSuccessfullyExecuted)
                 message.Processed(performedBy, comment);
             else
@@ -221,8 +222,12 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
     /// <summary>
     /// Executes all handlers of the inbox event.
     /// </summary>
+    /// <param name="inboxMessage">The inbox event to execute.</param>
+    /// <param name="serviceProvider">The service provider of the event's scope to resolve the handlers.</param>
+    /// <param name="parentActivity">The parent activity for tracing.</param>
     /// <returns>Returns true if the handlers are executed, or false if there is no handler for the event.</returns>
-    private async Task<bool> ExecuteEventHandlers(IInboxMessage inboxMessage, Activity parentActivity)
+    private async Task<bool> ExecuteEventHandlers(IInboxMessage inboxMessage, IServiceProvider serviceProvider,
+        Activity parentActivity)
     {
         try
         {
@@ -239,9 +244,6 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
                 EventStorageInvestigationTagNames.InboxEventTag, inboxMessage.EventName, inboxMessage.Id);
             using var activity = CreateActivityForExecutingHandlersIfEnabled(inboxMessage, parentActivity);
 
-            // Create a new scope to execute the receiver services of the event as a scoped service
-            // because each event's handlers must be executed in a separate scope to avoid conflicts in scoped services like DbContext.
-            using var serviceScope = _serviceProvider.CreateScope();
             var isOnExecutingEventInvoked = false;
 
             foreach (var inboxEventInformation in inboxEventsInformation)
@@ -249,18 +251,16 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
                 var inboxEvent = LoadInboxEvent(inboxMessage, inboxEventInformation);
                 if (!isOnExecutingEventInvoked)
                 {
-                    OnExecutingInboxEvent(inboxEvent, inboxEventInformation,
-                        serviceScope.ServiceProvider);
+                    OnExecutingInboxEvent(inboxEvent, inboxEventInformation, serviceProvider);
                     isOnExecutingEventInvoked = true;
                 }
 
-                var eventReceiver =
-                    serviceScope.ServiceProvider.GetRequiredService(inboxEventInformation.EventHandlerType);
+                var eventReceiver = serviceProvider.GetRequiredService(inboxEventInformation.EventHandlerType);
                 await ((Task)inboxEventInformation.HandleMethod.Invoke(eventReceiver,
                     [inboxEvent]))!;
             }
 
-            OnEndingInboxEvent(inboxMessage, serviceScope.ServiceProvider);
+            OnEndingInboxEvent(inboxMessage, serviceProvider);
 
             return true;
         }
