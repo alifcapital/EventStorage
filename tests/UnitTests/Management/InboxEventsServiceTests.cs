@@ -287,6 +287,50 @@ internal class InboxEventsServiceTests
         await _processor.Received(1).ProcessSingleEventAsync(message, Request, cancellationTokenSource.Token);
     }
 
+    [Test]
+    public async Task ExecuteAsync_EventIsLockedByOthers_ShouldReturnAlreadyProcessingWithoutProcessing()
+    {
+        var eventId = Guid.NewGuid();
+        _repository.GetEventStatusByIdAsync(eventId, Arg.Any<CancellationToken>()).Returns(EventStatus.Processing);
+
+        var result = await _service.ExecuteAsync(eventId, Request, CancellationToken.None);
+
+        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.AlreadyProcessing));
+        await _processor.DidNotReceiveWithAnyArgs().ProcessSingleEventAsync(default, default, default);
+        await _repository.DidNotReceive().UnlockEventsAsync(Arg.Any<IEnumerable<InboxMessage>>(), Arg.Any<DateTime>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ExecuteAsync_ProcessingThrows_ShouldUnlockEvent()
+    {
+        var message = CreateMessage();
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(message);
+        _processor.ProcessSingleEventAsync(message, Request, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<EventActionResult>(new EventStoreException("Test failure")));
+
+        Assert.ThrowsAsync<EventStoreException>(() => _service.ExecuteAsync(message.Id, Request, CancellationToken.None));
+
+        await _repository.Received(1).UnlockEventsAsync(
+            Arg.Is<IEnumerable<InboxMessage>>(events => events.Single() == message), Arg.Any<DateTime>(),
+            CancellationToken.None);
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task ExecuteAsync_EventIsHandledByProcessor_ShouldNotUnlockEvent(bool isSuccess)
+    {
+        var message = CreateMessage();
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(message);
+        _processor.ProcessSingleEventAsync(message, Request, Arg.Any<CancellationToken>())
+            .Returns(isSuccess ? EventActionResult.Success() : EventActionResult.Failed("Test failure"));
+
+        await _service.ExecuteAsync(message.Id, Request, CancellationToken.None);
+
+        await _repository.DidNotReceive().UnlockEventsAsync(Arg.Any<IEnumerable<InboxMessage>>(), Arg.Any<DateTime>(),
+            Arg.Any<CancellationToken>());
+    }
+
     #endregion
 
     #region RejectAsync

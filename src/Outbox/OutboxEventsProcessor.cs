@@ -154,7 +154,7 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
 
     /// <summary>
     /// Process single event which is already locked by the caller. The event has its original status which is read
-    /// while locking it. The event is unlocked when its result is stored.
+    /// while locking it. The event is unlocked when its result is handled.
     /// Each event is processed in a separate scope to avoid conflicts in scoped services like DbContext.
     /// </summary>
     private async Task<EventActionResult> ProcessSingleEventAsync(OutboxMessage message,

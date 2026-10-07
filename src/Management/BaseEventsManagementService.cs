@@ -155,11 +155,11 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
     /// <summary>
     /// Locks the event the same way as the processor does (marks it as "Processing"), so the action never conflicts
     /// with the processing of the event, executes the action with the locked event and restores the original status of
-    /// the event if the action did not store it.
+    /// the event if the action did not handle it.
     /// </summary>
     /// <param name="id">The id of the event.</param>
     /// <param name="action">The action to execute with the locked event, which has its original status. The event is
-    /// considered stored unless the action returns <see cref="EventActionResultStatus.InvalidState"/> or throws.</param>
+    /// considered handled unless the action returns <see cref="EventActionResultStatus.InvalidState"/> or throws.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     private async Task<EventActionResult> ExecuteUnderEventLockAsync(Guid id,
         Func<TMessage, Task<EventActionResult>> action, CancellationToken cancellationToken)

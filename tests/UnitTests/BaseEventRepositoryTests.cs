@@ -1091,6 +1091,8 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             (repository, token) => repository.GetEventByIdAsync(Guid.NewGuid(), token));
         yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.LockEventByIdAsync),
             (repository, token) => repository.LockEventByIdAsync(Guid.NewGuid(), DateTime.Now, token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.UnlockEventsAsync),
+            (repository, token) => repository.UnlockEventsAsync([CreateEvent(DateTime.Now)], DateTime.Now, token));
         yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.DeleteProcessedEventsAsync),
             (repository, token) => repository.DeleteProcessedEventsAsync(DateTime.Now, token));
         yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.GetEventsAsync),

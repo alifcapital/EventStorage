@@ -250,22 +250,22 @@ public class OutboxEventsProcessorTests
     }
 
     [Test]
-    public async Task ExecuteUnprocessedEvents_StoringOneEventFails_ShouldUnlockOnlyThatEvent()
+    public async Task ExecuteUnprocessedEvents_HandlingOneEventFails_ShouldUnlockOnlyThatEvent()
     {
         MockServiceScope();
         AddSimpleOutboxEventPublisher();
-        var storedEvent = CreateOutboxMessage("{}");
-        var notStoredEvent = CreateOutboxMessage("{}");
+        var handledEvent = CreateOutboxMessage("{}");
+        var notHandledEvent = CreateOutboxMessage("{}");
         _outboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
-            .Returns([storedEvent, notStoredEvent]);
-        _outboxRepository.UpdateEventAsync(notStoredEvent, Arg.Any<CancellationToken>())
+            .Returns([handledEvent, notHandledEvent]);
+        _outboxRepository.UpdateEventAsync(notHandledEvent, Arg.Any<CancellationToken>())
             .Returns(Task.FromException<bool>(new EventStoreException("Test failure")));
 
         Assert.ThrowsAsync<EventStoreException>(() =>
             _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None));
 
         await _outboxRepository.Received(1).UnlockEventsAsync(
-            Arg.Is<IEnumerable<OutboxMessage>>(events => events.Single() == notStoredEvent), Arg.Any<DateTime>(),
+            Arg.Is<IEnumerable<OutboxMessage>>(events => events.Single() == notHandledEvent), Arg.Any<DateTime>(),
             CancellationToken.None);
     }
 
@@ -293,6 +293,40 @@ public class OutboxEventsProcessorTests
         await _outboxRepository.Received(1).UnlockEventsAsync(
             Arg.Is<IEnumerable<OutboxMessage>>(events => events.SequenceEqual(items)), processingTimeoutAt,
             CancellationToken.None);
+    }
+
+    [Test]
+    public async Task ExecuteUnprocessedEvents_EventCannotBeExecuted_ShouldUnlockOnlyThatEvent()
+    {
+        MockServiceScope();
+        AddSimpleOutboxEventPublisher();
+        var pendingEvent = CreateOutboxMessage("{}");
+        var processedEvent = CreateOutboxMessage("{}");
+        processedEvent.Processed();
+        _outboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns([pendingEvent, processedEvent]);
+
+        await _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None);
+
+        await _outboxRepository.Received(1).UpdateEventAsync(pendingEvent, Arg.Any<CancellationToken>());
+        await _outboxRepository.Received(1).UnlockEventsAsync(
+            Arg.Is<IEnumerable<OutboxMessage>>(events => events.Single() == processedEvent), Arg.Any<DateTime>(),
+            CancellationToken.None);
+    }
+
+    [Test]
+    public void ExecuteUnprocessedEvents_UnlockingEventsFails_ShouldNotThrow()
+    {
+        MockServiceScope();
+        var processedEvent = CreateOutboxMessage("{}");
+        processedEvent.Processed();
+        _outboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns([processedEvent]);
+        _outboxRepository.UnlockEventsAsync(Arg.Any<IEnumerable<OutboxMessage>>(), Arg.Any<DateTime>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new EventStoreException("Test failure")));
+
+        Assert.DoesNotThrowAsync(() => _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None));
     }
 
     [Test]
