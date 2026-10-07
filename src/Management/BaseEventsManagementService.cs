@@ -164,7 +164,6 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
     private async Task<EventActionResult> ExecuteUnderEventLockAsync(Guid id,
         Func<TMessage, Task<EventActionResult>> action, CancellationToken cancellationToken)
     {
-        //TODO: Even the event cannot be processed we are updating status of that. Need to review
         var processingTimeoutAt = Settings.GetProcessingTimeoutAt();
         var message = await Repository.LockEventByIdAsync(id, processingTimeoutAt, cancellationToken);
         if (message is null)
@@ -173,17 +172,17 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
             return status is null ? EventActionResult.NotFound(id) : EventActionResult.AlreadyProcessing(id);
         }
 
-        var isStored = false;
+        var isHandled = false;
         try
         {
             var result = await action(message);
-            isStored = result.Status != EventActionResultStatus.InvalidState;
+            isHandled = result.Status != EventActionResultStatus.InvalidState;
 
             return result;
         }
         finally
         {
-            if (!isStored)
+            if (!isHandled)
                 await Repository.UnlockEventsAsync([message], processingTimeoutAt, CancellationToken.None);
         }
     }

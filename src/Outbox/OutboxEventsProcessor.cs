@@ -199,7 +199,7 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
     }
 
     /// <summary>
-    /// Unlocks the events which are not stored while processing, for example when the processing is cancelled,
+    /// Unlocks the events which are not handled while processing, for example when the processing is cancelled,
     /// so they can be processed again without waiting for their processing timeout.
     /// </summary>
     /// <param name="repository">The repository which locked the events.</param>
@@ -213,7 +213,6 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
 
         try
         {
-            //TODO: Need to check why do we need this instead of just updating event with its status.
             await repository.UnlockEventsAsync(events, processingTimeoutAt, CancellationToken.None);
         }
         catch (Exception e)
