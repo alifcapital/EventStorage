@@ -1,3 +1,4 @@
+using EventStorage.Configurations;
 using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Repositories;
@@ -195,10 +196,10 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
 
     #endregion
 
-    #region GetUnprocessedEventsAsync
+    #region LockUnprocessedEventsAsync
 
     [Test]
-    public async Task GetUnprocessedEventsAsync_TwoItems_ShouldReturnPendingEvents()
+    public async Task LockUnprocessedEventsAsync_TwoItems_ShouldReturnPendingEventsWithOriginalValues()
     {
         var baseEventBox1 = new TEvent
         {
@@ -241,7 +242,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
 
         await Repository.BulkInsertEventsAsync([baseEventBox1, baseEventBox2, baseEventBox3], CancellationToken.None);
 
-        var result = await Repository.GetUnprocessedEventsAsync(5, CancellationToken.None);
+        var result = await Repository.LockUnprocessedEventsAsync(5, GetProcessingTimeoutAt(), CancellationToken.None);
 
         Assert.That(result.Length, Is.EqualTo(2));
 
@@ -253,8 +254,127 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     }
 
     [Test]
+    public async Task LockUnprocessedEventsAsync_PendingEvent_ShouldStoreItAsProcessingUntilProcessingTimeout()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddMinutes(-1));
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+        var processingTimeoutAt = GetProcessingTimeoutAt();
+
+        try
+        {
+            await Repository.LockUnprocessedEventsAsync(500, processingTimeoutAt, CancellationToken.None);
+
+            var storedEvent = DataContext.GetById(eventBox.Id);
+            Assert.That(storedEvent.Status, Is.EqualTo(EventStatus.Processing));
+            Assert.That(storedEvent.TryAfterAt, Is.EqualTo(processingTimeoutAt));
+            Assert.That(storedEvent.UpdatedAt, Is.Null, "The lock must not change the history of the event.");
+        }
+        finally
+        {
+            await MarkAsProcessedAsync(eventBox);
+        }
+    }
+
+    [Test]
+    public async Task LockUnprocessedEventsAsync_EventIsAlreadyLocked_ShouldSkipIt()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddMinutes(-1));
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+
+        try
+        {
+            var firstResult = await Repository.LockUnprocessedEventsAsync(500, GetProcessingTimeoutAt(),
+                CancellationToken.None);
+            var secondResult = await Repository.LockUnprocessedEventsAsync(500, GetProcessingTimeoutAt(),
+                CancellationToken.None);
+
+            Assert.That(firstResult.Select(e => e.Id), Does.Contain(eventBox.Id));
+            Assert.That(secondResult.Select(e => e.Id), Does.Not.Contain(eventBox.Id));
+        }
+        finally
+        {
+            await MarkAsProcessedAsync(eventBox);
+        }
+    }
+
+    [Test]
+    public async Task LockUnprocessedEventsAsync_ProcessingTimeoutHasPassed_ShouldLockItAgainAsFailedEvent()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddMinutes(-1));
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+
+        try
+        {
+            // The instance which locked the event stopped before storing its result, and its timeout has passed.
+            var passedProcessingTimeoutAt = TruncateToSeconds(DateTime.Now.AddMinutes(-1));
+            await Repository.LockUnprocessedEventsAsync(500, passedProcessingTimeoutAt, CancellationToken.None);
+
+            var result = await Repository.LockUnprocessedEventsAsync(500, GetProcessingTimeoutAt(),
+                CancellationToken.None);
+
+            var lockedEvent = result.Single(e => e.Id == eventBox.Id);
+            Assert.That(lockedEvent.Status, Is.EqualTo(EventStatus.Failed));
+            Assert.That(lockedEvent.TryAfterAt, Is.EqualTo(passedProcessingTimeoutAt));
+        }
+        finally
+        {
+            await MarkAsProcessedAsync(eventBox);
+        }
+    }
+
+    [Test]
+    public async Task LockUnprocessedEventsAsync_LockedAtTheSameTime_ShouldNotLockTheSameEventTwice()
+    {
+        var events = Enumerable.Range(0, 20).Select(_ => CreateEvent(DateTime.Now.AddMinutes(-1))).ToArray();
+        await Repository.BulkInsertEventsAsync(events, CancellationToken.None);
+
+        try
+        {
+            var results = await Task.WhenAll(Enumerable.Range(0, 5)
+                .Select(_ => Repository.LockUnprocessedEventsAsync(500, GetProcessingTimeoutAt(),
+                    CancellationToken.None)));
+
+            var lockedIds = results.SelectMany(r => r.Select(e => e.Id)).ToArray();
+            Assert.That(lockedIds, Is.Unique);
+            Assert.That(lockedIds, Is.SupersetOf(events.Select(e => e.Id)));
+        }
+        finally
+        {
+            await MarkAsProcessedAsync(events);
+        }
+    }
+
+    [Test]
+    public async Task LockUnprocessedEventsAsync_EventIsUpdatedAfterLocking_ShouldUnlockIt()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddMinutes(-1));
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+
+        try
+        {
+            var lockedEvent = (await Repository.LockUnprocessedEventsAsync(500, GetProcessingTimeoutAt(),
+                    CancellationToken.None))
+                .Single(e => e.Id == eventBox.Id);
+            // The column is rounded to seconds, so we keep the failed event in the past to be fetched.
+            lockedEvent.Failed(maxTryCount: 10, tryAfterSeconds: 0, tryAfterMinutesIfTryCountExceeded: 5,
+                failureReason: "Test failure");
+            lockedEvent.TryAfterAt = DateTime.Now.AddMinutes(-1);
+            await Repository.UpdateEventAsync(lockedEvent, CancellationToken.None);
+
+            var result = await Repository.LockUnprocessedEventsAsync(500, GetProcessingTimeoutAt(),
+                CancellationToken.None);
+
+            Assert.That(result.Select(e => e.Id), Does.Contain(eventBox.Id));
+        }
+        finally
+        {
+            await MarkAsProcessedAsync(eventBox);
+        }
+    }
+
+    [Test]
     public async Task
-        GetUnprocessedEventsAsync_ProcessedFailedAndRejectedEvents_ShouldReturnOnlyPendingAndFailedEvents()
+        LockUnprocessedEventsAsync_ProcessedFailedAndRejectedEvents_ShouldReturnOnlyPendingAndFailedEvents()
     {
         var pendingEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
         var failedEvent = CreateEvent(DateTime.Now.AddMinutes(-1));
@@ -271,7 +391,8 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
 
         try
         {
-            var result = await Repository.GetUnprocessedEventsAsync(500, CancellationToken.None);
+            var result = await Repository.LockUnprocessedEventsAsync(500, GetProcessingTimeoutAt(),
+                CancellationToken.None);
             var resultIds = result.Select(e => e.Id).ToArray();
 
             Assert.That(resultIds, Does.Contain(pendingEvent.Id));
@@ -283,10 +404,143 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         finally
         {
             // The table is shared by the tests of the fixture, so we do not leave unprocessed events for other tests.
-            pendingEvent.Processed();
-            failedEvent.Processed();
-            await Repository.UpdateEventsAsync([pendingEvent, failedEvent], CancellationToken.None);
+            await MarkAsProcessedAsync(pendingEvent, failedEvent);
         }
+    }
+
+    #endregion
+
+    #region LockEventByIdAsync
+
+    [Test]
+    public async Task LockEventByIdAsync_EventIsNotLocked_ShouldReturnEventWithOriginalValues()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+        var processingTimeoutAt = GetProcessingTimeoutAt();
+
+        var result = await Repository.LockEventByIdAsync(eventBox.Id, processingTimeoutAt, CancellationToken.None);
+
+        Assert.That(result, IsClass.EquivalentTo(eventBox, nameof(eventBox.CreatedAt), nameof(eventBox.TryAfterAt)));
+        Assert.That(result.TryAfterAt, Is.EqualTo(eventBox.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
+        Assert.That(DataContext.GetStoredStatusById(eventBox.Id), Is.EqualTo(nameof(EventStatus.Processing)));
+        Assert.That(DataContext.GetById(eventBox.Id).TryAfterAt, Is.EqualTo(processingTimeoutAt));
+    }
+
+    [Test]
+    public async Task LockEventByIdAsync_RejectedEvent_ShouldLockItWithItsOriginalStatus()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddHours(1));
+        eventBox.Rejected();
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+
+        var result = await Repository.LockEventByIdAsync(eventBox.Id, GetProcessingTimeoutAt(),
+            CancellationToken.None);
+
+        Assert.That(result.Status, Is.EqualTo(EventStatus.Rejected));
+    }
+
+    [Test]
+    public async Task LockEventByIdAsync_EventIsAlreadyLocked_ShouldReturnNull()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+        await Repository.LockEventByIdAsync(eventBox.Id, GetProcessingTimeoutAt(), CancellationToken.None);
+
+        var result = await Repository.LockEventByIdAsync(eventBox.Id, GetProcessingTimeoutAt(),
+            CancellationToken.None);
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task LockEventByIdAsync_ProcessingTimeoutHasPassed_ShouldLockItAgainAsFailedEvent()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+        await Repository.LockEventByIdAsync(eventBox.Id, TruncateToSeconds(DateTime.Now.AddMinutes(-1)),
+            CancellationToken.None);
+
+        var result = await Repository.LockEventByIdAsync(eventBox.Id, GetProcessingTimeoutAt(),
+            CancellationToken.None);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result.Status, Is.EqualTo(EventStatus.Failed));
+    }
+
+    [Test]
+    public async Task LockEventByIdAsync_EventDoesNotExist_ShouldReturnNull()
+    {
+        var result = await Repository.LockEventByIdAsync(Guid.NewGuid(), GetProcessingTimeoutAt(),
+            CancellationToken.None);
+
+        Assert.That(result, Is.Null);
+    }
+
+    #endregion
+
+    #region UnlockEventsAsync
+
+    [Test]
+    public async Task UnlockEventsAsync_EventIsLocked_ShouldRestoreItsOriginalStatusAndTryTime()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+        var processingTimeoutAt = GetProcessingTimeoutAt();
+        var lockedEvent = await Repository.LockEventByIdAsync(eventBox.Id, processingTimeoutAt, CancellationToken.None);
+
+        await Repository.UnlockEventsAsync([lockedEvent], processingTimeoutAt, CancellationToken.None);
+
+        var storedEvent = DataContext.GetById(eventBox.Id);
+        Assert.That(storedEvent.Status, Is.EqualTo(EventStatus.Pending));
+        Assert.That(storedEvent.TryAfterAt, Is.EqualTo(eventBox.TryAfterAt).Within(TimeSpan.FromSeconds(1)));
+        var result = await Repository.LockEventByIdAsync(eventBox.Id, GetProcessingTimeoutAt(),
+            CancellationToken.None);
+        Assert.That(result, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task UnlockEventsAsync_EventIsStored_ShouldNotChangeIt()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+        var processingTimeoutAt = GetProcessingTimeoutAt();
+        var lockedEvent = await Repository.LockEventByIdAsync(eventBox.Id, processingTimeoutAt, CancellationToken.None);
+        var originalEvent = await Repository.GetEventByIdAsync(eventBox.Id, CancellationToken.None);
+        lockedEvent.Rejected();
+        await Repository.UpdateEventAsync(lockedEvent, CancellationToken.None);
+
+        await Repository.UnlockEventsAsync([originalEvent], processingTimeoutAt, CancellationToken.None);
+
+        Assert.That(DataContext.GetStoredStatusById(eventBox.Id), Is.EqualTo(nameof(EventStatus.Rejected)));
+    }
+
+    [Test]
+    public async Task UnlockEventsAsync_EventIsLockedAgainByOthers_ShouldNotRemoveTheirLock()
+    {
+        var eventBox = CreateEvent(DateTime.Now.AddHours(1));
+        await Repository.InsertEventAsync(eventBox, CancellationToken.None);
+        var firstProcessingTimeoutAt = TruncateToSeconds(DateTime.Now.AddMinutes(-1));
+        var firstLockedEvent = await Repository.LockEventByIdAsync(eventBox.Id, firstProcessingTimeoutAt,
+            CancellationToken.None);
+        var secondProcessingTimeoutAt = GetProcessingTimeoutAt();
+        var secondLockedEvent = await Repository.LockEventByIdAsync(eventBox.Id, secondProcessingTimeoutAt,
+            CancellationToken.None);
+
+        await Repository.UnlockEventsAsync([firstLockedEvent], firstProcessingTimeoutAt, CancellationToken.None);
+
+        Assert.That(secondLockedEvent, Is.Not.Null);
+        var storedEvent = DataContext.GetById(eventBox.Id);
+        Assert.That(storedEvent.Status, Is.EqualTo(EventStatus.Processing));
+        Assert.That(storedEvent.TryAfterAt, Is.EqualTo(secondProcessingTimeoutAt));
+    }
+
+    [Test]
+    public void UnlockEventsAsync_EventsAreNotLocked_ShouldNotThrow()
+    {
+        Assert.DoesNotThrowAsync(() =>
+            Repository.UnlockEventsAsync([CreateEvent(DateTime.Now)], GetProcessingTimeoutAt(),
+                CancellationToken.None));
     }
 
     #endregion
@@ -825,8 +1079,8 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             (repository, token) => repository.InsertEventAsync(CreateEvent(DateTime.Now), token));
         yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.BulkInsertEventsAsync),
             (repository, token) => repository.BulkInsertEventsAsync([CreateEvent(DateTime.Now)], token));
-        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.GetUnprocessedEventsAsync),
-            (repository, token) => repository.GetUnprocessedEventsAsync(5, token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.LockUnprocessedEventsAsync),
+            (repository, token) => repository.LockUnprocessedEventsAsync(5, DateTime.Now, token));
         yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.UpdateEventAsync),
             (repository, token) => repository.UpdateEventAsync(CreateEvent(DateTime.Now), token));
         yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.UpdateEventsAsync),
@@ -835,6 +1089,8 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             (repository, token) => repository.GetEventStatusByIdAsync(Guid.NewGuid(), token));
         yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.GetEventByIdAsync),
             (repository, token) => repository.GetEventByIdAsync(Guid.NewGuid(), token));
+        yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.LockEventByIdAsync),
+            (repository, token) => repository.LockEventByIdAsync(Guid.NewGuid(), DateTime.Now, token));
         yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.DeleteProcessedEventsAsync),
             (repository, token) => repository.DeleteProcessedEventsAsync(DateTime.Now, token));
         yield return CreateAsyncMethodCase(nameof(BaseEventRepository<TEvent>.GetEventsAsync),
@@ -944,6 +1200,28 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
             TryAfterAt = tryAfterAt
         };
     }
+
+    /// <summary>
+    /// Marks the events as processed, so the table which is shared by the tests of the fixture does not keep
+    /// unprocessed events for other tests.
+    /// </summary>
+    private async Task MarkAsProcessedAsync(params TEvent[] events)
+    {
+        foreach (var eventBox in events)
+            eventBox.Processed();
+
+        await Repository.UpdateEventsAsync(events, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Gets the processing timeout the same way as the processors do, with the default settings.
+    /// </summary>
+    private static DateTime GetProcessingTimeoutAt() => new InboxOrOutboxStructure().GetProcessingTimeoutAt();
+
+    /// <summary>
+    /// Truncates the time to whole seconds, since the try_after_at column stores no fractions of a second.
+    /// </summary>
+    private static DateTime TruncateToSeconds(DateTime time) => time.AddTicks(-(time.Ticks % TimeSpan.TicksPerSecond));
 
     /// <summary>
     /// Marks the event as processed at the given time. Since UpdatedAt has a non-public setter, we use reflection to set its value.

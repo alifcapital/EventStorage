@@ -41,15 +41,40 @@ internal interface IBaseEventRepository<TBaseMessage> : ITableCreator
     bool BulkInsertEvents(TBaseMessage[] events);
 
     /// <summary>
-    /// Retrieves all unprocessed events based on Provider, and TryAfterAt.
+    /// Retrieves the oldest Pending/Failed events whose try time has come, and the "Processing" events whose processing
+    /// timeout has passed, with "FOR UPDATE SKIP LOCKED", and locks them by marking them as "Processing" until the
+    /// processing timeout, so other instances skip them until they are stored, unlocked or the timeout passes.
     /// </summary>
-    /// <param name="limit">Get first 500 events.</param>
+    /// <param name="limit">The maximum number of events to lock.</param>
+    /// <param name="processingTimeoutAt">The time after which the locked events are considered abandoned. See <see cref="Configurations.InboxOrOutboxStructure.GetProcessingTimeoutAt"/>.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>A list of unprocessed events that match the criteria.</returns>
-    Task<TBaseMessage[]> GetUnprocessedEventsAsync(int limit = 500, CancellationToken cancellationToken = default);
+    /// <returns>The locked events with their original status and try time (an abandoned event is returned as failed), ordered by the creation time.</returns>
+    Task<TBaseMessage[]> LockUnprocessedEventsAsync(int limit, DateTime processingTimeoutAt,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Updates the specified Event properties.
+    /// Locks the event with any status by its id for processing or changing it, if it is not "Processing" or its
+    /// processing timeout has passed.
+    /// </summary>
+    /// <param name="id">The id of the event.</param>
+    /// <param name="processingTimeoutAt">The time after which the locked event is considered abandoned.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>Returns the locked event with its original status and try time, or null if there is no event with the specified id or it is already locked.</returns>
+    Task<TBaseMessage> LockEventByIdAsync(Guid id, DateTime processingTimeoutAt,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Restores the original status and try time of the locked events which are still locked by the same lock.
+    /// The stored events (<see cref="UpdateEventAsync"/>) and the events locked again by others are not changed.
+    /// </summary>
+    /// <param name="events">The locked events with their original status and try time.</param>
+    /// <param name="processingTimeoutAt">The processing timeout which was used to lock the events.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    Task UnlockEventsAsync(IEnumerable<TBaseMessage> events, DateTime processingTimeoutAt,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Updates the specified Event properties. It also unlocks the locked event.
     /// </summary>
     /// <param name="event">The event to update.</param>
     /// <param name="cancellationToken">The cancellation token.</param>

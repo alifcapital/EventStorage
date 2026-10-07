@@ -8,7 +8,6 @@ using EventStorage.Inbox.Repositories;
 using EventStorage.Management;
 using EventStorage.Management.Models;
 using EventStorage.Models;
-using Medallion.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
@@ -23,7 +22,6 @@ internal class InboxEventsServiceTests
     private IKeyedServiceProvider _serviceProvider;
     private IInboxRepository _repository;
     private IInboxEventsProcessor _processor;
-    private IDistributedLock _distributedLock;
     private InboxEventsService _service;
 
     private static readonly EventActionRequest Request = new() { PerformedBy = "operator", Comment = "Test comment" };
@@ -38,7 +36,6 @@ internal class InboxEventsServiceTests
         _serviceProvider.GetService(typeof(IInboxRepository)).Returns(_repository);
         _processor = Substitute.For<IInboxEventsProcessor>();
         _serviceProvider.GetService(typeof(IInboxEventsProcessor)).Returns(_processor);
-        MockDistributedLockProvider();
 
         _service = CreateService(isEnabled: true);
     }
@@ -232,7 +229,7 @@ internal class InboxEventsServiceTests
     public async Task ExecuteAsync_EventExists_ShouldProcessItWithTheRequest()
     {
         var message = CreateMessage();
-        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(message);
         _processor.ProcessSingleEventAsync(message, Request, Arg.Any<CancellationToken>())
             .Returns(EventActionResult.Success());
 
@@ -240,6 +237,30 @@ internal class InboxEventsServiceTests
 
         Assert.That(result.IsSuccess, Is.True);
         await _processor.Received(1).ProcessSingleEventAsync(message, Request, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ExecuteAsync_EventCannotBeExecuted_ShouldUnlockItWithTheSameProcessingTimeout()
+    {
+        var message = CreateMessage();
+        var processingTimeoutAt = default(DateTime);
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                processingTimeoutAt = callInfo.ArgAt<DateTime>(1);
+                return message;
+            });
+        _processor.ProcessSingleEventAsync(message, Request, Arg.Any<CancellationToken>())
+            .Returns(EventActionResult.InvalidState("Test reason"));
+
+        var result = await _service.ExecuteAsync(message.Id, Request, CancellationToken.None);
+
+        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.InvalidState));
+        Assert.That(processingTimeoutAt.Ticks % TimeSpan.TicksPerSecond, Is.Zero,
+            "The processing timeout must have whole seconds, since the try_after_at column stores no fractions.");
+        await _repository.Received(1).UnlockEventsAsync(
+            Arg.Is<IEnumerable<InboxMessage>>(events => events.Single() == message), processingTimeoutAt,
+            CancellationToken.None);
     }
 
     [Test]
@@ -256,13 +277,13 @@ internal class InboxEventsServiceTests
     {
         var message = CreateMessage();
         using var cancellationTokenSource = new CancellationTokenSource();
-        _repository.GetEventByIdAsync(message.Id, cancellationTokenSource.Token).Returns(message);
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), cancellationTokenSource.Token).Returns(message);
         _processor.ProcessSingleEventAsync(message, Request, cancellationTokenSource.Token)
             .Returns(EventActionResult.Success());
 
         await _service.ExecuteAsync(message.Id, Request, cancellationTokenSource.Token);
 
-        await _repository.Received(1).GetEventByIdAsync(message.Id, cancellationTokenSource.Token);
+        await _repository.Received(1).LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), cancellationTokenSource.Token);
         await _processor.Received(1).ProcessSingleEventAsync(message, Request, cancellationTokenSource.Token);
     }
 
@@ -274,7 +295,7 @@ internal class InboxEventsServiceTests
     public async Task RejectAsync_PendingEvent_ShouldRejectAndStoreIt()
     {
         var message = CreateMessage();
-        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(message);
 
         var result = await _service.RejectAsync(message.Id, Request, CancellationToken.None);
 
@@ -283,6 +304,8 @@ internal class InboxEventsServiceTests
         Assert.That(message.UpdatedBy, Is.EqualTo(Request.PerformedBy));
         Assert.That(message.StatusComment, Is.EqualTo(Request.Comment));
         await _repository.Received(1).UpdateEventAsync(message, Arg.Any<CancellationToken>());
+        await _repository.DidNotReceive().UnlockEventsAsync(Arg.Any<IEnumerable<InboxMessage>>(), Arg.Any<DateTime>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -290,26 +313,43 @@ internal class InboxEventsServiceTests
     {
         var message = CreateMessage();
         message.Processed();
-        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(message);
 
         var result = await _service.RejectAsync(message.Id, Request, CancellationToken.None);
 
         Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.InvalidState));
         await _repository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
+        await _repository.Received(1).UnlockEventsAsync(
+            Arg.Is<IEnumerable<InboxMessage>>(events => events.Single() == message), Arg.Any<DateTime>(),
+            CancellationToken.None);
     }
 
     [Test]
-    public async Task RejectAsync_EventIsLocked_ShouldReturnLockedWithoutReadingIt()
+    public async Task RejectAsync_UpdatingEventFails_ShouldUnlockEvent()
     {
-        _distributedLock.TryAcquireAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
-            .Returns((IDistributedSynchronizationHandle)null);
+        var message = CreateMessage();
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(message);
+        _repository.UpdateEventAsync(message, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<bool>(new EventStoreException("Test failure")));
+
+        Assert.ThrowsAsync<EventStoreException>(() => _service.RejectAsync(message.Id, Request, CancellationToken.None));
+
+        await _repository.Received(1).UnlockEventsAsync(
+            Arg.Is<IEnumerable<InboxMessage>>(events => events.Single() == message), Arg.Any<DateTime>(),
+            CancellationToken.None);
+    }
+
+    [Test]
+    public async Task RejectAsync_EventIsProcessing_ShouldReturnAlreadyProcessingWithoutUpdating()
+    {
         var eventId = Guid.NewGuid();
+        _repository.GetEventStatusByIdAsync(eventId, Arg.Any<CancellationToken>()).Returns(EventStatus.Processing);
 
         var result = await _service.RejectAsync(eventId, Request, CancellationToken.None);
 
         Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.AlreadyProcessing));
-        await _repository.DidNotReceive().GetEventByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
         await _repository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
+        await _repository.DidNotReceive().UnlockEventsAsync(Arg.Any<IEnumerable<InboxMessage>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -325,13 +365,12 @@ internal class InboxEventsServiceTests
     {
         var message = CreateMessage();
         using var cancellationTokenSource = new CancellationTokenSource();
-        _repository.GetEventByIdAsync(message.Id, cancellationTokenSource.Token).Returns(message);
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), cancellationTokenSource.Token).Returns(message);
 
         var result = await _service.RejectAsync(message.Id, Request, cancellationTokenSource.Token);
 
         Assert.That(result.IsSuccess, Is.True);
-        await _distributedLock.Received(1).TryAcquireAsync(Arg.Any<TimeSpan>(), cancellationTokenSource.Token);
-        await _repository.Received(1).GetEventByIdAsync(message.Id, cancellationTokenSource.Token);
+        await _repository.Received(1).LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), cancellationTokenSource.Token);
         await _repository.Received(1).UpdateEventAsync(message, cancellationTokenSource.Token);
     }
 
@@ -344,7 +383,7 @@ internal class InboxEventsServiceTests
     {
         var message = CreateMessage();
         message.Rejected();
-        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(message);
         var tryAfterAt = DateTime.Now.AddHours(1);
 
         var result = await _service.RescheduleAsync(message.Id, tryAfterAt, Request, CancellationToken.None);
@@ -360,7 +399,7 @@ internal class InboxEventsServiceTests
     {
         var message = CreateMessage();
         message.Failed(maxTryCount: 10, tryAfterSeconds: 0, tryAfterMinutesIfTryCountExceeded: 5, failureReason: "Test failure");
-        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(message);
         var tryAfterAt = DateTime.Now.AddHours(1);
 
         var result = await _service.RescheduleAsync(message.Id, tryAfterAt, Request, CancellationToken.None);
@@ -376,7 +415,7 @@ internal class InboxEventsServiceTests
     {
         var message = CreateMessage();
         message.Processed();
-        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(message);
 
         var result = await _service.RescheduleAsync(message.Id, DateTime.Now, Request, CancellationToken.None);
 
@@ -393,7 +432,7 @@ internal class InboxEventsServiceTests
     {
         var message = CreateMessage();
         message.Rejected();
-        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(message);
 
         var result = await _service.MarkAsProcessedAsync(message.Id, Request, CancellationToken.None);
 
@@ -408,7 +447,7 @@ internal class InboxEventsServiceTests
     {
         var message = CreateMessage();
         message.Processed();
-        _repository.GetEventByIdAsync(message.Id, Arg.Any<CancellationToken>()).Returns(message);
+        _repository.LockEventByIdAsync(message.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(message);
 
         var result = await _service.MarkAsProcessedAsync(message.Id, Request, CancellationToken.None);
 
@@ -427,20 +466,6 @@ internal class InboxEventsServiceTests
         };
 
         return new InboxEventsService(_serviceProvider, settings, Substitute.For<ILogger<InboxEventsService>>());
-    }
-
-    private void MockDistributedLockProvider()
-    {
-        var distributedLockProvider = Substitute.For<IDistributedLockProvider>();
-        _serviceProvider.GetRequiredKeyedService(typeof(IDistributedLockProvider), FunctionalityNames.Inbox)
-            .Returns(distributedLockProvider);
-
-        _distributedLock = Substitute.For<IDistributedLock>();
-        distributedLockProvider.CreateLock(Arg.Any<string>()).Returns(_distributedLock);
-
-        var distributedSynchronizationHandle = Substitute.For<IDistributedSynchronizationHandle>();
-        _distributedLock.TryAcquireAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
-            .Returns(distributedSynchronizationHandle);
     }
 
     private void MockGetEvents(EventSummary[] summaries)

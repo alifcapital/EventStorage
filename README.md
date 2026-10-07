@@ -390,6 +390,7 @@ The `InboxAndOutbox` is the main section for setting of the Outbox and Inbox fun
 `TryAfterMinutesIfTryCountExceeded` - Specifies the number of minutes to wait before retrying an event on each failure once its try count has exceeded `TryCount`. Default value is 5. Replaces the removed `TryAfterMinutes` option.<br/>
 `TryAfterMinutesIfEventNotFound` - For increasing the TryAfterAt to amount of minutes if the event not found to publish or receive. Default value is 60.<br/>
 `SecondsToDelayProcessEvents` - The delay in seconds before processing events. Default value is 1.<br/>
+`SecondsToWaitForFetchedEventsToBeProcessed` - When the processor fetches a batch of events (with `FOR UPDATE SKIP LOCKED`), they are marked as `Processing` and other instances skip them for this number of seconds; the time is stored in `try_after_at`. It is counted from the fetch time of the whole batch, not from the start of each event, so it must be longer than processing all events of a batch (`MaxEventsToFetch` / `MaxConcurrency` rounds). If an instance stops before finishing its batch (crash, kill), the unfinished events are fetched again after this time. If it is too short, an event may be processed twice. Default value is 600.<br/>
 `DaysToCleanUpEvents` - Number of days after which processed events are cleaned up. Cleanup only occurs if this value is 1 or higher. Default value is 0.<br/>
 `HoursToDelayCleanUpEvents` - Specifies the delay in hours before cleaning up processed events. Default value is 1.<br/>
 `MaxFailureReasonLength` - The maximum length of the stored failure reason. Longer reasons are truncated. The `0` value means no limit. Default value is 4000.<br/>
@@ -411,8 +412,9 @@ Each Inbox/Outbox event has a `status` column, stored as a string:
 | `Failed` | Processing failed; the event is retried once its `try_after_at` time comes. |
 | `Processed` | The event is processed. `updated_at` holds the processed time. |
 | `Rejected` | The event is ignored and never processed. |
+| `Processing` | The event is being processed by an instance or changed by a manual action right now. Its `try_after_at` is the time after which it is considered abandoned (the instance stopped before storing the result) and fetched again. See `SecondsToWaitForFetchedEventsToBeProcessed`. |
 
-Besides `status`, the tables have the `failure_reason`, `updated_at`, `updated_by` (the user name of who changed the status manually) and `status_comment` columns. Only `Pending` and `Failed` events are fetched for processing, and the clean-up job deletes only `Processed` events.
+Besides `status`, the tables have the `failure_reason`, `updated_at`, `updated_by` (the user name of who changed the status manually) and `status_comment` columns. Only `Pending` and `Failed` events, and abandoned `Processing` events, are fetched for processing, and the clean-up job deletes only `Processed` events. Before rolling back to a library version without the `Processing` status, run `UPDATE <table> SET status = 'Pending' WHERE status = 'Processing'`.
 
 When an event fails, its `failure_reason` holds the exception chain formatted as `Type: Message` (see the `MaxFailureReasonLength` and `StoreFailureStackTrace` options). The last failure reason is kept when the event is processed later.
 
@@ -430,7 +432,7 @@ For this, the library registers two scoped services. Both have the same methods 
 Things to know before you start:
 - **No endpoints or authorization are included.** Write your own controller (see the [full example](#full-controller-example) below) and protect every endpoint with your own permissions.
 - **The Inbox/Outbox must be enabled.** If it is not, every method throws an `EventStoreException`.
-- **Actions are safe to use while the application is running.** Every action takes the same distributed lock as the background processor, so an event is never changed by an action and processed at the same time.
+- **Actions are safe to use while the application is running.** Every action marks the event as `Processing` the same way as the background processor does, so an event is never changed by an action and processed at the same time. If the event is `Processing` at the moment, the action returns `AlreadyProcessing`.
 
 #### Reading events
 

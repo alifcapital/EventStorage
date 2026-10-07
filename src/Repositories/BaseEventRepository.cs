@@ -39,7 +39,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
     /// Seconds to wait for the exclusive lock of the table while migrating its old schema.
     /// </summary>
     internal readonly int SecondsToWaitForMigrationLock = secondsToWaitForMigrationLock;
-
+    
     /// <summary>
     /// The logger instance.
     /// </summary>
@@ -174,33 +174,84 @@ internal abstract class BaseEventRepository<TBaseMessage>(
 
     #endregion
 
-    #region GetUnprocessedEventsAsync
+    #region LockUnprocessedEventsAsync
 
     /// <summary>
     /// The columns of the table to select, mapped to the properties of the message.
     /// The naming policy column is included only if the table has it.
     /// </summary>
-    private string SqlSelectColumns => $@"
+    private string SqlSelectColumns => GetSqlSelectColumns();
+
+    /// <summary>
+    /// Gets the columns of the table to select, mapped to the properties of the message. The status and the try time
+    /// can be taken from other expressions, for example the original values of the event before it was locked.
+    /// </summary>
+    /// <param name="statusColumn">The expression of the status.</param>
+    /// <param name="tryAfterAtColumn">The expression of the try time.</param>
+    private string GetSqlSelectColumns(string statusColumn = "status", string tryAfterAtColumn = "try_after_at") => $@"
                         id as ""{nameof(IBaseMessageBox.Id)}"", provider as ""{nameof(IBaseMessageBox.Provider)}"",
                         event_name as ""{nameof(IBaseMessageBox.EventName)}"", event_path as ""{nameof(IBaseMessageBox.EventPath)}"",
                         payload::text as ""{nameof(IBaseMessageBox.Payload)}"", headers as ""{nameof(IBaseMessageBox.Headers)}"",
                         {(HasNamingPolicyColumn ? $@"naming_policy_type as ""{nameof(IBaseMessageBox.NamingPolicyType)}""," : string.Empty)}
                         additional_data as ""{nameof(IBaseMessageBox.AdditionalData)}"", created_at as ""{nameof(IBaseMessageBox.CreatedAt)}"",
-                        try_count as ""{nameof(IBaseMessageBox.TryCount)}"", try_after_at as ""{nameof(IBaseMessageBox.TryAfterAt)}"",
-                        status as ""{nameof(IBaseMessageBox.Status)}"", failure_reason as ""{nameof(IBaseMessageBox.FailureReason)}"",
+                        try_count as ""{nameof(IBaseMessageBox.TryCount)}"", {tryAfterAtColumn} as ""{nameof(IBaseMessageBox.TryAfterAt)}"",
+                        {statusColumn} as ""{nameof(IBaseMessageBox.Status)}"", failure_reason as ""{nameof(IBaseMessageBox.FailureReason)}"",
                         updated_at as ""{nameof(IBaseMessageBox.UpdatedAt)}"", updated_by as ""{nameof(IBaseMessageBox.UpdatedBy)}"",
                         status_comment as ""{nameof(IBaseMessageBox.StatusComment)}""";
 
-    private string SqlQueryToGetUnprocessedEvents => $@"
-                SELECT {SqlSelectColumns}
-                FROM {TableName}
-                WHERE 
-                    status IN ('{nameof(EventStatus.Pending)}', '{nameof(EventStatus.Failed)}')
-                    AND try_after_at <= @CurrentTime
-                ORDER BY created_at ASC
-                LIMIT @Limit";
+    /// <summary>
+    /// The name of the Common Table Expression which keeps the events to lock with their status and try time before they were locked.
+    /// </summary>
+    private const string EventsToLockTable = "events_to_lock";
 
-    public async Task<TBaseMessage[]> GetUnprocessedEventsAsync(int limit, CancellationToken cancellationToken)
+    /// <summary>
+    /// The columns of the locked event to select, with the status and try time of the event before it was locked.
+    /// </summary>
+    private string SqlSelectColumnsOfLockedEvent =>
+        GetSqlSelectColumns($"{EventsToLockTable}.status_before_lock", $"{EventsToLockTable}.try_after_at_before_lock");
+
+    /// <summary>
+    /// The columns of the event to lock. The event which is still "Processing" after its lock time was abandoned
+    /// (for example, the instance stopped before storing its result), so its status before the lock is considered as failed.
+    /// The columns have different names from the columns of the table to not be ambiguous with them in the update
+    /// statement, where both the table and the CTE are available.
+    /// </summary>
+    private const string SqlColumnsOfEventToLock = $@"
+                        id AS locked_event_id,
+                        CASE WHEN status = '{nameof(EventStatus.Processing)}' THEN '{nameof(EventStatus.Failed)}' ELSE status END AS status_before_lock,
+                        try_after_at AS try_after_at_before_lock";
+
+    /// <summary>
+    /// The SQL part for locking the selected events by marking them as "Processing" until the given time, and for
+    /// returning them with their status and try time before the lock.
+    /// </summary>
+    private string SqlQueryToMarkSelectedEventsAsProcessing => $@"
+                UPDATE {TableName}
+                SET status = '{nameof(EventStatus.Processing)}', try_after_at = @ProcessingTimeoutAt
+                FROM {EventsToLockTable}
+                WHERE id = {EventsToLockTable}.locked_event_id
+                RETURNING {SqlSelectColumnsOfLockedEvent}";
+
+    /// <summary>
+    /// Selects the unprocessed events with "FOR UPDATE SKIP LOCKED", so the events which are being selected by another
+    /// instance at the same time are skipped, and marks them as "Processing" in the same statement, so other instances
+    /// skip them until they are processed, unlocked or their processing timeout has passed.
+    /// </summary>
+    private string SqlQueryToLockUnprocessedEvents => $@"
+                WITH {EventsToLockTable} AS (
+                    SELECT {SqlColumnsOfEventToLock}
+                    FROM {TableName}
+                    WHERE
+                        status IN ('{nameof(EventStatus.Pending)}', '{nameof(EventStatus.Failed)}', '{nameof(EventStatus.Processing)}')
+                        AND try_after_at <= @CurrentTime
+                    ORDER BY created_at ASC
+                    LIMIT @Limit
+                    FOR UPDATE SKIP LOCKED
+                )
+                {SqlQueryToMarkSelectedEventsAsProcessing}";
+
+    public async Task<TBaseMessage[]> LockUnprocessedEventsAsync(int limit, DateTime processingTimeoutAt,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -208,17 +259,100 @@ internal abstract class BaseEventRepository<TBaseMessage>(
             await dbConnection.OpenAsync(cancellationToken);
 
             var unprocessedEvents = await dbConnection.QueryAsync<TBaseMessage>(new CommandDefinition(
-                SqlQueryToGetUnprocessedEvents, new
+                SqlQueryToLockUnprocessedEvents, new
                 {
                     CurrentTime = DateTime.Now,
+                    ProcessingTimeoutAt = processingTimeoutAt,
                     Limit = limit
                 }, cancellationToken: cancellationToken));
 
-            return unprocessedEvents.ToArray();
+            // The returning rows of the update statement do not keep the order of the selected events.
+            return unprocessedEvents.OrderBy(e => e.CreatedAt).ToArray();
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
-            throw new EventStoreException(e, $"Error while retrieving unprocessed events from the {TableName} table.");
+            throw new EventStoreException(e, $"Error while locking unprocessed events of the {TableName} table.");
+        }
+    }
+
+    #endregion
+
+    #region LockEventByIdAsync
+
+    /// <summary>
+    /// Locks the event with any status, if it is not "Processing" or its processing timeout has passed. If the event is
+    /// being changed at the same time by another statement, PostgreSQL waits for it and checks the condition again
+    /// with the new value of the event.
+    /// </summary>
+    private string SqlQueryToLockEventById => $@"
+                WITH {EventsToLockTable} AS (
+                    SELECT {SqlColumnsOfEventToLock}
+                    FROM {TableName}
+                    WHERE id = @Id
+                        AND (status <> '{nameof(EventStatus.Processing)}' OR try_after_at <= @CurrentTime)
+                    FOR UPDATE
+                )
+                {SqlQueryToMarkSelectedEventsAsProcessing}";
+
+    public async Task<TBaseMessage> LockEventByIdAsync(Guid id, DateTime processingTimeoutAt,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
+            await dbConnection.OpenAsync(cancellationToken);
+
+            var command = new CommandDefinition(SqlQueryToLockEventById, new
+            {
+                Id = id,
+                CurrentTime = DateTime.Now,
+                ProcessingTimeoutAt = processingTimeoutAt
+            }, cancellationToken: cancellationToken);
+            return await dbConnection.QuerySingleOrDefaultAsync<TBaseMessage>(command);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            throw new EventStoreException(e, $"Error while locking the event with id {id} of the {TableName} table.");
+        }
+    }
+
+    #endregion
+
+    #region UnlockEventsAsync
+
+    /// <summary>
+    /// Restores the original status and try time of the events only if they are still locked by the same lock, so
+    /// the events which are already stored, or locked again by another instance after the processing timeout, are not changed.
+    /// </summary>
+    private readonly string _sqlUnlockEventsQuery = $@"
+                UPDATE {settings.TableName}
+                SET status = @StatusName, try_after_at = @TryAfterAt
+                WHERE id = @Id AND status = '{nameof(EventStatus.Processing)}' AND try_after_at = @ProcessingTimeoutAt";
+
+    public async Task UnlockEventsAsync(IEnumerable<TBaseMessage> events, DateTime processingTimeoutAt,
+        CancellationToken cancellationToken)
+    {
+        var eventsToUnlock = events.Select(e => new
+        {
+            e.Id,
+            StatusName = e.Status.ToString(),
+            e.TryAfterAt,
+            ProcessingTimeoutAt = processingTimeoutAt
+        }).ToArray();
+        if (eventsToUnlock.Length == 0)
+            return;
+
+        try
+        {
+            await using var dbConnection = new NpgsqlConnection(ConnectionString);
+            await dbConnection.OpenAsync(cancellationToken);
+
+            await dbConnection.ExecuteAsync(
+                new CommandDefinition(_sqlUnlockEventsQuery, eventsToUnlock, cancellationToken: cancellationToken));
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            throw new EventStoreException(e, $"Error while unlocking events of the {TableName} table.");
         }
     }
 
@@ -226,9 +360,12 @@ internal abstract class BaseEventRepository<TBaseMessage>(
 
     #region UpdateEventAsync
 
+    /// <summary>
+    /// Updates the event. It also unlocks the locked event, since its status and try time are changed.
+    /// </summary>
     private readonly string _sqlUpdateEventQuery = $@"
                 UPDATE {settings.TableName}
-                SET 
+                SET
                     try_count = @TryCount,
                     try_after_at = @TryAfterAt,
                     status = @StatusName,

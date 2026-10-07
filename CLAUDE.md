@@ -89,7 +89,7 @@ Provides the **Transactional Outbox and Inbox pattern** implementation. Ensures 
 **Background Processing:**
 - Auto-creates DB tables on startup
 - Runs a polling loop with configurable `SecondsToDelayProcessEvents` delay
-- **PostgreSQL distributed locks** (`DistributedLock.Postgres`) prevent duplicate processing across replicas
+- **Processing status** prevents duplicate processing across replicas: events are fetched with `FOR UPDATE SKIP LOCKED` and, in the same statement, marked `Processing` with `try_after_at` = fetch time + `SecondsToWaitForFetchedEventsToBeProcessed` (the claim returns their original status/`try_after_at`). Abandoned `Processing` events are fetched again once `try_after_at` passes (returned as `Failed`). Management actions claim a single event the same way (`AlreadyProcessing` if it is `Processing`).
 - `SemaphoreSlim` enforces `MaxConcurrency` within a single instance
 - Failed events are retried with back-off: each failure moves `try_after_at` by `TryAfterSeconds` until `TryCount` is exceeded, then by `TryAfterMinutesIfTryCountExceeded`
 
@@ -148,6 +148,7 @@ builder.Services.AddEventStore(
     "TryAfterMinutesIfTryCountExceeded": 5,
     "TryAfterMinutesIfEventNotFound": 60,
     "SecondsToDelayProcessEvents": 1,
+    "SecondsToWaitForFetchedEventsToBeProcessed": 600,
     "DaysToCleanUpEvents": 0,
     "HoursToDelayCleanUpEvents": 1,
     "ConnectionString": "..."
@@ -161,7 +162,7 @@ builder.Services.AddEventStore(
 - Inbox and Outbox **cannot share the same `TableName`**
 - `DaysToCleanUpEvents` must be ≥ 1 to activate cleanup (only `Processed` events are deleted)
 
-**Table schema:** each event row has a string `status` (`Pending` · `Failed` · `Processed` · `Rejected`) plus `failure_reason`, `updated_at` (processed time for processed events), `updated_by` (user name) and `status_comment`. Only `Pending`/`Failed` rows are fetched for processing. Tables on the old schema (with `processed_at`, no `status`) are migrated on startup in one transaction under `LOCK TABLE ... ACCESS EXCLUSIVE` (bounded by `SecondsToWaitForMigrationLock`); `processed_at` is dropped afterwards.
+**Table schema:** each event row has a string `status` (`Pending` · `Failed` · `Processed` · `Rejected` · `Processing`) plus `failure_reason`, `updated_at` (processed time for processed events), `updated_by` (user name) and `status_comment`. `Pending`/`Failed` rows and abandoned `Processing` rows (`try_after_at` passed) are fetched for processing. Tables on the old schema (with `processed_at`, no `status`) are migrated on startup in one transaction under `LOCK TABLE ... ACCESS EXCLUSIVE` (bounded by `SecondsToWaitForMigrationLock`); `processed_at` is dropped afterwards.
 
 **Schema changes rule:** all table creation, index and schema migration SQL lives in `src/Extensions/BaseEventRepositorySchemaExtensions.cs` (called from `BaseEventRepository.CreateTableIfNotExists()`). Add any future schema change there as a new `#region` — do **not** change `BaseEventRepository` for schema changes.
 
@@ -402,7 +403,7 @@ tests/
 | Runtime | .NET 10.0 |
 | Database | PostgreSQL (primary), SQL Server (supported) |
 | ORM / Query | Dapper, Npgsql |
-| Distributed Lock | `DistributedLock.Postgres` (Medallion) |
+| Locking | `FOR UPDATE SKIP LOCKED` + `Processing` status with `try_after_at` timeout |
 | Message Broker | RabbitMQ via `RabbitMQ.Client` 7.2.0 |
 | Resilience | Polly 8.6.5 |
 | In-Memory Messaging | `AlifCapital.InMemoryMessaging` |

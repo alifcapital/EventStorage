@@ -48,6 +48,27 @@ public record InboxOrOutboxStructure
     public int SecondsToDelayProcessEvents { get; init; } = 1;
 
     /// <summary>
+    /// When the processor fetches a batch of events, they are marked as "Processing" and other instances skip them for
+    /// this number of seconds. It is counted from the fetch time of the whole batch, not from the start of each event,
+    /// so it must be longer than processing all events of a batch (MaxEventsToFetch / MaxConcurrency rounds). If an
+    /// instance stops before finishing its batch (crash, kill), the unfinished events are fetched again after this time.
+    /// If it is too short, an event may be processed twice. Default value is "600".
+    /// </summary>
+    public int SecondsToWaitForFetchedEventsToBeProcessed { get; init; } = 600;
+
+    /// <summary>
+    /// Gets the time after which the events which are fetched now are considered abandoned if they are still
+    /// "Processing". It is truncated to whole seconds, since the "try_after_at" column stores the time without
+    /// fractions of a second, and the same value is used to unlock only the own locked events.
+    /// </summary>
+    internal DateTime GetProcessingTimeoutAt()
+    {
+        //TODO: What if we do not truncated fractions of a second?
+        var processingTimeoutAt = DateTime.Now.AddSeconds(SecondsToWaitForFetchedEventsToBeProcessed);
+        return processingTimeoutAt.AddTicks(-(processingTimeoutAt.Ticks % TimeSpan.TicksPerSecond));
+    }
+
+    /// <summary>
     /// Days to cleaning up the processed events. Default value is "0". It will work when value is higher than or equal 1.
     /// </summary>
     public int DaysToCleanUpEvents { get; init; }
