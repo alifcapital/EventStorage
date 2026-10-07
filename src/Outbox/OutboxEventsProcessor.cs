@@ -86,7 +86,7 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
 
     #endregion
 
-    #region Execute unprocessed events
+    #region Execute unprocessed event(s)
 
     /// <summary>
     /// The method to execute unprocessed events. We are locking the logic to prevent re-entry into the method while processing is ongoing.

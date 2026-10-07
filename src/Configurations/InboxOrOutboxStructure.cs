@@ -57,16 +57,6 @@ public record InboxOrOutboxStructure
     public int SecondsToWaitForFetchedEventsToBeProcessed { get; init; } = 600;
 
     /// <summary>
-    /// Gets the time until which the fetched events stay locked. Fractions of a second are truncated, since the
-    /// database rounds the stored time to whole seconds and unlocking finds the events by the exact same value.
-    /// </summary>
-    internal DateTime GetProcessingTimeoutAt()
-    {
-        var processingTimeoutAt = DateTime.Now.AddSeconds(SecondsToWaitForFetchedEventsToBeProcessed);
-        return processingTimeoutAt.AddTicks(-(processingTimeoutAt.Ticks % TimeSpan.TicksPerSecond));
-    }
-
-    /// <summary>
     /// Days to cleaning up the processed events. Default value is "0". It will work when value is higher than or equal 1.
     /// </summary>
     public int DaysToCleanUpEvents { get; init; }
@@ -91,4 +81,18 @@ public record InboxOrOutboxStructure
     /// The database connection string of Inbox/Outbox for storing or reading all received/sending events.
     /// </summary>
     public string ConnectionString { get; set; }
+
+    #region Methods
+
+    /// <summary>
+    /// Gets the time until which the fetched events stay locked. Fractions of a second are truncated, since the
+    /// database rounds the stored time to whole seconds and unlocking finds the events by the exact same value.
+    /// </summary>
+    internal DateTime GetProcessingTimeoutAt()
+    {
+        var processingTimeoutAt = DateTime.Now.AddSeconds(SecondsToWaitForFetchedEventsToBeProcessed);
+        return processingTimeoutAt.AddTicks(-(processingTimeoutAt.Ticks % TimeSpan.TicksPerSecond));
+    }
+
+    #endregion
 }

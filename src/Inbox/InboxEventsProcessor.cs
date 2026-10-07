@@ -87,8 +87,8 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
 
     #endregion
 
-    #region ExecuteUnprocessedEvents
-    
+    #region Execute unprocessed event(s)
+
     /// <summary>
     /// The method to execute unprocessed events. We are locking the logic to prevent re-entry into the method while processing is ongoing.
     /// </summary>
@@ -149,6 +149,10 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         return ProcessSingleEventAsync(message, manualRequest, parentActivity: Activity.Current, cancellationToken);
     }
 
+    #endregion
+
+    #region Helper methods
+
     /// <summary>
     /// Process single event which is already locked by the caller. The event has its original status which is read
     /// while locking it. The event is unlocked when its result is handled.
@@ -178,7 +182,9 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
             if (isSuccessfullyExecuted)
                 message.Processed(performedBy, comment);
             else
-                message.EventProcessorNotFound(_settings.TryAfterMinutesIfEventNotFound, $"No event handler configured for the {message.EventName} event with the {message.Provider} provider.", performedBy);
+                message.EventProcessorNotFound(_settings.TryAfterMinutesIfEventNotFound,
+                    $"No event handler configured for the {message.EventName} event with the {message.Provider} provider.",
+                    performedBy);
         }
         catch (Exception e)
         {
@@ -187,7 +193,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         }
         finally
         {
-            await repository.UpdateEventAsync(message, cancellationToken); 
+            await repository.UpdateEventAsync(message, cancellationToken);
         }
 
         return message.Status == EventStatus.Processed
@@ -214,7 +220,8 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Error while unlocking {EventsCount} inbox event(s). They will be processed again after their processing timeout.",
+            _logger.LogError(e,
+                "Error while unlocking {EventsCount} inbox event(s). They will be processed again after their processing timeout.",
                 events.Length);
         }
     }
@@ -240,7 +247,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
                 return false;
             }
 
-            _logger.LogDebug("{StorageType}: Executing subscribers of the event '{EventName}'(ID: {MessageId})", 
+            _logger.LogDebug("{StorageType}: Executing subscribers of the event '{EventName}'(ID: {MessageId})",
                 EventStorageInvestigationTagNames.InboxEventTag, inboxMessage.EventName, inboxMessage.Id);
             using var activity = CreateActivityForExecutingHandlersIfEnabled(inboxMessage, parentActivity);
 
@@ -271,10 +278,6 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
             throw;
         }
     }
-
-    #endregion
-
-    #region Helper methods
 
     /// <summary>
     /// Invokes the ExecutingReceivedEvent event to be able to execute the event before the handler.
@@ -374,7 +377,8 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         var traceName =
             $"{EventStorageInvestigationTagNames.InboxEventTag}: Executing publishers of the {inboxMessage.EventName} event";
         var traceParentId = parentActivity?.Id;
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId, spanType: EventStorageInvestigationTagNames.InboxEventTag);
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, traceParentId,
+            spanType: EventStorageInvestigationTagNames.InboxEventTag);
         activity?.AttachEventInfo(inboxMessage);
 
         return activity;
@@ -391,7 +395,8 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
 
         var traceName =
             $"{EventStorageInvestigationTagNames.InboxEventTag}: Executing {eventsCount} unprocessed event(s)";
-        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server, spanType: EventStorageInvestigationTagNames.InboxEventTag);
+        var activity = EventStorageTraceInstrumentation.StartActivity(traceName, ActivityKind.Server,
+            spanType: EventStorageInvestigationTagNames.InboxEventTag);
 
         return activity;
     }
