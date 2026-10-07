@@ -97,19 +97,16 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
         try
         {
             var processingTimeoutAt = _settings.GetProcessingTimeoutAt();
-            OutboxMessage[] eventsToPublish;
-            using (var scope = _serviceProvider.CreateScope())
-            {
-                var repository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
-                eventsToPublish = await repository.LockUnprocessedEventsAsync(_settings.MaxEventsToFetch,
-                    processingTimeoutAt, stoppingToken);
-            }
+            // The same repository is used for locking and unlocking the events of the batch.
+            using var scope = _serviceProvider.CreateScope();
+            var repository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
+            var eventsToPublish = await repository.LockUnprocessedEventsAsync(_settings.MaxEventsToFetch,
+                processingTimeoutAt, stoppingToken);
 
             if (eventsToPublish.Length == 0)
                 return;
 
-            //TODO: Need sto check logic, why the storedEventIds is needed
-            var storedEventIds = new ConcurrentDictionary<Guid, bool>();
+            var handledEventIds = new ConcurrentDictionary<Guid, bool>();
             try
             {
                 stoppingToken.ThrowIfCancellationRequested();
@@ -123,7 +120,7 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
                         var result = await ProcessSingleEventAsync(eventToPublish, manualRequest: null, activity,
                             stoppingToken);
                         if (result.Status != EventActionResultStatus.InvalidState)
-                            storedEventIds.TryAdd(eventToPublish.Id, true);
+                            handledEventIds.TryAdd(eventToPublish.Id, true);
                     }
                     finally
                     {
@@ -135,8 +132,8 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
             }
             finally
             {
-                var notStoredEvents = eventsToPublish.Where(e => !storedEventIds.ContainsKey(e.Id)).ToArray();
-                await UnlockEventsAsync(notStoredEvents, processingTimeoutAt);
+                var notHandledEvents = eventsToPublish.Where(e => !handledEventIds.ContainsKey(e.Id)).ToArray();
+                await UnlockEventsAsync(repository, notHandledEvents, processingTimeoutAt);
             }
         }
         finally
@@ -206,7 +203,11 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
     /// Unlocks the events which are not stored while processing, for example when the processing is cancelled,
     /// so they can be processed again without waiting for their processing timeout.
     /// </summary>
-    private async Task UnlockEventsAsync(OutboxMessage[] events, DateTime processingTimeoutAt)
+    /// <param name="repository">The repository which locked the events.</param>
+    /// <param name="events">The events to unlock.</param>
+    /// <param name="processingTimeoutAt">The processing timeout which the events were locked with.</param>
+    private async Task UnlockEventsAsync(IOutboxRepository repository, OutboxMessage[] events,
+        DateTime processingTimeoutAt)
     {
         if (events.Length == 0)
             return;
@@ -214,8 +215,6 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
         try
         {
             //TODO: Need to check why do we need this instead of just updating event with its status.
-            using var scope = _serviceProvider.CreateScope();
-            var repository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
             await repository.UnlockEventsAsync(events, processingTimeoutAt, CancellationToken.None);
         }
         catch (Exception e)

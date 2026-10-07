@@ -322,7 +322,7 @@ internal abstract class BaseEventRepository<TBaseMessage>(
 
     /// <summary>
     /// Restores the original status and try time of the events only if they are still locked by the same lock, so
-    /// the events which are already stored, or locked again by another instance after the processing timeout, are not changed.
+    /// the events which are already handled, or locked again by another instance after the processing timeout, are not changed.
     /// </summary>
     private readonly string _sqlUnlockEventsQuery = $@"
                 UPDATE {settings.TableName}

@@ -98,18 +98,16 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         try
         {
             var processingTimeoutAt = _settings.GetProcessingTimeoutAt();
-            InboxMessage[] eventsToHandle;
-            using (var scope = _serviceProvider.CreateScope())
-            {
-                var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
-                eventsToHandle = await repository.LockUnprocessedEventsAsync(_settings.MaxEventsToFetch,
-                    processingTimeoutAt, stoppingToken);
-            }
+            // The same repository is used for locking and unlocking the events of the batch.
+            using var scope = _serviceProvider.CreateScope();
+            var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
+            var eventsToHandle = await repository.LockUnprocessedEventsAsync(_settings.MaxEventsToFetch,
+                processingTimeoutAt, stoppingToken);
 
             if (eventsToHandle.Length == 0)
                 return;
 
-            var storedEventIds = new ConcurrentDictionary<Guid, bool>();
+            var handledEventIds = new ConcurrentDictionary<Guid, bool>();
             try
             {
                 stoppingToken.ThrowIfCancellationRequested();
@@ -123,7 +121,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
                         var result = await ProcessSingleEventAsync(eventToReceive, manualRequest: null, activity,
                             stoppingToken);
                         if (result.Status != EventActionResultStatus.InvalidState)
-                            storedEventIds.TryAdd(eventToReceive.Id, true);
+                            handledEventIds.TryAdd(eventToReceive.Id, true);
                     }
                     finally
                     {
@@ -135,8 +133,8 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
             }
             finally
             {
-                var notStoredEvents = eventsToHandle.Where(e => !storedEventIds.ContainsKey(e.Id)).ToArray();
-                await UnlockEventsAsync(notStoredEvents, processingTimeoutAt);
+                var notHandledEvents = eventsToHandle.Where(e => !handledEventIds.ContainsKey(e.Id)).ToArray();
+                await UnlockEventsAsync(repository, notHandledEvents, processingTimeoutAt);
             }
         }
         finally
@@ -153,7 +151,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
 
     /// <summary>
     /// Process single event which is already locked by the caller. The event has its original status which is read
-    /// while locking it. The event is unlocked when its result is stored.
+    /// while locking it. The event is unlocked when its result is handled.
     /// </summary>
     private async Task<EventActionResult> ProcessSingleEventAsync(InboxMessage message,
         EventActionRequest manualRequest, Activity parentActivity, CancellationToken cancellationToken)
@@ -197,19 +195,20 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
     }
 
     /// <summary>
-    /// Unlocks the events which are not stored while processing, for example when the processing is cancelled,
+    /// Unlocks the events which are not handled while processing, for example when the processing is cancelled,
     /// so they can be processed again without waiting for their processing timeout.
     /// </summary>
-    private async Task UnlockEventsAsync(InboxMessage[] events, DateTime processingTimeoutAt)
+    /// <param name="repository">The repository which locked the events.</param>
+    /// <param name="events">The events to unlock.</param>
+    /// <param name="processingTimeoutAt">The processing timeout which the events were locked with.</param>
+    private async Task UnlockEventsAsync(IInboxRepository repository, InboxMessage[] events,
+        DateTime processingTimeoutAt)
     {
         if (events.Length == 0)
             return;
 
         try
         {
-            //TODO: Need to check why do we need this instead of just updating event with its status.
-            using var scope = _serviceProvider.CreateScope();
-            var repository = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
             await repository.UnlockEventsAsync(events, processingTimeoutAt, CancellationToken.None);
         }
         catch (Exception e)
