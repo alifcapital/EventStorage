@@ -225,9 +225,9 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         }
         catch (Exception e)
         {
-            _logger.LogError(
-                "Error while unlocking {EventsCount} inbox event(s). They will be processed again after their processing timeout. Error: {ErrorMessage}",
-                events.Length, e.Message);
+            _logger.LogError(e,
+                "Error while unlocking {EventsCount} inbox event(s). They will be processed again after their processing timeout.",
+                events.Length);
         }
     }
 
@@ -280,8 +280,8 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         catch (Exception e) when (!cancellationToken.IsCancellationRequested)
         {
             // The original exception is rethrown, so the failure reason of the event starts with the real error.
-            _logger.LogError("Error while executing handler of inbox event with ID: {EventId}. Error: {ErrorMessage}",
-                inboxMessage.Id, e.Message);
+            _logger.LogError(e, "Error while executing handler of inbox event with ID: {EventId}.",
+                inboxMessage.Id);
             throw;
         }
     }
