@@ -324,7 +324,7 @@ public class UserCreatedHandler(ILogger<UserCreatedHandler> logger) : IRabbitMqE
 }
 ```
 
-Now the `UserCreatedHandler` handler is ready to handle the event. To make it work, from your logic which you receive the event from the RabbitMQ, you need to inject the `IInboxEventManager` interface and pass the received inbox event to the `Store` method.
+Now the `UserCreatedHandler` handler is ready to handle the event. To make it work, from your logic which you receive the event from the RabbitMQ, you need to inject the `IInboxEventManager` interface and pass the received inbox event to the `StoreAsync` method.
 
 ```
 UserCreated receivedEvent = new UserCreated
@@ -336,7 +336,7 @@ try
     IInboxEventManager inboxEventManager = scope.ServiceProvider.GetService<IInboxEventManager>();
     if (inboxEventManager is not null)
     {
-        var succussfullyReceived = inboxEventManager.Store(receivedEvent, EventProviderType.MessageBroker);
+        var succussfullyReceived = await inboxEventManager.StoreAsync(receivedEvent, EventProviderType.MessageBroker, cancellationToken: cancellationToken);
         if(succussfullyReceived){
             //If the event received twice, it will return false. You need to add your logic to manage this use case.
         }

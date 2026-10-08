@@ -26,7 +26,7 @@ public class InboxEventManagerTests
     #region ReceivedWithGeneric
     
     [Test]
-    public void Received_OneEventWithGenericEvent_ShouldAdd()
+    public async Task Received_OneEventWithGenericEvent_ShouldAdd()
     {
         var receiveEvent = new SimpleEntityWasCreated
         {
@@ -35,25 +35,25 @@ public class InboxEventManagerTests
             Date = DateTime.Now,
             CreatedAt = DateTime.Now
         };
-        _inboxRepository.InsertEvent(Arg.Any<InboxMessage>()).Returns(true);
+        _inboxRepository.InsertEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>()).Returns(true);
 
-        var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
+        var result = await _manager.StoreAsync(receiveEvent, EventProviderType.Unknown);
 
         Assert.That(result, Is.True);
 
-        _inboxRepository.Received(1)
-            .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
+        await _inboxRepository.Received(1)
+            .InsertEventAsync(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
                                                  && x.EventName == receiveEvent.GetType().Name
                                                  && x.EventPath == receiveEvent.GetType().Namespace
                                                  && x.Payload == receiveEvent.SerializeToJson()
                                                  && x.AdditionalData == null
                                                  && x.Provider == EventProviderType.Unknown.ToString()
-                )
+                ), Arg.Any<CancellationToken>()
             );
     }
 
     [Test]
-    public void Received_OneEventWithGenericAndHeaders_ShouldAdd()
+    public async Task Received_OneEventWithGenericAndHeaders_ShouldAdd()
     {
         var headers = new Dictionary<string, string>
         {
@@ -67,26 +67,26 @@ public class InboxEventManagerTests
             CreatedAt = DateTime.Now,
             Headers = headers
         };
-        _inboxRepository.InsertEvent(Arg.Any<InboxMessage>()).Returns(true);
+        _inboxRepository.InsertEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>()).Returns(true);
 
-        var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
+        var result = await _manager.StoreAsync(receiveEvent, EventProviderType.Unknown);
 
         Assert.That(result, Is.True);
 
         var headerAsJson = JsonSerializer.Serialize(headers);
-        _inboxRepository.Received(1)
-            .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
+        await _inboxRepository.Received(1)
+            .InsertEventAsync(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
                                                  && x.EventName == receiveEvent.GetType().Name
                                                  && x.EventPath == receiveEvent.GetType().Namespace
                                                  && x.Payload == receiveEvent.SerializeToJson()
                                                  && x.Headers == headerAsJson
                                                  && x.Provider == EventProviderType.Unknown.ToString()
-                )
+                ), Arg.Any<CancellationToken>()
             );
     }
 
     [Test]
-    public void Received_OneEventWithGenericAndAdditionalData_ShouldAdd()
+    public async Task Received_OneEventWithGenericAndAdditionalData_ShouldAdd()
     {
         var additionalData = new Dictionary<string, string>
         {
@@ -100,26 +100,26 @@ public class InboxEventManagerTests
             CreatedAt = DateTime.Now,
             AdditionalData = additionalData
         };
-        _inboxRepository.InsertEvent(Arg.Any<InboxMessage>()).Returns(true);
+        _inboxRepository.InsertEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>()).Returns(true);
 
-        var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
+        var result = await _manager.StoreAsync(receiveEvent, EventProviderType.Unknown);
 
         Assert.That(result, Is.True);
 
         var additionalDataAsJson = JsonSerializer.Serialize(additionalData);
-        _inboxRepository.Received(1)
-            .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
+        await _inboxRepository.Received(1)
+            .InsertEventAsync(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
                                                  && x.EventName == receiveEvent.GetType().Name
                                                  && x.EventPath == receiveEvent.GetType().Namespace
                                                  && x.Payload == receiveEvent.SerializeToJson()
                                                  && x.AdditionalData == additionalDataAsJson
                                                  && x.Provider == EventProviderType.Unknown.ToString()
-                )
+                ), Arg.Any<CancellationToken>()
             );
     }
 
     [Test]
-    public void Received_OneEventWithGenericAndAdditionalDataAndHeaders_ShouldAdd()
+    public async Task Received_OneEventWithGenericAndAdditionalDataAndHeaders_ShouldAdd()
     {
         var headers = new Dictionary<string, string>
         {
@@ -138,23 +138,23 @@ public class InboxEventManagerTests
             Headers = headers,
             AdditionalData = additionalData
         };
-        _inboxRepository.InsertEvent(Arg.Any<InboxMessage>()).Returns(true);
+        _inboxRepository.InsertEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>()).Returns(true);
 
-        var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
+        var result = await _manager.StoreAsync(receiveEvent, EventProviderType.Unknown);
 
         Assert.That(result, Is.True);
 
         var headerAsJson = JsonSerializer.Serialize(headers);
         var additionalDataAsJson = JsonSerializer.Serialize(additionalData);
-        _inboxRepository.Received(1)
-            .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
+        await _inboxRepository.Received(1)
+            .InsertEventAsync(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
                                                  && x.EventName == receiveEvent.GetType().Name
                                                  && x.EventPath == receiveEvent.GetType().Namespace
                                                  && x.Payload == receiveEvent.SerializeToJson()
                                                  && x.Headers == headerAsJson
                                                  && x.AdditionalData == additionalDataAsJson
                                                  && x.Provider == EventProviderType.Unknown.ToString()
-                )
+                ), Arg.Any<CancellationToken>()
             );
     }
     
@@ -163,7 +163,7 @@ public class InboxEventManagerTests
     #region ReceivedWithoutGeneric
     
     [Test]
-    public void Received_WithoutGeneric_ShouldAdd()
+    public async Task Received_WithoutGeneric_ShouldAdd()
     {
         var receiveEvent = new SimpleEntityWasCreated
         {
@@ -172,24 +172,24 @@ public class InboxEventManagerTests
             Date = DateTime.Now,
             CreatedAt = DateTime.Now
         };
-        _inboxRepository.InsertEvent(Arg.Any<InboxMessage>()).Returns(true);
+        _inboxRepository.InsertEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>()).Returns(true);
 
-        var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
+        var result = await _manager.StoreAsync(receiveEvent, EventProviderType.Unknown);
 
         Assert.That(result, Is.True);
 
-        _inboxRepository.Received(1)
-            .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
+        await _inboxRepository.Received(1)
+            .InsertEventAsync(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
                                                  && x.EventName == receiveEvent.GetType().Name
                                                  && x.Payload == receiveEvent.SerializeToJson()
                                                  && x.AdditionalData == null
                                                  && x.Provider == EventProviderType.Unknown.ToString()
-                )
+                ), Arg.Any<CancellationToken>()
             );
     }
 
     [Test]
-    public void Received_WithoutGenericAndWithHeaders_ShouldAdd()
+    public async Task Received_WithoutGenericAndWithHeaders_ShouldAdd()
     {
         var receiveEvent = new SimpleEntityWasCreated
         {
@@ -198,20 +198,20 @@ public class InboxEventManagerTests
             Date = DateTime.Now,
             CreatedAt = DateTime.Now
         };
-        _inboxRepository.InsertEvent(Arg.Any<InboxMessage>()).Returns(true);
+        _inboxRepository.InsertEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>()).Returns(true);
 
-        var result = _manager.Store(receiveEvent, EventProviderType.Unknown);
+        var result = await _manager.StoreAsync(receiveEvent, EventProviderType.Unknown);
 
         Assert.That(result, Is.True);
 
-        _inboxRepository.Received(1)
-            .InsertEvent(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
+        await _inboxRepository.Received(1)
+            .InsertEventAsync(Arg.Is<InboxMessage>(x => x.Id == receiveEvent.EventId
                                                  && x.EventName == receiveEvent.GetType().Name
                                                  && x.Payload == receiveEvent.SerializeToJson()
                                                  && x.Headers == null
                                                  && x.AdditionalData == null
                                                  && x.Provider == EventProviderType.Unknown.ToString()
-                )
+                ), Arg.Any<CancellationToken>()
             );
     }
     

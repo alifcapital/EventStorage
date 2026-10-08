@@ -22,8 +22,9 @@ internal class InboxEventManager(
     /// </summary>
     private bool IsApplicationStopping => applicationLifetime?.ApplicationStopping.IsCancellationRequested == true;
 
-    public bool Store<TInboxEvent>(TInboxEvent inboxEvent, EventProviderType eventProvider,
-        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
+    public async Task<bool> StoreAsync<TInboxEvent>(TInboxEvent inboxEvent, EventProviderType eventProvider,
+        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase,
+        CancellationToken cancellationToken = default)
         where TInboxEvent : IInboxEvent
     {
         var eventType = inboxEvent.GetType();
@@ -47,10 +48,11 @@ internal class InboxEventManager(
 
             var eventPayload = inboxEvent.SerializeToJson();
 
-            return Store(inboxEvent.EventId, eventType.Name, eventProvider, eventPayload, eventHeaders,
-                eventAdditionalData, eventType.Namespace, namingPolicyType);
+            return await StoreAsync(inboxEvent.EventId, eventType.Name, eventProvider, eventPayload, eventHeaders,
+                eventAdditionalData, eventType.Namespace, namingPolicyType, cancellationToken);
         }
-        catch (Exception e) when (e is not EventStoreException && !IsApplicationStopping)
+        catch (Exception e) when (e is not (EventStoreException or OperationCanceledException) &&
+                                  !IsApplicationStopping)
         {
             logger.LogError(e,
                 "Error while serializing data of the {EventType} received event with the {EventId} id to store to the the table of Inbox.",
@@ -59,9 +61,10 @@ internal class InboxEventManager(
         }
     }
 
-    public bool Store(Guid eventId, string eventTypeName, EventProviderType eventProvider,
+    public async Task<bool> StoreAsync(Guid eventId, string eventTypeName, EventProviderType eventProvider,
         string payload, string headers, string additionalData = null, string eventPath = null,
-        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
+        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -84,7 +87,7 @@ internal class InboxEventManager(
                 AdditionalData = additionalData
             };
 
-            var successfullyInserted = repository.InsertEvent(inboxEvent);
+            var successfullyInserted = await repository.InsertEventAsync(inboxEvent, cancellationToken);
             if (!successfullyInserted)
                 logger.LogWarning(
                     "The {EventType} event type with the {EventId} id is already added to the table of Inbox.",
@@ -92,7 +95,7 @@ internal class InboxEventManager(
 
             return successfullyInserted;
         }
-        catch (Exception e) when (!IsApplicationStopping)
+        catch (Exception e) when (e is not OperationCanceledException && !IsApplicationStopping)
         {
             logger.LogError(e,
                 "Error while entering the {EventType} event type with the {EventId} id to the table of Inbox.",
