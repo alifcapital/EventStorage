@@ -20,6 +20,7 @@ internal class InboxEventsProcessorTests
     private InboxEventsProcessor _inboxEventsProcessor;
     private IServiceProvider _serviceProvider;
     private IInboxRepository _inboxRepository;
+    private ILogger<InboxEventsProcessor> _logger;
 
     #region SetUp
 
@@ -27,8 +28,8 @@ internal class InboxEventsProcessorTests
     public void Setup()
     {
         var serviceProvider = Substitute.For<IKeyedServiceProvider>();
-        var logger = Substitute.For<ILogger<InboxEventsProcessor>>();
-        serviceProvider.GetService(typeof(ILogger<InboxEventsProcessor>)).Returns(logger);
+        _logger = Substitute.For<ILogger<InboxEventsProcessor>>();
+        serviceProvider.GetService(typeof(ILogger<InboxEventsProcessor>)).Returns(_logger);
         serviceProvider.GetService(typeof(InboxAndOutboxSettings)).Returns(new InboxAndOutboxSettings
         {
             Inbox = new InboxOrOutboxStructure()
@@ -250,6 +251,44 @@ internal class InboxEventsProcessorTests
     }
 
     [Test]
+    public async Task ExecuteUnprocessedEvents_UnlockingEventsFails_ShouldLogErrorMessageWithoutException()
+    {
+        MockServiceScope();
+        var processedEvent = CreateInboxMessage("{}");
+        processedEvent.Processed();
+        _inboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns([processedEvent]);
+        _inboxRepository.UnlockEventsAsync(Arg.Any<IEnumerable<InboxMessage>>(), Arg.Any<DateTime>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new EventStoreException("Test failure")));
+
+        await _inboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None);
+
+        AssertErrorIsLoggedWithoutException("Test failure");
+    }
+
+    [Test]
+    public async Task ExecuteUnprocessedEvents_HandlerFailsWhileStopping_ShouldUnlockEventWithoutUpdatingIt()
+    {
+        MockServiceScope();
+        _inboxEventsProcessor.AddHandler(typeof(SimpleEntityWasCreated), typeof(SimpleEntityWasCreatedHandler),
+            EventProviderType.Unknown);
+        using var stoppingTokenSource = new CancellationTokenSource();
+        MockHandlerFailsWhileStopping(stoppingTokenSource);
+        var inboxEvent = CreateInboxMessage("{}");
+        _inboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns([inboxEvent]);
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            _inboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token));
+
+        await _inboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
+        await _inboxRepository.Received(1).UnlockEventsAsync(
+            Arg.Is<IEnumerable<InboxMessage>>(events => events.Single() == inboxEvent), Arg.Any<DateTime>(),
+            CancellationToken.None);
+    }
+
+    [Test]
     public async Task ExecuteUnprocessedEvents_StoppingTokenIsPassed_ShouldPassItToRepository()
     {
         MockServiceScope();
@@ -390,6 +429,48 @@ internal class InboxEventsProcessorTests
         await _inboxRepository.Received(1).UpdateEventAsync(inboxEvent, Arg.Any<CancellationToken>());
     }
 
+    [Test]
+    public async Task ProcessSingleEventAsync_HandlerFails_ShouldMarkEventAsFailedAndLogErrorMessageWithoutException()
+    {
+        MockServiceScope();
+        _inboxEventsProcessor.AddHandler(typeof(SimpleEntityWasCreated), typeof(SimpleEntityWasCreatedHandler),
+            EventProviderType.Unknown);
+        _serviceProvider.GetService(typeof(SimpleEntityWasCreatedHandler))
+            .Returns(_ => throw new InvalidOperationException("Test failure"));
+        var inboxEvent = CreateInboxMessage("{}");
+
+        var result = await _inboxEventsProcessor.ProcessSingleEventAsync(inboxEvent, manualRequest: null,
+            CancellationToken.None);
+
+        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.Failed));
+        Assert.That(inboxEvent.Status, Is.EqualTo(EventStatus.Failed));
+        Assert.That(inboxEvent.TryCount, Is.EqualTo(1));
+        await _inboxRepository.Received(1).UpdateEventAsync(inboxEvent, Arg.Any<CancellationToken>());
+        AssertErrorIsLoggedWithoutException("Test failure");
+    }
+
+    [Test]
+    public async Task ProcessSingleEventAsync_HandlerFailsWhileStopping_ShouldThrowWithoutMarkingEventAsFailed()
+    {
+        MockServiceScope();
+        _inboxEventsProcessor.AddHandler(typeof(SimpleEntityWasCreated), typeof(SimpleEntityWasCreatedHandler),
+            EventProviderType.Unknown);
+        using var stoppingTokenSource = new CancellationTokenSource();
+        MockHandlerFailsWhileStopping(stoppingTokenSource);
+        var inboxEvent = CreateInboxMessage("{}");
+        var originalStatus = inboxEvent.Status;
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            _inboxEventsProcessor.ProcessSingleEventAsync(inboxEvent, manualRequest: null, stoppingTokenSource.Token));
+
+        Assert.That(inboxEvent.Status, Is.EqualTo(originalStatus));
+        Assert.That(inboxEvent.TryCount, Is.Zero);
+        Assert.That(inboxEvent.FailureReason, Is.Null);
+        await _inboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
+        _logger.DidNotReceive().Log(LogLevel.Error, Arg.Any<EventId>(), Arg.Any<object>(), Arg.Any<Exception>(),
+            Arg.Any<Func<object, Exception, string>>()!);
+    }
+
     #endregion
 
     #region Helper methods
@@ -403,6 +484,28 @@ internal class InboxEventsProcessorTests
         scope.ServiceProvider.Returns(_serviceProvider);
         _serviceProvider.GetService(typeof(SimpleEntityWasCreatedHandler))
             .Returns(new SimpleEntityWasCreatedHandler());
+    }
+
+    /// <summary>
+    /// Simulates stopping the application while the handler is being resolved, so its scope is already disposed.
+    /// </summary>
+    private void MockHandlerFailsWhileStopping(CancellationTokenSource stoppingTokenSource)
+    {
+        _serviceProvider.GetService(typeof(SimpleEntityWasCreatedHandler)).Returns(_ =>
+        {
+            stoppingTokenSource.Cancel();
+            throw new ObjectDisposedException(nameof(IServiceProvider));
+        });
+    }
+
+    private void AssertErrorIsLoggedWithoutException(string errorMessage)
+    {
+        _logger.Received(1).Log(
+            LogLevel.Error,
+            Arg.Any<EventId>(),
+            Arg.Is<object>(state => state.ToString()!.Contains(errorMessage)),
+            Arg.Is<Exception>(exception => exception == null),
+            Arg.Any<Func<object, Exception, string>>()!);
     }
 
     private static InboxMessage CreateInboxMessage(string payload)
