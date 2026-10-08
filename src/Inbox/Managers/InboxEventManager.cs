@@ -5,13 +5,23 @@ using EventStorage.Inbox.Models;
 using EventStorage.Inbox.Repositories;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace EventStorage.Inbox.Managers;
 
-internal class InboxEventManager(ILogger<InboxEventManager> logger, IInboxRepository repository = null)
+internal class InboxEventManager(
+    ILogger<InboxEventManager> logger,
+    IInboxRepository repository = null,
+    IHostApplicationLifetime applicationLifetime = null)
     : IInboxEventManager
 {
+    /// <summary>
+    /// While the application is stopping, the errors are caused by the shutdown, so there is no need to report them.
+    /// The exception is still thrown to let the caller know that the event is not stored.
+    /// </summary>
+    private bool IsApplicationStopping => applicationLifetime?.ApplicationStopping.IsCancellationRequested == true;
+
     public bool Store<TInboxEvent>(TInboxEvent inboxEvent, EventProviderType eventProvider,
         NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
         where TInboxEvent : IInboxEvent
@@ -40,7 +50,7 @@ internal class InboxEventManager(ILogger<InboxEventManager> logger, IInboxReposi
             return Store(inboxEvent.EventId, eventType.Name, eventProvider, eventPayload, eventHeaders,
                 eventAdditionalData, eventType.Namespace, namingPolicyType);
         }
-        catch (Exception e) when (e is not EventStoreException)
+        catch (Exception e) when (e is not EventStoreException && !IsApplicationStopping)
         {
             logger.LogError(e,
                 "Error while serializing data of the {EventType} received event with the {EventId} id to store to the the table of Inbox.",
@@ -82,7 +92,7 @@ internal class InboxEventManager(ILogger<InboxEventManager> logger, IInboxReposi
 
             return successfullyInserted;
         }
-        catch (Exception e)
+        catch (Exception e) when (!IsApplicationStopping)
         {
             logger.LogError(e,
                 "Error while entering the {EventType} event type with the {EventId} id to the table of Inbox.",
