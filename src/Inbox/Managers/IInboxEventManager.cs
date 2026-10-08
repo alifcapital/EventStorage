@@ -11,8 +11,10 @@ public interface IInboxEventManager
     /// <param name="inboxEvent">Event to send</param>
     /// <param name="eventProvider">Provider type of sending receivedEvent</param>
     /// <param name="namingPolicyType">Name of the naming policy type for serializing and deserializing properties of Event. Default value is "PascalCase". It can be one of "PascalCase", "CamelCase", "SnakeCaseLower", "SnakeCaseUpper", "KebabCaseLower", or "KebabCaseUpper".</param>
+    /// <param name="cancellationToken">The token to cancel storing the event.</param>
     /// <returns>Returns true if it was entered successfully or false if the value is duplicated. It can throw an exception if something goes wrong.</returns>
-    public bool Store<TInboxEvent>(TInboxEvent inboxEvent, EventProviderType eventProvider, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase)
+    public Task<bool> StoreAsync<TInboxEvent>(TInboxEvent inboxEvent, EventProviderType eventProvider,
+        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase, CancellationToken cancellationToken = default)
         where TInboxEvent : IInboxEvent;
 
     /// <summary>
@@ -26,7 +28,9 @@ public interface IInboxEventManager
     /// <param name="additionalData">Additional data of received event if exists</param>
     /// <param name="eventPath">The full path (namespace) of the event type.</param>
     /// <param name="namingPolicyType">Name of the naming policy type for serializing and deserializing properties of Event. Default value is "PascalCase". It can be one of "PascalCase", "CamelCase", "SnakeCaseLower", "SnakeCaseUpper", "KebabCaseLower", or "KebabCaseUpper".</param>
+    /// <param name="cancellationToken">The token to cancel storing the event.</param>
     /// <returns>Returns true if it was entered successfully or false if the value is duplicated. It can throw an exception if something goes wrong.</returns>
-    public bool Store(Guid eventId, string eventTypeName, EventProviderType eventProvider,
-        string payload, string headers = null, string additionalData = null, string eventPath = null, NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase);
+    public Task<bool> StoreAsync(Guid eventId, string eventTypeName, EventProviderType eventProvider,
+        string payload, string headers = null, string additionalData = null, string eventPath = null,
+        NamingPolicyType namingPolicyType = NamingPolicyType.PascalCase, CancellationToken cancellationToken = default);
 }

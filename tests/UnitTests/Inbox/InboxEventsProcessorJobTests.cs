@@ -120,6 +120,38 @@ public class InboxEventsProcessorJobTests
         );
     }
 
+    [Test]
+    public async Task ExecuteAsync_ProcessingFailsWhileStopping_ShouldStopWithoutLoggingException()
+    {
+        var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
+        _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
+        using var stoppingTokenSource = new CancellationTokenSource();
+        _inboxEventsProcessor
+            .When(x => x.ExecuteUnprocessedEventsAsync(Arg.Any<CancellationToken>()))
+            .Do(_ =>
+            {
+                stoppingTokenSource.Cancel();
+                throw new ObjectDisposedException(nameof(IServiceProvider));
+            });
+        var eventsReceiverService = new InboxEventsProcessorJob(
+            scopeFactory: _serviceScopeFactory,
+            inboxEventsProcessor: _inboxEventsProcessor,
+            settings: _settings,
+            logger: _logger
+        );
+
+        await ExecuteBackgroundServiceAsync(eventsReceiverService, stoppingTokenSource.Token);
+
+        await _inboxEventsProcessor.Received(1).ExecuteUnprocessedEventsAsync(Arg.Any<CancellationToken>());
+        _logger.DidNotReceive().Log(
+            LogLevel.Critical,
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            Arg.Any<Exception>(),
+            Arg.Any<Func<object, Exception, string>>()!
+        );
+    }
+
     #endregion
 
     #region Helper methods

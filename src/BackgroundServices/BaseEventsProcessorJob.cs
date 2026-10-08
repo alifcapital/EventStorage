@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 namespace EventStorage.BackgroundServices;
 
 /// <summary>
-/// The base background service for creating table if not exists and process unprocessed events.
+/// The base background service for creating the tables if they do not exist and processing unprocessed events.
 /// </summary>
 /// <param name="scopeFactory">The service scope factory.</param>
 /// <param name="eventsProcessor">The events executor service to process unprocessed events.</param>
@@ -25,7 +25,7 @@ internal abstract class BaseEventsProcessorJob(
     private readonly TimeSpan _timeToDelay = TimeSpan.FromSeconds(functionalitySettings.SecondsToDelayProcessEvents);
 
     /// <summary>
-    /// The method for executing unprocessed events in a loop with delay.
+    /// The method for executing unprocessed events in a loop with a delay.
     /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -36,6 +36,11 @@ internal abstract class BaseEventsProcessorJob(
             try
             {
                 await eventsProcessor.ExecuteUnprocessedEventsAsync(stoppingToken);
+            }
+            catch (Exception) when (stoppingToken.IsCancellationRequested)
+            {
+                // The application is stopping and the error is caused by the shutdown, so there is no need to report the exception.
+                break;
             }
             catch (Exception e)
             {

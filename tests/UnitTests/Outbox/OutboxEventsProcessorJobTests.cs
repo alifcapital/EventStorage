@@ -118,6 +118,42 @@ public class OutboxEventsProcessorJobTests
 
     #endregion
 
+    #region ExecuteAsync
+
+    [Test]
+    public async Task ExecuteAsync_ProcessingFailsWhileStopping_ShouldStopWithoutLoggingException()
+    {
+        var eventStoreTablesCreator = Substitute.For<IEventStoreTablesCreator>();
+        _serviceProvider.GetService(typeof(IEventStoreTablesCreator)).Returns(eventStoreTablesCreator);
+        using var stoppingTokenSource = new CancellationTokenSource();
+        _outboxEventsProcessor
+            .When(x => x.ExecuteUnprocessedEventsAsync(Arg.Any<CancellationToken>()))
+            .Do(_ =>
+            {
+                stoppingTokenSource.Cancel();
+                throw new ObjectDisposedException(nameof(IServiceProvider));
+            });
+        var eventsPublisherService = new OutboxEventsProcessorJob(
+            scopeFactory: _serviceScopeFactory,
+            outboxEventsProcessor: _outboxEventsProcessor,
+            settings: _settings,
+            logger: _logger
+        );
+
+        await ExecuteBackgroundServiceAsync(eventsPublisherService, stoppingTokenSource.Token);
+
+        await _outboxEventsProcessor.Received(1).ExecuteUnprocessedEventsAsync(Arg.Any<CancellationToken>());
+        _logger.DidNotReceive().Log(
+            LogLevel.Critical,
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            Arg.Any<Exception>(),
+            Arg.Any<Func<object, Exception, string>>()!
+        );
+    }
+
+    #endregion
+
     #region Helper methods
 
     /// <summary>

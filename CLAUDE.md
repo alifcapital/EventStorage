@@ -207,7 +207,7 @@ Extends `EventStorage` to provide **RabbitMQ transport** for event publishing an
 
 1. **Outbox → RabbitMQ:** Provides a built-in `MessageBrokerEventPublisher` that implements `IMessageBrokerEventPublisher`. The EventStorage background processor calls this to dispatch stored outbox events to RabbitMQ.
 
-2. **RabbitMQ → Inbox:** `EventConsumerService` receives messages from RabbitMQ. If `UseInbox: true`, it calls `IInboxEventManager.Store(...)` to persist the event before invoking handlers. This enables idempotent processing with automatic retry.
+2. **RabbitMQ → Inbox:** `EventConsumerService` receives messages from RabbitMQ. If `UseInbox: true`, it calls `IInboxEventManager.StoreAsync(...)` to persist the event before invoking handlers. This enables idempotent processing with automatic retry.
 
 ### Core Interfaces
 
@@ -252,7 +252,7 @@ RabbitMQ → EventConsumerService.Consumer_ReceivingEvent()
         │
         ├─ UseInbox=false ──► deserialize → IEventSubscriber<T>.HandleAsync()
         │
-        └─ UseInbox=true  ──► IInboxEventManager.Store(eventId, payload, headers, ...)
+        └─ UseInbox=true  ──► IInboxEventManager.StoreAsync(eventId, payload, headers, ...)
                                       │
                                       ▼
                               Inbox DB table

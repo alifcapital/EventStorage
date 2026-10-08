@@ -18,6 +18,7 @@ public class OutboxEventsProcessorTests
     private OutboxEventsProcessor _outboxEventsProcessor;
     private IServiceProvider _serviceProvider;
     private IOutboxRepository _outboxRepository;
+    private ILogger<OutboxEventsProcessor> _logger;
 
     #region SetUp
 
@@ -25,8 +26,8 @@ public class OutboxEventsProcessorTests
     public void SetUp()
     {
         var serviceProvider = Substitute.For<IKeyedServiceProvider>();
-        var logger = Substitute.For<ILogger<OutboxEventsProcessor>>();
-        serviceProvider.GetService(typeof(ILogger<OutboxEventsProcessor>)).Returns(logger);
+        _logger = Substitute.For<ILogger<OutboxEventsProcessor>>();
+        serviceProvider.GetService(typeof(ILogger<OutboxEventsProcessor>)).Returns(_logger);
         serviceProvider.GetService(typeof(InboxAndOutboxSettings)).Returns(new InboxAndOutboxSettings
         {
             Outbox = new InboxOrOutboxStructure
@@ -330,6 +331,43 @@ public class OutboxEventsProcessorTests
     }
 
     [Test]
+    public async Task ExecuteUnprocessedEvents_UnlockingEventsFails_ShouldLogErrorMessageWithoutException()
+    {
+        MockServiceScope();
+        var processedEvent = CreateOutboxMessage("{}");
+        processedEvent.Processed();
+        _outboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns([processedEvent]);
+        _outboxRepository.UnlockEventsAsync(Arg.Any<IEnumerable<OutboxMessage>>(), Arg.Any<DateTime>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new EventStoreException("Test failure")));
+
+        await _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None);
+
+        AssertErrorIsLoggedWithoutException("Test failure");
+    }
+
+    [Test]
+    public async Task ExecuteUnprocessedEvents_PublisherFailsWhileStopping_ShouldUnlockEventWithoutUpdatingIt()
+    {
+        MockServiceScope();
+        AddSimpleOutboxEventPublisher();
+        using var stoppingTokenSource = new CancellationTokenSource();
+        MockPublisherFailsWhileStopping(stoppingTokenSource);
+        var outboxEvent = CreateOutboxMessage("{}");
+        _outboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns([outboxEvent]);
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token));
+
+        await _outboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<OutboxMessage>(), Arg.Any<CancellationToken>());
+        await _outboxRepository.Received(1).UnlockEventsAsync(
+            Arg.Is<IEnumerable<OutboxMessage>>(events => events.Single() == outboxEvent), Arg.Any<DateTime>(),
+            CancellationToken.None);
+    }
+
+    [Test]
     public async Task ExecuteUnprocessedEvents_StoppingTokenIsPassed_ShouldPassItToRepository()
     {
         MockServiceScope();
@@ -419,6 +457,46 @@ public class OutboxEventsProcessorTests
         await _outboxRepository.Received(1).UpdateEventAsync(outboxEvent, cancellationTokenSource.Token);
     }
 
+    [Test]
+    public async Task ProcessSingleEventAsync_PublisherFails_ShouldMarkEventAsFailedAndLogErrorMessageWithoutException()
+    {
+        MockServiceScope();
+        AddSimpleOutboxEventPublisher();
+        _serviceProvider.GetService(typeof(SimpleSendEventCreatedHandler))
+            .Returns(_ => throw new InvalidOperationException("Test failure"));
+        var outboxEvent = CreateOutboxMessage("{}");
+
+        var result = await _outboxEventsProcessor.ProcessSingleEventAsync(outboxEvent, manualRequest: null,
+            CancellationToken.None);
+
+        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.Failed));
+        Assert.That(outboxEvent.Status, Is.EqualTo(EventStatus.Failed));
+        Assert.That(outboxEvent.TryCount, Is.EqualTo(1));
+        await _outboxRepository.Received(1).UpdateEventAsync(outboxEvent, Arg.Any<CancellationToken>());
+        AssertErrorIsLoggedWithoutException("Test failure");
+    }
+
+    [Test]
+    public async Task ProcessSingleEventAsync_PublisherFailsWhileStopping_ShouldThrowWithoutMarkingEventAsFailed()
+    {
+        MockServiceScope();
+        AddSimpleOutboxEventPublisher();
+        using var stoppingTokenSource = new CancellationTokenSource();
+        MockPublisherFailsWhileStopping(stoppingTokenSource);
+        var outboxEvent = CreateOutboxMessage("{}");
+        var originalStatus = outboxEvent.Status;
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            _outboxEventsProcessor.ProcessSingleEventAsync(outboxEvent, manualRequest: null, stoppingTokenSource.Token));
+
+        Assert.That(outboxEvent.Status, Is.EqualTo(originalStatus));
+        Assert.That(outboxEvent.TryCount, Is.Zero);
+        Assert.That(outboxEvent.FailureReason, Is.Null);
+        await _outboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<OutboxMessage>(), Arg.Any<CancellationToken>());
+        _logger.DidNotReceive().Log(LogLevel.Error, Arg.Any<EventId>(), Arg.Any<object>(), Arg.Any<Exception>(),
+            Arg.Any<Func<object, Exception, string>>()!);
+    }
+
     #endregion
 
     #region Helper methods
@@ -443,6 +521,28 @@ public class OutboxEventsProcessorTests
             hasHeaders: false,
             hasAdditionalData: false,
             isGlobalPublisher: false);
+    }
+
+    /// <summary>
+    /// Simulates stopping the application while the publisher is being resolved, so its scope is already disposed.
+    /// </summary>
+    private void MockPublisherFailsWhileStopping(CancellationTokenSource stoppingTokenSource)
+    {
+        _serviceProvider.GetService(typeof(SimpleSendEventCreatedHandler)).Returns(_ =>
+        {
+            stoppingTokenSource.Cancel();
+            throw new ObjectDisposedException(nameof(IServiceProvider));
+        });
+    }
+
+    private void AssertErrorIsLoggedWithoutException(string errorMessage)
+    {
+        _logger.Received(1).Log(
+            LogLevel.Error,
+            Arg.Any<EventId>(),
+            Arg.Is<object>(state => state.ToString()!.Contains(errorMessage)),
+            Arg.Is<Exception>(exception => exception == null),
+            Arg.Any<Func<object, Exception, string>>()!);
     }
 
     private static OutboxMessage CreateOutboxMessage(string payload)
