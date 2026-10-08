@@ -177,21 +177,26 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
         var comment = manualRequest?.Comment;
         try
         {
-            var isSuccessfullyExecuted = await ExecuteEventPublisher(message, scope.ServiceProvider, parentActivity);
+            var isSuccessfullyExecuted = await ExecuteEventPublisher(message, scope.ServiceProvider, parentActivity,
+                cancellationToken);
             if (isSuccessfullyExecuted)
                 message.Processed(performedBy, comment);
             else
                 message.EventProcessorNotFound(_settings.TryAfterMinutesIfEventNotFound,$"No publisher configured for the {message.EventName} event with the {message.Provider} provider(s).", performedBy);
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            // The application is stopping, so the error is caused by the shutdown (e.g. disposed services).
+            // The event is not marked as failed, and the caller unlocks it to be processed again.
+            throw new OperationCanceledException(cancellationToken);
         }
         catch (Exception e)
         {
             message.Failed(_settings.TryCount, _settings.TryAfterSeconds, _settings.TryAfterMinutesIfTryCountExceeded,
                 e.ToFailureReason(_settings), performedBy, comment);
         }
-        finally
-        {
-            await repository.UpdateEventAsync(message, cancellationToken); 
-        }
+
+        await repository.UpdateEventAsync(message, cancellationToken);
 
         return message.Status == EventStatus.Processed
             ? EventActionResult.Success()
@@ -217,17 +222,18 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Error while unlocking {EventsCount} outbox event(s). They will be processed again after their processing timeout.",
-                events.Length);
+            _logger.LogError("Error while unlocking {EventsCount} outbox event(s). They will be processed again after their processing timeout. Error: {ErrorMessage}",
+                events.Length, e.Message);
         }
     }
 
     /// <summary>
     /// Executes all publishers of the outbox event.
     /// </summary>
+    /// <param name="cancellationToken">The token to skip logging the errors caused by stopping the application.</param>
     /// <returns>Returns true if the publishers are executed, or false if there is no publisher for the event.</returns>
     private async Task<bool> ExecuteEventPublisher(IOutboxMessage outboxMessage, IServiceProvider serviceProvider,
-        Activity parentActivity)
+        Activity parentActivity, CancellationToken cancellationToken)
     {
         try
         {
@@ -258,9 +264,10 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
 
             return true;
         }
-        catch (Exception e)
+        catch (Exception e) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(e, "Error while publishing event with ID: {EventId}", outboxMessage.Id);
+            _logger.LogError("Error while publishing event with ID: {EventId}. Error: {ErrorMessage}",
+                outboxMessage.Id, e.Message);
             throw;
         }
     }

@@ -37,6 +37,11 @@ internal abstract class BaseEventsProcessorJob(
             {
                 await eventsProcessor.ExecuteUnprocessedEventsAsync(stoppingToken);
             }
+            catch (Exception) when (stoppingToken.IsCancellationRequested)
+            {
+                // The application is stopping and the error is caused by the shutdown, so there is no need to report the exception.
+                break;
+            }
             catch (Exception e)
             {
                 logger.LogCritical(e, "Something is wrong while processing events");

@@ -178,7 +178,8 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         var comment = manualRequest?.Comment;
         try
         {
-            var isSuccessfullyExecuted = await ExecuteEventHandlers(message, scope.ServiceProvider, parentActivity);
+            var isSuccessfullyExecuted = await ExecuteEventHandlers(message, scope.ServiceProvider, parentActivity,
+                cancellationToken);
             if (isSuccessfullyExecuted)
                 message.Processed(performedBy, comment);
             else
@@ -186,15 +187,19 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
                     $"No event handler configured for the {message.EventName} event with the {message.Provider} provider.",
                     performedBy);
         }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            // The application is stopping, so the error is caused by the shutdown (e.g. disposed services).
+            // The event is not marked as failed, and the caller unlocks it to be processed again.
+            throw new OperationCanceledException(cancellationToken);
+        }
         catch (Exception e)
         {
             message.Failed(_settings.TryCount, _settings.TryAfterSeconds, _settings.TryAfterMinutesIfTryCountExceeded,
                 e.ToFailureReason(_settings), performedBy, comment);
         }
-        finally
-        {
-            await repository.UpdateEventAsync(message, cancellationToken);
-        }
+
+        await repository.UpdateEventAsync(message, cancellationToken);
 
         return message.Status == EventStatus.Processed
             ? EventActionResult.Success()
@@ -220,9 +225,9 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
         }
         catch (Exception e)
         {
-            _logger.LogError(e,
-                "Error while unlocking {EventsCount} inbox event(s). They will be processed again after their processing timeout.",
-                events.Length);
+            _logger.LogError(
+                "Error while unlocking {EventsCount} inbox event(s). They will be processed again after their processing timeout. Error: {ErrorMessage}",
+                events.Length, e.Message);
         }
     }
 
@@ -232,9 +237,10 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
     /// <param name="inboxMessage">The inbox event to execute.</param>
     /// <param name="serviceProvider">The service provider of the event's scope to resolve the handlers.</param>
     /// <param name="parentActivity">The parent activity for tracing.</param>
+    /// <param name="cancellationToken">The token to skip logging the errors caused by stopping the application.</param>
     /// <returns>Returns true if the handlers are executed, or false if there is no handler for the event.</returns>
     private async Task<bool> ExecuteEventHandlers(IInboxMessage inboxMessage, IServiceProvider serviceProvider,
-        Activity parentActivity)
+        Activity parentActivity, CancellationToken cancellationToken)
     {
         try
         {
@@ -271,10 +277,11 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
 
             return true;
         }
-        catch (Exception e)
+        catch (Exception e) when (!cancellationToken.IsCancellationRequested)
         {
             // The original exception is rethrown, so the failure reason of the event starts with the real error.
-            _logger.LogError(e, "Error while executing handler of inbox event with ID: {EventId}", inboxMessage.Id);
+            _logger.LogError("Error while executing handler of inbox event with ID: {EventId}. Error: {ErrorMessage}",
+                inboxMessage.Id, e.Message);
             throw;
         }
     }
