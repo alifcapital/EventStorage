@@ -76,11 +76,11 @@ internal static class BaseEventRepositorySchemaExtensions
                 DO $$
                 BEGIN
                     IF EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_schema = 'public'
-                            AND table_name = '{tableName}'
-                            AND column_name = 'payload'
-                            AND data_type = 'text'
+                        SELECT 1 FROM pg_attribute
+                        WHERE attrelid = to_regclass('{tableName}')
+                            AND attname = 'payload'
+                            AND atttypid = 'text'::regtype
+                            AND NOT attisdropped
                     ) THEN
                         ALTER TABLE {tableName} ALTER COLUMN payload TYPE JSONB USING payload::jsonb;
                     END IF;
@@ -122,14 +122,16 @@ internal static class BaseEventRepositorySchemaExtensions
     #region Migrate to status schema
 
     /// <summary>
-    /// The SQL query for checking whether the table already has the "status" column. If not, the table has the old schema.
+    /// The SQL query for checking whether the table still has the old "processed_at" column, which means it has the old schema.
+    /// The table is resolved by <c>to_regclass</c> in the same way as the other unquoted statements (case folding and
+    /// the search path), since the configured table name can differ in case from the real one (e.g. "Inbox" vs "inbox").
     /// </summary>
-    private static string SqlQueryToCheckStatusColumnExists(string tableName) => $@"
+    private static string SqlQueryToCheckProcessedAtColumnExists(string tableName) => $@"
                 SELECT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_schema = 'public'
-                        AND table_name = '{tableName}'
-                        AND column_name = 'status'
+                    SELECT 1 FROM pg_attribute
+                    WHERE attrelid = to_regclass('{tableName}')
+                        AND attname = 'processed_at'
+                        AND NOT attisdropped
                 )";
 
     /// <summary>
@@ -188,9 +190,9 @@ internal static class BaseEventRepositorySchemaExtensions
         dbConnection.Execute("SELECT pg_advisory_xact_lock(hashtext(@LockName))",
             new { LockName = $"{tableName}_schema_migration" }, transaction, commandTimeout: 0);
 
-        var hasStatusColumn = dbConnection.ExecuteScalar<bool>(SqlQueryToCheckStatusColumnExists(tableName),
+        var hasProcessedAtColumn = dbConnection.ExecuteScalar<bool>(SqlQueryToCheckProcessedAtColumnExists(tableName),
             transaction: transaction);
-        if (hasStatusColumn)
+        if (!hasProcessedAtColumn)
         {
             transaction.Commit();
             return;
