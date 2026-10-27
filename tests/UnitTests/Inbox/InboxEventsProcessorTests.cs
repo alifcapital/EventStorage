@@ -8,6 +8,7 @@ using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Tests.Domain;
 using EventStorage.Tests.Domain.Module1;
+using InMemoryMessaging.Management.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
@@ -329,7 +330,7 @@ internal class InboxEventsProcessorTests
         var result = await _inboxEventsProcessor.ProcessSingleEventAsync(inboxEvent, manualRequest: null,
             CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.InvalidState));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.InvalidState));
         await _inboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
     }
 
@@ -363,7 +364,7 @@ internal class InboxEventsProcessorTests
         var result = await _inboxEventsProcessor.ProcessSingleEventAsync(inboxEvent, manualRequest: null,
             CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.Failed));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.Failed));
         Assert.That(inboxEvent.Status, Is.EqualTo(EventStatus.Failed));
         Assert.That(inboxEvent.TryCount, Is.EqualTo(1));
         Assert.That(inboxEvent.FailureReason, Does.StartWith(
@@ -382,7 +383,7 @@ internal class InboxEventsProcessorTests
         var result = await _inboxEventsProcessor.ProcessSingleEventAsync(inboxEvent, manualRequest: null,
             CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.Failed));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.Failed));
         Assert.That(inboxEvent.Status, Is.EqualTo(EventStatus.Failed));
         Assert.That(inboxEvent.FailureReason, Is.EqualTo(
             $"No event handler configured for the {nameof(SimpleEntityWasCreated)} event with the Unknown provider."));
@@ -442,7 +443,7 @@ internal class InboxEventsProcessorTests
         var result = await _inboxEventsProcessor.ProcessSingleEventAsync(inboxEvent, manualRequest: null,
             CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.Failed));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.Failed));
         Assert.That(inboxEvent.Status, Is.EqualTo(EventStatus.Failed));
         Assert.That(inboxEvent.TryCount, Is.EqualTo(1));
         await _inboxRepository.Received(1).UpdateEventAsync(inboxEvent, Arg.Any<CancellationToken>());

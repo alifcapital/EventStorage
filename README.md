@@ -566,9 +566,9 @@ public class InboxEventsController(IInboxEventsService inboxEventsService) : Con
 
     private IActionResult ToResponse(EventActionResult result) => result.Status switch
     {
-        EventActionResultStatus.Success => Ok(),
-        EventActionResultStatus.NotFound => NotFound(result.FailureReason),
-        EventActionResultStatus.AlreadyProcessing or EventActionResultStatus.InvalidState => Conflict(result.FailureReason),
+        MessageActionResultStatus.Success => Ok(),
+        MessageActionResultStatus.NotFound => NotFound(result.FailureReason),
+        MessageActionResultStatus.AlreadyProcessing or MessageActionResultStatus.InvalidState => Conflict(result.FailureReason),
         _ => UnprocessableEntity(result.FailureReason)
     };
 }
