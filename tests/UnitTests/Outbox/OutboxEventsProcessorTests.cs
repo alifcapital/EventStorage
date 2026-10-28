@@ -7,6 +7,7 @@ using EventStorage.Outbox;
 using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Repositories;
 using EventStorage.Tests.Domain;
+using InMemoryMessaging.Management.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
@@ -406,7 +407,7 @@ public class OutboxEventsProcessorTests
         var result = await _outboxEventsProcessor.ProcessSingleEventAsync(outboxEvent, manualRequest: null,
             CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.InvalidState));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.InvalidState));
         await _outboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<OutboxMessage>(), Arg.Any<CancellationToken>());
     }
 
@@ -420,7 +421,7 @@ public class OutboxEventsProcessorTests
         var result = await _outboxEventsProcessor.ProcessSingleEventAsync(outboxEvent, manualRequest: null,
             CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.Failed));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.Failed));
         Assert.That(outboxEvent.Status, Is.EqualTo(EventStatus.Failed));
         Assert.That(outboxEvent.FailureReason, Does.StartWith(
             $"EventStorage.Exceptions.EventStoreException: Could not deserialize the outbox event to the {typeof(SimpleOutboxEventCreated).FullName} type."));
@@ -469,7 +470,7 @@ public class OutboxEventsProcessorTests
         var result = await _outboxEventsProcessor.ProcessSingleEventAsync(outboxEvent, manualRequest: null,
             CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.Failed));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.Failed));
         Assert.That(outboxEvent.Status, Is.EqualTo(EventStatus.Failed));
         Assert.That(outboxEvent.TryCount, Is.EqualTo(1));
         await _outboxRepository.Received(1).UpdateEventAsync(outboxEvent, Arg.Any<CancellationToken>());

@@ -5,6 +5,7 @@ using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Repositories;
 using EventStorage.Services;
+using InMemoryMessaging.Management.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -159,7 +160,7 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
     /// </summary>
     /// <param name="id">The id of the event.</param>
     /// <param name="action">The action to execute with the locked event, which has its original status. The event is
-    /// considered handled unless the action returns <see cref="EventActionResultStatus.InvalidState"/> or throws.</param>
+    /// considered handled unless the action returns <see cref="MessageActionResultStatus.InvalidState"/> or throws.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     private async Task<EventActionResult> ExecuteUnderEventLockAsync(Guid id,
         Func<TMessage, Task<EventActionResult>> action, CancellationToken cancellationToken)
@@ -176,7 +177,7 @@ internal abstract class BaseEventsManagementService<TRepository, TProcessor, TMe
         try
         {
             var result = await action(message);
-            isHandled = result.Status != EventActionResultStatus.InvalidState;
+            isHandled = result.Status != MessageActionResultStatus.InvalidState;
 
             return result;
         }
