@@ -7,7 +7,7 @@ namespace EventStorage.Management.Models;
 /// </summary>
 public record EventActionResult : MessageActionResult
 {
-    protected override string FunctionalityName => "event";
+    protected override string FunctionalityName => "Event storage";
 
     #region Factory Methods
 
