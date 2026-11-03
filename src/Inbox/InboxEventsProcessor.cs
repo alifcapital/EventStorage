@@ -13,6 +13,7 @@ using EventStorage.Instrumentation.Trace;
 using EventStorage.Management.Models;
 using EventStorage.Models;
 using EventStorage.Outbox.Models;
+using InMemoryMessaging.Management.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -120,7 +121,7 @@ internal class InboxEventsProcessor : IInboxEventsProcessor
                     {
                         var result = await ProcessSingleEventAsync(eventToReceive, manualRequest: null, activity,
                             stoppingToken);
-                        if (result.Status != EventActionResultStatus.InvalidState)
+                        if (result.Status != MessageActionResultStatus.InvalidState)
                             handledEventIds.TryAdd(eventToReceive.Id, true);
                     }
                     finally

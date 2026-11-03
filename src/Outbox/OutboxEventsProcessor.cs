@@ -11,6 +11,7 @@ using EventStorage.Models;
 using EventStorage.Outbox.Models;
 using EventStorage.Outbox.Providers;
 using EventStorage.Outbox.Repositories;
+using InMemoryMessaging.Management.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -119,7 +120,7 @@ internal class OutboxEventsProcessor : IOutboxEventsProcessor
                     {
                         var result = await ProcessSingleEventAsync(eventToPublish, manualRequest: null, activity,
                             stoppingToken);
-                        if (result.Status != EventActionResultStatus.InvalidState)
+                        if (result.Status != MessageActionResultStatus.InvalidState)
                             handledEventIds.TryAdd(eventToPublish.Id, true);
                     }
                     finally

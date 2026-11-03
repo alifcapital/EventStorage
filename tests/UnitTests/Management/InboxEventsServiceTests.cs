@@ -8,6 +8,7 @@ using EventStorage.Inbox.Repositories;
 using EventStorage.Management;
 using EventStorage.Management.Models;
 using EventStorage.Models;
+using InMemoryMessaging.Management.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
@@ -255,7 +256,7 @@ internal class InboxEventsServiceTests
 
         var result = await _service.ExecuteAsync(message.Id, Request, CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.InvalidState));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.InvalidState));
         Assert.That(processingTimeoutAt.Ticks % TimeSpan.TicksPerSecond, Is.Zero,
             "The processing timeout must have whole seconds, since the try_after_at column stores no fractions.");
         await _repository.Received(1).UnlockEventsAsync(
@@ -268,7 +269,7 @@ internal class InboxEventsServiceTests
     {
         var result = await _service.ExecuteAsync(Guid.NewGuid(), Request, CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.NotFound));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.NotFound));
         await _processor.DidNotReceiveWithAnyArgs().ProcessSingleEventAsync(default, default, default);
     }
 
@@ -295,7 +296,7 @@ internal class InboxEventsServiceTests
 
         var result = await _service.ExecuteAsync(eventId, Request, CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.AlreadyProcessing));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.AlreadyProcessing));
         await _processor.DidNotReceiveWithAnyArgs().ProcessSingleEventAsync(default, default, default);
         await _repository.DidNotReceive().UnlockEventsAsync(Arg.Any<IEnumerable<InboxMessage>>(), Arg.Any<DateTime>(),
             Arg.Any<CancellationToken>());
@@ -361,7 +362,7 @@ internal class InboxEventsServiceTests
 
         var result = await _service.RejectAsync(message.Id, Request, CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.InvalidState));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.InvalidState));
         await _repository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
         await _repository.Received(1).UnlockEventsAsync(
             Arg.Is<IEnumerable<InboxMessage>>(events => events.Single() == message), Arg.Any<DateTime>(),
@@ -391,7 +392,7 @@ internal class InboxEventsServiceTests
 
         var result = await _service.RejectAsync(eventId, Request, CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.AlreadyProcessing));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.AlreadyProcessing));
         await _repository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
         await _repository.DidNotReceive().UnlockEventsAsync(Arg.Any<IEnumerable<InboxMessage>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
@@ -401,7 +402,7 @@ internal class InboxEventsServiceTests
     {
         var result = await _service.RejectAsync(Guid.NewGuid(), Request, CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.NotFound));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.NotFound));
     }
 
     [Test]
@@ -463,7 +464,7 @@ internal class InboxEventsServiceTests
 
         var result = await _service.RescheduleAsync(message.Id, DateTime.Now, Request, CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.InvalidState));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.InvalidState));
         await _repository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
     }
 
@@ -495,7 +496,7 @@ internal class InboxEventsServiceTests
 
         var result = await _service.MarkAsProcessedAsync(message.Id, Request, CancellationToken.None);
 
-        Assert.That(result.Status, Is.EqualTo(EventActionResultStatus.InvalidState));
+        Assert.That(result.Status, Is.EqualTo(MessageActionResultStatus.InvalidState));
     }
 
     #endregion
