@@ -252,7 +252,7 @@ internal class InboxEventsProcessorTests
     }
 
     [Test]
-    public async Task ExecuteUnprocessedEvents_UnlockingEventsFails_ShouldLogErrorMessageWithoutException()
+    public async Task ExecuteUnprocessedEvents_UnlockingEventsFails_ShouldLogErrorWithException()
     {
         MockServiceScope();
         var processedEvent = CreateInboxMessage("{}");
@@ -265,7 +265,7 @@ internal class InboxEventsProcessorTests
 
         await _inboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None);
 
-        AssertErrorIsLoggedWithoutException("Test failure");
+        AssertErrorIsLoggedWithException("Test failure");
     }
 
     [Test]
@@ -431,7 +431,7 @@ internal class InboxEventsProcessorTests
     }
 
     [Test]
-    public async Task ProcessSingleEventAsync_HandlerFails_ShouldMarkEventAsFailedAndLogErrorMessageWithoutException()
+    public async Task ProcessSingleEventAsync_HandlerFails_ShouldMarkEventAsFailedAndLogErrorWithException()
     {
         MockServiceScope();
         _inboxEventsProcessor.AddHandler(typeof(SimpleEntityWasCreated), typeof(SimpleEntityWasCreatedHandler),
@@ -447,7 +447,7 @@ internal class InboxEventsProcessorTests
         Assert.That(inboxEvent.Status, Is.EqualTo(EventStatus.Failed));
         Assert.That(inboxEvent.TryCount, Is.EqualTo(1));
         await _inboxRepository.Received(1).UpdateEventAsync(inboxEvent, Arg.Any<CancellationToken>());
-        AssertErrorIsLoggedWithoutException("Test failure");
+        AssertErrorIsLoggedWithException("Test failure");
     }
 
     [Test]
@@ -499,13 +499,13 @@ internal class InboxEventsProcessorTests
         });
     }
 
-    private void AssertErrorIsLoggedWithoutException(string errorMessage)
+    private void AssertErrorIsLoggedWithException(string errorMessage)
     {
         _logger.Received(1).Log(
             LogLevel.Error,
             Arg.Any<EventId>(),
-            Arg.Is<object>(state => state.ToString()!.Contains(errorMessage)),
-            Arg.Is<Exception>(exception => exception == null),
+            Arg.Any<object>(),
+            Arg.Is<Exception>(exception => exception != null && exception.Message == errorMessage),
             Arg.Any<Func<object, Exception, string>>()!);
     }
 
