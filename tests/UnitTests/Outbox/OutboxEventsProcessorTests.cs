@@ -263,7 +263,7 @@ public class OutboxEventsProcessorTests
         _outboxRepository.UpdateEventAsync(notHandledEvent, Arg.Any<CancellationToken>())
             .Returns(Task.FromException<bool>(new EventStoreException("Test failure")));
 
-        Assert.ThrowsAsync<EventStoreException>(() =>
+        await Assert.ThrowsAsync<EventStoreException>(() =>
             _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None));
 
         await _outboxRepository.Received(1).UnlockEventsAsync(
@@ -287,7 +287,7 @@ public class OutboxEventsProcessorTests
                 return items;
             });
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token));
 
         Assert.That(processingTimeoutAt, Is.EqualTo(DateTime.Now.AddSeconds(600)).Within(TimeSpan.FromSeconds(5)));
@@ -317,7 +317,7 @@ public class OutboxEventsProcessorTests
     }
 
     [Test]
-    public void ExecuteUnprocessedEvents_UnlockingEventsFails_ShouldNotThrow()
+    public async Task ExecuteUnprocessedEvents_UnlockingEventsFails_ShouldNotThrow()
     {
         MockServiceScope();
         var processedEvent = CreateOutboxMessage("{}");
@@ -328,7 +328,7 @@ public class OutboxEventsProcessorTests
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new EventStoreException("Test failure")));
 
-        Assert.DoesNotThrowAsync(() => _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None));
+        await Assert.DoesNotThrowAsync(() => _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None));
     }
 
     [Test]
@@ -359,7 +359,7 @@ public class OutboxEventsProcessorTests
         _outboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
             .Returns([outboxEvent]);
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token));
 
         await _outboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<OutboxMessage>(), Arg.Any<CancellationToken>());
@@ -387,7 +387,7 @@ public class OutboxEventsProcessorTests
         using var stoppingTokenSource = new CancellationTokenSource();
         stoppingTokenSource.Cancel();
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             _outboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token));
         await _outboxRepository.DidNotReceive()
             .LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
@@ -487,7 +487,7 @@ public class OutboxEventsProcessorTests
         var outboxEvent = CreateOutboxMessage("{}");
         var originalStatus = outboxEvent.Status;
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             _outboxEventsProcessor.ProcessSingleEventAsync(outboxEvent, manualRequest: null, stoppingTokenSource.Token));
 
         Assert.That(outboxEvent.Status, Is.EqualTo(originalStatus));

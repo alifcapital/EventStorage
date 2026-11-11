@@ -181,7 +181,7 @@ internal class InboxEventsProcessorTests
         _inboxRepository.UpdateEventAsync(notHandledEvent, Arg.Any<CancellationToken>())
             .Returns(Task.FromException<bool>(new EventStoreException("Test failure")));
 
-        Assert.ThrowsAsync<EventStoreException>(() =>
+        await Assert.ThrowsAsync<EventStoreException>(() =>
             _inboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None));
 
         await _inboxRepository.Received(1).UnlockEventsAsync(
@@ -206,7 +206,7 @@ internal class InboxEventsProcessorTests
                 return items;
             });
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             _inboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token));
 
         Assert.That(processingTimeoutAt, Is.EqualTo(DateTime.Now.AddSeconds(600)).Within(TimeSpan.FromSeconds(5)));
@@ -237,7 +237,7 @@ internal class InboxEventsProcessorTests
     }
 
     [Test]
-    public void ExecuteUnprocessedEvents_UnlockingEventsFails_ShouldNotThrow()
+    public async Task ExecuteUnprocessedEvents_UnlockingEventsFails_ShouldNotThrow()
     {
         MockServiceScope();
         var processedEvent = CreateInboxMessage("{}");
@@ -248,7 +248,7 @@ internal class InboxEventsProcessorTests
                 Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new EventStoreException("Test failure")));
 
-        Assert.DoesNotThrowAsync(() => _inboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None));
+        await Assert.DoesNotThrowAsync(() => _inboxEventsProcessor.ExecuteUnprocessedEventsAsync(CancellationToken.None));
     }
 
     [Test]
@@ -280,7 +280,7 @@ internal class InboxEventsProcessorTests
         _inboxRepository.LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
             .Returns([inboxEvent]);
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             _inboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token));
 
         await _inboxRepository.DidNotReceive().UpdateEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>());
@@ -308,7 +308,7 @@ internal class InboxEventsProcessorTests
         using var stoppingTokenSource = new CancellationTokenSource();
         stoppingTokenSource.Cancel();
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             _inboxEventsProcessor.ExecuteUnprocessedEventsAsync(stoppingTokenSource.Token));
         await _inboxRepository.DidNotReceive()
             .LockUnprocessedEventsAsync(Arg.Any<int>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
@@ -461,7 +461,7 @@ internal class InboxEventsProcessorTests
         var inboxEvent = CreateInboxMessage("{}");
         var originalStatus = inboxEvent.Status;
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             _inboxEventsProcessor.ProcessSingleEventAsync(inboxEvent, manualRequest: null, stoppingTokenSource.Token));
 
         Assert.That(inboxEvent.Status, Is.EqualTo(originalStatus));

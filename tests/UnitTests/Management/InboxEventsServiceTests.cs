@@ -72,7 +72,7 @@ internal class InboxEventsServiceTests
         using var cancellationTokenSource = new CancellationTokenSource();
         cancellationTokenSource.Cancel();
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             _service.GetEventByIdAsync(Guid.NewGuid(), cancellationTokenSource.Token));
         await _repository.DidNotReceive().GetEventByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
@@ -181,7 +181,7 @@ internal class InboxEventsServiceTests
     {
         var service = CreateService(isEnabled: false);
 
-        Assert.ThrowsAsync<EventStoreException>(() =>
+        await Assert.ThrowsAsync<EventStoreException>(() =>
             service.GetEventsAsync(new EventsFilter(), CancellationToken.None));
         await _repository.DidNotReceiveWithAnyArgs().GetEventsAsync(default, default);
     }
@@ -192,7 +192,7 @@ internal class InboxEventsServiceTests
         using var cancellationTokenSource = new CancellationTokenSource();
         cancellationTokenSource.Cancel();
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             _service.GetEventsAsync(new EventsFilter(), cancellationTokenSource.Token));
         await _repository.DidNotReceiveWithAnyArgs().GetEventsAsync(default, default);
     }
@@ -310,7 +310,7 @@ internal class InboxEventsServiceTests
         _processor.ProcessSingleEventAsync(message, Request, Arg.Any<CancellationToken>())
             .Returns(Task.FromException<EventActionResult>(new EventStoreException("Test failure")));
 
-        Assert.ThrowsAsync<EventStoreException>(() => _service.ExecuteAsync(message.Id, Request, CancellationToken.None));
+        await Assert.ThrowsAsync<EventStoreException>(() => _service.ExecuteAsync(message.Id, Request, CancellationToken.None));
 
         await _repository.Received(1).UnlockEventsAsync(
             Arg.Is<IEnumerable<InboxMessage>>(events => events.Single() == message), Arg.Any<DateTime>(),
@@ -377,7 +377,7 @@ internal class InboxEventsServiceTests
         _repository.UpdateEventAsync(message, Arg.Any<CancellationToken>())
             .Returns(Task.FromException<bool>(new EventStoreException("Test failure")));
 
-        Assert.ThrowsAsync<EventStoreException>(() => _service.RejectAsync(message.Id, Request, CancellationToken.None));
+        await Assert.ThrowsAsync<EventStoreException>(() => _service.RejectAsync(message.Id, Request, CancellationToken.None));
 
         await _repository.Received(1).UnlockEventsAsync(
             Arg.Is<IEnumerable<InboxMessage>>(events => events.Single() == message), Arg.Any<DateTime>(),
