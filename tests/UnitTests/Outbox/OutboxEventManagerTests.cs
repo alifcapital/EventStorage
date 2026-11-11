@@ -260,31 +260,31 @@ public class OutboxEventManagerTests
     }
 
     [Test]
-    public void StoreAsync_StoringIsCancelled_ShouldRethrowWithoutLoggingError()
+    public async Task StoreAsync_StoringIsCancelled_ShouldRethrowWithoutLoggingError()
     {
         var outboxEvent = new SimpleOutboxEventCreated { EventId = Guid.NewGuid() };
         _outboxRepository.InsertEventAsync(Arg.Any<OutboxMessage>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<bool>(new OperationCanceledException()));
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             _outboxEventManager.StoreAsync(outboxEvent, EventProviderType.MessageBroker, CancellationToken.None));
         Assert.That(GetLoggedErrorsCount(), Is.Zero);
     }
 
     [Test]
-    public void StoreAsync_StoringFails_ShouldRethrowAndLogError()
+    public async Task StoreAsync_StoringFails_ShouldRethrowAndLogError()
     {
         var outboxEvent = new SimpleOutboxEventCreated { EventId = Guid.NewGuid() };
         _outboxRepository.InsertEventAsync(Arg.Any<OutboxMessage>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<bool>(new InvalidOperationException("Test failure")));
 
-        Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
             _outboxEventManager.StoreAsync(outboxEvent, EventProviderType.MessageBroker, CancellationToken.None));
         Assert.That(GetLoggedErrorsCount(), Is.EqualTo(1));
     }
 
     [Test]
-    public void StoreAsync_StoringMultipleEventsIsCancelled_ShouldRethrowWithoutLoggingError()
+    public async Task StoreAsync_StoringMultipleEventsIsCancelled_ShouldRethrowWithoutLoggingError()
     {
         var outboxEvents = new[] { new SimpleOutboxEventCreated { EventId = Guid.NewGuid() } };
         _outboxEventsProcessor.GetEventPublisherTypes(Arg.Any<IOutboxEvent>())
@@ -292,7 +292,7 @@ public class OutboxEventManagerTests
         _outboxRepository.BulkInsertEventsAsync(Arg.Any<OutboxMessage[]>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<bool>(new OperationCanceledException()));
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             _outboxEventManager.StoreAsync(outboxEvents, CancellationToken.None));
         Assert.That(GetLoggedErrorsCount(), Is.Zero);
     }

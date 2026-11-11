@@ -179,25 +179,25 @@ public class InboxEventManagerTests
     }
 
     [Test]
-    public void StoreAsync_InsertingIsCancelled_ShouldThrowWithoutLoggingError()
+    public async Task StoreAsync_InsertingIsCancelled_ShouldThrowWithoutLoggingError()
     {
         _inboxRepository.InsertEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<bool>(new OperationCanceledException()));
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             _manager.StoreAsync(CreateEvent(), EventProviderType.Unknown));
 
         AssertNoErrorIsLogged();
     }
 
     [Test]
-    public void StoreAsync_InsertingFailsWhileApplicationIsStopping_ShouldThrowWithoutLoggingError()
+    public async Task StoreAsync_InsertingFailsWhileApplicationIsStopping_ShouldThrowWithoutLoggingError()
     {
         _applicationLifetime.ApplicationStopping.Returns(new CancellationToken(canceled: true));
         _inboxRepository.InsertEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<bool>(new ObjectDisposedException(nameof(IServiceProvider))));
 
-        Assert.ThrowsAsync<ObjectDisposedException>(() =>
+        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
             _manager.StoreAsync(CreateEvent(), EventProviderType.Unknown));
 
         AssertNoErrorIsLogged();
@@ -282,12 +282,12 @@ public class InboxEventManagerTests
     }
 
     [Test]
-    public void StoreAsync_InsertingFails_ShouldLogErrorAndThrow()
+    public async Task StoreAsync_InsertingFails_ShouldLogErrorAndThrow()
     {
         _inboxRepository.InsertEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<bool>(new EventStoreException("Test failure")));
 
-        Assert.ThrowsAsync<EventStoreException>(() =>
+        await Assert.ThrowsAsync<EventStoreException>(() =>
             _manager.StoreAsync(Guid.NewGuid(), nameof(SimpleEntityWasCreated), EventProviderType.Unknown, "{}", null));
 
         _logger.Received(1).Log(LogLevel.Error, Arg.Any<EventId>(), Arg.Any<object>(),
@@ -296,13 +296,13 @@ public class InboxEventManagerTests
     }
 
     [Test]
-    public void StoreAsync_InsertingFailsWhileApplicationIsStopping_ShouldThrowWithoutLoggingErrorForEventData()
+    public async Task StoreAsync_InsertingFailsWhileApplicationIsStopping_ShouldThrowWithoutLoggingErrorForEventData()
     {
         _applicationLifetime.ApplicationStopping.Returns(new CancellationToken(canceled: true));
         _inboxRepository.InsertEventAsync(Arg.Any<InboxMessage>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<bool>(new EventStoreException("Test failure")));
 
-        Assert.ThrowsAsync<EventStoreException>(() =>
+        await Assert.ThrowsAsync<EventStoreException>(() =>
             _manager.StoreAsync(Guid.NewGuid(), nameof(SimpleEntityWasCreated), EventProviderType.Unknown, "{}", null));
 
         AssertNoErrorIsLogged();

@@ -536,9 +536,9 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     }
 
     [Test]
-    public void UnlockEventsAsync_EventsAreNotLocked_ShouldNotThrow()
+    public async Task UnlockEventsAsync_EventsAreNotLocked_ShouldNotThrow()
     {
-        Assert.DoesNotThrowAsync(() =>
+        await Assert.DoesNotThrowAsync(() =>
             Repository.UnlockEventsAsync([CreateEvent(DateTime.Now)], GetProcessingTimeoutAt(),
                 CancellationToken.None));
     }
@@ -1100,23 +1100,23 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
     }
 
     [TestCaseSource(nameof(AsyncMethodsWithCancellation))]
-    public void AsyncMethod_CancellationRequested_ShouldThrowOperationCanceledInsteadOfEventStoreException(
+    public async Task AsyncMethod_CancellationRequested_ShouldThrowOperationCanceledInsteadOfEventStoreException(
         Func<BaseEventRepository<TEvent>, CancellationToken, Task> executeMethod)
     {
         using var cancellationTokenSource = new CancellationTokenSource();
         cancellationTokenSource.Cancel();
 
-        Assert.CatchAsync<OperationCanceledException>(() => executeMethod(Repository, cancellationTokenSource.Token));
+        await Assert.CatchAsync<OperationCanceledException>(() => executeMethod(Repository, cancellationTokenSource.Token));
     }
 
     [Test]
-    public void InsertEventAsync_CancellationRequested_EventShouldNotBeInserted()
+    public async Task InsertEventAsync_CancellationRequested_EventShouldNotBeInserted()
     {
         var eventBox = CreateEvent(DateTime.Now.AddHours(1));
         using var cancellationTokenSource = new CancellationTokenSource();
         cancellationTokenSource.Cancel();
 
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             Repository.InsertEventAsync(eventBox, cancellationTokenSource.Token));
         Assert.That(DataContext.ExistsById(eventBox.Id), Is.False);
     }
@@ -1130,7 +1130,7 @@ internal abstract class BaseEventRepositoryTests<TEvent> : BaseTestEntity where 
         cancellationTokenSource.Cancel();
 
         eventBox.Rejected();
-        Assert.CatchAsync<OperationCanceledException>(() =>
+        await Assert.CatchAsync<OperationCanceledException>(() =>
             Repository.UpdateEventAsync(eventBox, cancellationTokenSource.Token));
         Assert.That(DataContext.GetStoredStatusById(eventBox.Id), Is.EqualTo(nameof(EventStatus.Pending)));
     }
