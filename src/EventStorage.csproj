@@ -14,17 +14,15 @@
         <NeutralLanguage>en</NeutralLanguage>
         <PackageId>AlifCapital.EventStorage</PackageId>
         <AssemblyName>AlifCapital.EventStorage</AssemblyName>
-        <Version>10.1.7</Version>
+        <Version>10.1.6</Version>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="AlifCapital.InMemoryMessaging" Version="10.0.5" />
-        <PackageReference Include="Dapper" Version="2.1.72" />
-        <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.7" />
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.7" />
-        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.7" />
-        <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.7" />
-        <PackageReference Include="Npgsql" Version="10.0.2" />
+        <PackageReference Include="AlifCapital.InMemoryMessaging" Version="10.0.7" />
+        <PackageReference Include="Dapper" Version="2.1.89" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="11.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="11.0.0" />
+        <PackageReference Include="Npgsql" Version="10.0.3" />
         <PackageReference Include="System.Data.SqlClient" Version="4.9.1" />
     </ItemGroup>
 
